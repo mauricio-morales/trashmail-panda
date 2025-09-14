@@ -315,7 +315,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
                     var authResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
                         new[] { "https://www.googleapis.com/auth/gmail.modify" },
-                        "gmail_",
+                        "google_",
                         "", // Client ID and secret will be retrieved from secure storage
                         "");
 

@@ -106,8 +106,8 @@ public partial class GmailSetupViewModel : ViewModelBase
         {
             _logger.LogDebug("Loading existing Gmail OAuth client credentials");
 
-            var clientIdResult = await _secureStorage.RetrieveCredentialAsync("gmail_client_id");
-            var clientSecretResult = await _secureStorage.RetrieveCredentialAsync("gmail_client_secret");
+            var clientIdResult = await _secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
             if (clientIdResult.IsSuccess && clientSecretResult.IsSuccess)
             {
@@ -183,8 +183,8 @@ public partial class GmailSetupViewModel : ViewModelBase
             StatusMessage = "Saving OAuth client credentials...";
 
             // Save OAuth client credentials to secure storage
-            var clientIdSave = await _secureStorage.StoreCredentialAsync("gmail_client_id", ClientId);
-            var clientSecretSave = await _secureStorage.StoreCredentialAsync("gmail_client_secret", ClientSecret);
+            var clientIdSave = await _secureStorage.StoreCredentialAsync(ProviderCredentialTypes.GoogleClientId, ClientId);
+            var clientSecretSave = await _secureStorage.StoreCredentialAsync(ProviderCredentialTypes.GoogleClientSecret, ClientSecret);
             var redirectUriSave = await _secureStorage.StoreCredentialAsync("gmail_redirect_uri", RedirectUri);
 
             if (!clientIdSave.IsSuccess || !clientSecretSave.IsSuccess || !redirectUriSave.IsSuccess)
@@ -303,13 +303,13 @@ public partial class GmailSetupViewModel : ViewModelBase
             _logger.LogInformation("Clearing all Gmail OAuth credentials");
 
             // Clear OAuth client credentials
-            await _secureStorage.RemoveCredentialAsync("gmail_client_id");
-            await _secureStorage.RemoveCredentialAsync("gmail_client_secret");
+            await _secureStorage.RemoveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            await _secureStorage.RemoveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
             await _secureStorage.RemoveCredentialAsync("gmail_redirect_uri");
 
-            // Clear user access tokens
-            await _secureStorage.RemoveCredentialAsync("gmail_access_token");
-            await _secureStorage.RemoveCredentialAsync("gmail_refresh_token");
+            // Clear user access tokens (these will be cleaned up by GoogleOAuthService)
+            await _secureStorage.RemoveCredentialAsync(ProviderCredentialTypes.GoogleAccessToken);
+            await _secureStorage.RemoveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
 
             // Reset UI state
             ClientId = string.Empty;

@@ -20,14 +20,17 @@ public class GmailOAuthService : IGmailOAuthService
 {
     private readonly ISecureStorageManager _secureStorageManager;
     private readonly ILogger<GmailOAuthService> _logger;
+    private readonly IDataStore _dataStore;
     private readonly string[] _scopes = { GmailService.Scope.GmailModify };
 
     public GmailOAuthService(
         ISecureStorageManager secureStorageManager,
-        ILogger<GmailOAuthService> logger)
+        ILogger<GmailOAuthService> logger,
+        IDataStore dataStore)
     {
         _secureStorageManager = secureStorageManager ?? throw new ArgumentNullException(nameof(secureStorageManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _dataStore = dataStore ?? throw new ArgumentNullException(nameof(dataStore));
     }
 
     /// <summary>
@@ -39,9 +42,9 @@ public class GmailOAuthService : IGmailOAuthService
         {
             _logger.LogInformation("Starting Gmail OAuth authentication flow");
 
-            // Retrieve OAuth client credentials
-            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailClientId);
-            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailClientSecret);
+            // Retrieve OAuth client credentials (shared Google credentials)
+            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
             if (!clientIdResult.IsSuccess || !clientSecretResult.IsSuccess ||
                 string.IsNullOrEmpty(clientIdResult.Value) || string.IsNullOrEmpty(clientSecretResult.Value))
@@ -55,16 +58,13 @@ public class GmailOAuthService : IGmailOAuthService
                 ClientSecret = clientSecretResult.Value
             };
 
-            // Create custom data store that saves to our secure storage
-            var dataStore = new SecureTokenDataStore(_secureStorageManager, _logger);
-
             // Request OAuth2 authorization - this will open browser
             var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
                 clientSecrets,
                 _scopes,
                 "user",
                 CancellationToken.None,
-                dataStore);
+                _dataStore);
 
             if (credential != null)
             {

@@ -406,26 +406,26 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
     /// Get the relationship strength with a contact
     /// Legacy method for backward compatibility
     /// </summary>
-    public async Task<TrashMailPanda.Shared.RelationshipStrength> GetRelationshipStrengthAsync(string email)
+    public async Task<RelationshipStrength> GetRelationshipStrengthAsync(string email)
     {
         if (string.IsNullOrWhiteSpace(email))
-            return TrashMailPanda.Shared.RelationshipStrength.None;
+            return RelationshipStrength.None;
 
         try
         {
             var trustSignalResult = await GetTrustSignalForEmailAsync(email);
             if (trustSignalResult.IsSuccess && trustSignalResult.Value != null)
             {
-                // Map from detailed RelationshipStrength to simple one
-                return MapToSimpleRelationshipStrength(trustSignalResult.Value.Strength);
+                // Return the relationship strength directly (no mapping needed)
+                return trustSignalResult.Value.Strength;
             }
 
-            return TrashMailPanda.Shared.RelationshipStrength.None;
+            return RelationshipStrength.None;
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Error getting relationship strength: {Email}", email);
-            return TrashMailPanda.Shared.RelationshipStrength.None;
+            return RelationshipStrength.None;
         }
     }
 
@@ -435,7 +435,7 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
     public async Task<Result<ContactSignal>> GetContactSignalAsync(string emailAddress, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(emailAddress))
-            return Result<ContactSignal>.Success(new ContactSignal { Known = false, Strength = TrashMailPanda.Shared.RelationshipStrength.None });
+            return Result<ContactSignal>.Success(new ContactSignal { Known = false, Strength = RelationshipStrength.None });
 
         try
         {
@@ -447,8 +447,8 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
             {
                 Known = trustSignalResult.Value != null,
                 Strength = trustSignalResult.Value != null
-                    ? MapToSimpleRelationshipStrength(trustSignalResult.Value.Strength)
-                    : TrashMailPanda.Shared.RelationshipStrength.None
+                    ? trustSignalResult.Value.Strength
+                    : RelationshipStrength.None
             };
 
             return Result<ContactSignal>.Success(contactSignal);
@@ -575,32 +575,17 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
 
     // Private helper methods
 
-    /// <summary>
-    /// Maps from detailed RelationshipStrength to simple RelationshipStrength for interface compatibility
-    /// </summary>
-    private static TrashMailPanda.Shared.RelationshipStrength MapToSimpleRelationshipStrength(TrashMailPanda.Shared.Models.RelationshipStrength detailedStrength)
-    {
-        return detailedStrength switch
-        {
-            TrashMailPanda.Shared.Models.RelationshipStrength.None => TrashMailPanda.Shared.RelationshipStrength.None,
-            TrashMailPanda.Shared.Models.RelationshipStrength.Weak => TrashMailPanda.Shared.RelationshipStrength.Weak,
-            TrashMailPanda.Shared.Models.RelationshipStrength.Moderate => TrashMailPanda.Shared.RelationshipStrength.Strong, // Map moderate to strong
-            TrashMailPanda.Shared.Models.RelationshipStrength.Strong => TrashMailPanda.Shared.RelationshipStrength.Strong,
-            TrashMailPanda.Shared.Models.RelationshipStrength.Trusted => TrashMailPanda.Shared.RelationshipStrength.Strong, // Map trusted to strong
-            _ => TrashMailPanda.Shared.RelationshipStrength.None
-        };
-    }
 
     private async Task<string?> GetStoredSyncTokenAsync(ContactSourceType sourceType)
     {
         try
         {
             string syncTokenKey = GetSyncTokenKey(sourceType);
-            
+
             var result = await _secureStorageManager.RetrieveCredentialAsync(syncTokenKey);
             if (result.IsSuccess && !string.IsNullOrWhiteSpace(result.Value))
             {
-                Logger.LogDebug("Retrieved sync token for {SourceType}: {HasToken}", 
+                Logger.LogDebug("Retrieved sync token for {SourceType}: {HasToken}",
                     sourceType, !string.IsNullOrEmpty(result.Value));
                 return result.Value;
             }
@@ -610,7 +595,7 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
         }
         catch (Exception ex)
         {
-            Logger.LogWarning("Failed to retrieve sync token for {SourceType}: {Error}", 
+            Logger.LogWarning("Failed to retrieve sync token for {SourceType}: {Error}",
                 sourceType, ex.Message);
             return null;
         }
@@ -627,43 +612,49 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
             }
 
             string syncTokenKey = GetSyncTokenKey(sourceType);
-            
+
             var result = await _secureStorageManager.StoreCredentialAsync(syncTokenKey, syncToken);
             if (result.IsSuccess)
             {
                 Logger.LogDebug("Stored sync token for {SourceType}", sourceType);
-                
+
                 // Log security audit event
-                await _securityAuditLogger.LogCredentialOperationAsync(
-                    "StoreSyncToken", 
-                    syncTokenKey, 
-                    true, 
-                    "Sync token stored successfully");
+                await _securityAuditLogger.LogCredentialOperationAsync(new CredentialOperationEvent
+                {
+                    Operation = "StoreSyncToken",
+                    CredentialKey = syncTokenKey,
+                    Success = true,
+                    ErrorMessage = "Sync token stored successfully"
+                });
             }
             else
             {
-                Logger.LogError("Failed to store sync token for {SourceType}: {Error}", 
-                    sourceType, result.Error?.Message ?? "Unknown error");
-                
+                Logger.LogError("Failed to store sync token for {SourceType}: {Error}",
+                    sourceType, result.ErrorMessage ?? "Unknown error");
+
                 // Log security audit event for failure
-                await _securityAuditLogger.LogCredentialOperationAsync(
-                    "StoreSyncToken", 
-                    syncTokenKey, 
-                    false, 
-                    result.Error?.Message ?? "Failed to store sync token");
+                await _securityAuditLogger.LogCredentialOperationAsync(new CredentialOperationEvent
+                {
+                    Operation = "StoreSyncToken",
+                    CredentialKey = syncTokenKey,
+                    Success = false,
+                    ErrorMessage = result.ErrorMessage ?? "Failed to store sync token"
+                });
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError("Exception storing sync token for {SourceType}: {Error}", 
+            Logger.LogError("Exception storing sync token for {SourceType}: {Error}",
                 sourceType, ex.Message);
-                
+
             // Log security audit event for exception
-            await _securityAuditLogger.LogCredentialOperationAsync(
-                "StoreSyncToken", 
-                GetSyncTokenKey(sourceType), 
-                false, 
-                $"Exception: {ex.Message}");
+            await _securityAuditLogger.LogCredentialOperationAsync(new CredentialOperationEvent
+            {
+                Operation = "StoreSyncToken",
+                CredentialKey = GetSyncTokenKey(sourceType),
+                Success = false,
+                ErrorMessage = $"Exception: {ex.Message}"
+            });
         }
     }
 
@@ -678,8 +669,7 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
         {
             ContactSourceType.Google => "GoogleContactsSyncToken_Google",
             ContactSourceType.Outlook => "GoogleContactsSyncToken_Outlook", // Future implementation
-            ContactSourceType.Exchange => "GoogleContactsSyncToken_Exchange", // Future implementation
-            ContactSourceType.Local => "GoogleContactsSyncToken_Local", // Future implementation
+            ContactSourceType.Manual => "GoogleContactsSyncToken_Manual", // Future implementation - using Manual instead of Local
             _ => $"GoogleContactsSyncToken_{sourceType}"
         };
     }
@@ -791,7 +781,7 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
             }
 
             var isKnown = contactResult.Value != null;
-            var strength = isKnown ? contactResult.Value!.Strength : TrashMailPanda.Shared.RelationshipStrength.None;
+            var strength = isKnown ? contactResult.Value!.Strength : RelationshipStrength.None;
 
             // Calculate trust signal using the trust calculator
             var trustInfo = new TrustSignalInfo
@@ -840,13 +830,13 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
     /// <summary>
     /// Map internal relationship strength to shared enum
     /// </summary>
-    private TrashMailPanda.Shared.RelationshipStrength MapToSharedRelationshipStrength(double score)
+    private RelationshipStrength MapToSharedRelationshipStrength(double score)
     {
         return score switch
         {
-            >= 0.8 => TrashMailPanda.Shared.RelationshipStrength.Strong,
-            >= 0.3 => TrashMailPanda.Shared.RelationshipStrength.Weak,
-            _ => TrashMailPanda.Shared.RelationshipStrength.None
+            >= 0.8 => RelationshipStrength.Strong,
+            >= 0.3 => RelationshipStrength.Weak,
+            _ => RelationshipStrength.None
         };
     }
 

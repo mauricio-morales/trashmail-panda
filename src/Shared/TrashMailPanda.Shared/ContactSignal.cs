@@ -1,3 +1,5 @@
+using TrashMailPanda.Shared.Models;
+
 namespace TrashMailPanda.Shared;
 
 public class ContactSignal

@@ -66,7 +66,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGoogleOAuthService, GoogleOAuthService>();
 
         // Register SecureTokenDataStore for OAuth token storage
-        services.AddSingleton<Google.Apis.Util.Store.IDataStore, SecureTokenDataStore>();
+        services.AddSingleton<Google.Apis.Util.Store.IDataStore>(provider =>
+            new SecureTokenDataStore(
+                provider.GetRequiredService<ISecureStorageManager>(),
+                provider.GetRequiredService<ILogger<SecureTokenDataStore>>()));
 
         // Register phone number service for optimal performance
         services.AddSingleton<IPhoneNumberService, PhoneNumberService>();

@@ -15,7 +15,7 @@ public interface IPhoneNumberService
     /// <param name="defaultRegion">The default region to use for parsing (defaults to "US")</param>
     /// <returns>The normalized phone number in E164 format, or empty string if invalid</returns>
     string NormalizePhoneNumber(string? phoneNumber, string defaultRegion = "US");
-    
+
     /// <summary>
     /// Parses a phone number string into a PhoneNumber object
     /// </summary>
@@ -24,14 +24,14 @@ public interface IPhoneNumberService
     /// <returns>The parsed PhoneNumber object</returns>
     /// <exception cref="NumberParseException">Thrown when the phone number cannot be parsed</exception>
     PhoneNumber Parse(string phoneNumber, string defaultRegion);
-    
+
     /// <summary>
     /// Validates whether a phone number is valid
     /// </summary>
     /// <param name="phoneNumber">The PhoneNumber object to validate</param>
     /// <returns>True if the phone number is valid</returns>
     bool IsValidNumber(PhoneNumber phoneNumber);
-    
+
     /// <summary>
     /// Formats a phone number according to the specified format
     /// </summary>

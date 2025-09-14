@@ -572,9 +572,9 @@ public class ContactsCacheManager
     {
         return score switch
         {
-            >= 0.8 => RelationshipStrength.High,
-            >= 0.5 => RelationshipStrength.Medium,
-            >= 0.2 => RelationshipStrength.Low,
+            >= 0.8 => RelationshipStrength.Trusted,
+            >= 0.6 => RelationshipStrength.Strong,
+            >= 0.3 => RelationshipStrength.Moderate,
             > 0.0 => RelationshipStrength.Weak,
             _ => RelationshipStrength.None
         };

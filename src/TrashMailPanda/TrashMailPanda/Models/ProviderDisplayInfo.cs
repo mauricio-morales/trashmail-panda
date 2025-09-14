@@ -250,6 +250,13 @@ public static class ProviderCredentialTypes
     public const string StorageConnectionString = "storage_connection_string";
     public const string StorageEncryptionKey = "storage_encryption_key";
 
+    // Shared Google OAuth Credentials (for Gmail, Contacts, etc.)
+    public const string GoogleClientId = "google_client_id";
+    public const string GoogleClientSecret = "google_client_secret";
+    public const string GoogleAccessToken = "google_access_token";
+    public const string GoogleRefreshToken = "google_refresh_token";
+    public const string GoogleTokenExpiry = "google_token_expiry";
+
     // Contacts Provider Credentials (Google People API)
     public const string ContactsClientId = "contacts_client_id";
     public const string ContactsClientSecret = "contacts_client_secret";

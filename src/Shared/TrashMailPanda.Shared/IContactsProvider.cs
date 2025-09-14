@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Shared;
 

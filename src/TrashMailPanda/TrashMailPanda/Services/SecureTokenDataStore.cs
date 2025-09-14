@@ -12,11 +12,11 @@ namespace TrashMailPanda.Services;
 public class SecureTokenDataStore : IDataStore, IDisposable
 {
     private readonly ISecureStorageManager _secureStorageManager;
-    private readonly ILogger _logger;
+    private readonly ILogger<SecureTokenDataStore> _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _disposed;
 
-    public SecureTokenDataStore(ISecureStorageManager secureStorageManager, ILogger logger)
+    public SecureTokenDataStore(ISecureStorageManager secureStorageManager, ILogger<SecureTokenDataStore> logger)
     {
         _secureStorageManager = secureStorageManager;
         _logger = logger;
@@ -34,18 +34,18 @@ public class SecureTokenDataStore : IDataStore, IDisposable
                 // Store individual token components in secure storage
                 if (!string.IsNullOrEmpty(token.AccessToken))
                 {
-                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GmailAccessToken, token.AccessToken);
+                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GoogleAccessToken, token.AccessToken);
                 }
 
                 if (!string.IsNullOrEmpty(token.RefreshToken))
                 {
-                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GmailRefreshToken, token.RefreshToken);
+                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken, token.RefreshToken);
                 }
 
                 if (token.ExpiresInSeconds.HasValue)
                 {
                     var expiry = DateTime.UtcNow.AddSeconds(token.ExpiresInSeconds.Value);
-                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GmailTokenExpiry, expiry.ToString("O"));
+                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GoogleTokenExpiry, expiry.ToString("O"));
                 }
 
                 _logger.LogDebug("Stored Gmail OAuth tokens securely");
@@ -71,9 +71,9 @@ public class SecureTokenDataStore : IDataStore, IDisposable
         {
             if (typeof(T) == typeof(Google.Apis.Auth.OAuth2.Responses.TokenResponse))
             {
-                var accessTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailAccessToken);
-                var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailRefreshToken);
-                var expiryResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailTokenExpiry);
+                var accessTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleAccessToken);
+                var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
+                var expiryResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleTokenExpiry);
 
                 if (accessTokenResult.IsSuccess || refreshTokenResult.IsSuccess)
                 {
@@ -113,9 +113,9 @@ public class SecureTokenDataStore : IDataStore, IDisposable
         await _semaphore.WaitAsync();
         try
         {
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailAccessToken);
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailRefreshToken);
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailTokenExpiry);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleAccessToken);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleTokenExpiry);
             _logger.LogDebug("Deleted Gmail OAuth tokens for key {Key}", key);
         }
         catch (Exception ex)

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Shared;
 
