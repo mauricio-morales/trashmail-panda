@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations;
 using Google.Apis.PeopleService.v1;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Providers.Contacts.Models;
 
 namespace TrashMailPanda.Providers.Contacts;
@@ -47,8 +48,8 @@ public sealed class ContactsProviderConfig : BaseProviderConfig
     /// Gets or sets the OAuth2 scopes required for People API operations
     /// </summary>
     public string[] Scopes { get; set; } = {
-        "https://www.googleapis.com/auth/contacts.readonly",
-        "https://www.googleapis.com/auth/userinfo.profile"
+        GoogleOAuthScopes.ContactsReadonly,
+        GoogleOAuthScopes.UserInfoProfile
     };
 
     /// <summary>
@@ -132,10 +133,10 @@ public sealed class ContactsProviderConfig : BaseProviderConfig
         // Validate OAuth scopes
         var validScopes = new[]
         {
-            "https://www.googleapis.com/auth/contacts.readonly",
-            "https://www.googleapis.com/auth/contacts",
-            "https://www.googleapis.com/auth/userinfo.profile",
-            "https://www.googleapis.com/auth/userinfo.email"
+            GoogleOAuthScopes.ContactsReadonly,
+            GoogleOAuthScopes.Contacts,
+            GoogleOAuthScopes.UserInfoProfile,
+            GoogleOAuthScopes.UserInfoEmail
         };
 
         foreach (var scope in Scopes)
@@ -170,8 +171,8 @@ public sealed class ContactsProviderConfig : BaseProviderConfig
     protected override Result ValidateCustomLogic()
     {
         // Ensure we have contacts read permissions
-        var hasContactsPermissions = Scopes.Contains("https://www.googleapis.com/auth/contacts.readonly") ||
-                                   Scopes.Contains("https://www.googleapis.com/auth/contacts");
+        var hasContactsPermissions = Scopes.Contains(GoogleOAuthScopes.ContactsReadonly) ||
+                                   Scopes.Contains(GoogleOAuthScopes.Contacts);
 
         if (!hasContactsPermissions)
         {

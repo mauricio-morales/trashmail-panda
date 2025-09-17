@@ -493,6 +493,7 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
     /// </summary>
     protected override async Task<Result<HealthCheckResult>> PerformHealthCheckAsync(CancellationToken cancellationToken)
     {
+        Logger.LogInformation("[CONTACTS HEALTH] PerformHealthCheckAsync called");
         try
         {
             var healthIssues = new List<HealthIssue>();
@@ -508,8 +509,23 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
 
             // Check adapter health
             var unhealthyAdapters = new List<string>();
-            foreach (var adapter in _adapters.Where(a => a.IsEnabled))
+            var enabledAdapters = _adapters.Where(a => a.IsEnabled).ToList();
+
+            // If no adapters are enabled, the provider is unhealthy
+            if (!enabledAdapters.Any())
             {
+                Logger.LogWarning("[CONTACTS] No contact adapters are enabled - provider is unhealthy");
+                var noAdaptersResult = HealthCheckResult.Unhealthy("No contact source adapters are configured or enabled") with
+                {
+                    Diagnostics = diagnostics
+                };
+                return Result<HealthCheckResult>.Success(noAdaptersResult);
+            }
+
+            // Check each enabled adapter's health
+            foreach (var adapter in enabledAdapters)
+            {
+                Logger.LogInformation("[CONTACTS] Checking health of adapter: {SourceType}", adapter.SourceType);
                 var adapterHealthResult = await adapter.HealthCheckAsync(cancellationToken);
                 if (adapterHealthResult.IsFailure || adapterHealthResult.Value.Status != HealthStatus.Healthy)
                 {
@@ -531,14 +547,24 @@ public class ContactsProvider : BaseProvider<ContactsProviderConfig>, IContactsP
             }
 
             // Determine overall health status
-            var status = unhealthyAdapters.Any() ? HealthStatus.Degraded : HealthStatus.Healthy;
-            var description = status == HealthStatus.Healthy
-                ? "All contact source adapters are healthy and operational"
-                : $"Some contact adapters have issues: {string.Join(", ", unhealthyAdapters)}";
+            // If ALL adapters are unhealthy, the provider is unhealthy
+            var status = (unhealthyAdapters.Count == enabledAdapters.Count && unhealthyAdapters.Any())
+                ? HealthStatus.Unhealthy
+                : (unhealthyAdapters.Any() ? HealthStatus.Degraded : HealthStatus.Healthy);
 
-            var healthResult = status == HealthStatus.Healthy
-                ? HealthCheckResult.Healthy(description) with { Diagnostics = diagnostics }
-                : HealthCheckResult.Degraded(description) with { Diagnostics = diagnostics };
+            var description = status switch
+            {
+                HealthStatus.Healthy => "All contact source adapters are healthy and operational",
+                HealthStatus.Unhealthy => $"All contact adapters have failed: {string.Join(", ", unhealthyAdapters)}",
+                _ => $"Some contact adapters have issues: {string.Join(", ", unhealthyAdapters)}"
+            };
+
+            var healthResult = status switch
+            {
+                HealthStatus.Healthy => HealthCheckResult.Healthy(description) with { Diagnostics = diagnostics },
+                HealthStatus.Unhealthy => HealthCheckResult.Unhealthy(description) with { Diagnostics = diagnostics },
+                _ => HealthCheckResult.Degraded(description) with { Diagnostics = diagnostics }
+            };
 
             return Result<HealthCheckResult>.Success(healthResult);
         }

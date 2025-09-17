@@ -256,6 +256,7 @@ public static class ProviderCredentialTypes
     public const string GoogleAccessToken = "google_access_token";
     public const string GoogleRefreshToken = "google_refresh_token";
     public const string GoogleTokenExpiry = "google_token_expiry";
+    public const string GoogleUserEmail = "google_user_email";
 
     // Contacts Provider Credentials (Google People API)
     public const string ContactsClientId = "contacts_client_id";

@@ -107,24 +107,26 @@ public class GoogleOAuthService : IGoogleOAuthService
     {
         try
         {
-            _logger.LogDebug("Getting UserCredential for scopes: {Scopes} with prefix: {Prefix}",
-                string.Join(", ", scopes), storageKeyPrefix);
+            _logger.LogInformation("[OAUTH DEBUG] GetUserCredentialAsync called with prefix: {Prefix}, scopes: {Scopes}",
+                storageKeyPrefix, string.Join(", ", scopes));
 
             // Try to create credential from stored tokens first
+            _logger.LogInformation("[OAUTH DEBUG] Attempting to create credential from stored tokens...");
             var storedCredentialResult = await CreateUserCredentialFromStoredTokensAsync(
                 storageKeyPrefix, clientId, clientSecret);
 
             if (storedCredentialResult.IsSuccess)
             {
-                _logger.LogDebug("Created UserCredential from stored tokens");
+                _logger.LogInformation("[OAUTH DEBUG] Successfully created UserCredential from stored tokens");
                 return storedCredentialResult;
             }
 
-            // No valid stored tokens, perform OAuth flow
-            _logger.LogInformation("Performing OAuth flow for prefix: {Prefix}", storageKeyPrefix);
-            var oauthResult = await PerformOAuthFlowAsync(scopes, storageKeyPrefix, clientId, clientSecret, cancellationToken);
+            _logger.LogWarning("[OAUTH DEBUG] Failed to create credential from stored tokens: {Error}",
+                storedCredentialResult.Error.Message);
 
-            return oauthResult;
+            // No valid stored tokens, perform OAuth flow
+            _logger.LogInformation("[OAUTH DEBUG] Would perform OAuth flow for prefix: {Prefix}, but returning failure", storageKeyPrefix);
+            return Result<UserCredential>.Failure(storedCredentialResult.Error);
         }
         catch (Exception ex)
         {
@@ -325,19 +327,32 @@ public class GoogleOAuthService : IGoogleOAuthService
             var tokenExpiryKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_EXPIRY}";
             var tokenIssuedKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_ISSUED_UTC}";
 
+            _logger.LogInformation("[OAUTH DEBUG] Looking for tokens with keys: access={AccessKey}, refresh={RefreshKey}",
+                accessTokenKey, refreshTokenKey);
+
             var accessTokenResult = await _secureStorageManager.RetrieveCredentialAsync(accessTokenKey);
             var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(refreshTokenKey);
 
+            _logger.LogInformation("[OAUTH DEBUG] Access token result: {AccessSuccess}, Refresh token result: {RefreshSuccess}",
+                accessTokenResult.IsSuccess, refreshTokenResult.IsSuccess);
+
             if (!accessTokenResult.IsSuccess || !refreshTokenResult.IsSuccess)
             {
+                _logger.LogWarning("[OAUTH DEBUG] No stored tokens found - access: {AccessError}, refresh: {RefreshError}",
+                    accessTokenResult.IsSuccess ? "OK" : accessTokenResult.ErrorMessage ?? "null",
+                    refreshTokenResult.IsSuccess ? "OK" : refreshTokenResult.ErrorMessage ?? "null");
                 return Result<UserCredential>.Failure(new AuthenticationError("No stored tokens found"));
             }
 
             var accessToken = accessTokenResult.Value;
             var refreshToken = refreshTokenResult.Value;
 
+            _logger.LogInformation("[OAUTH DEBUG] Retrieved tokens - access empty: {AccessEmpty}, refresh empty: {RefreshEmpty}",
+                string.IsNullOrEmpty(accessToken), string.IsNullOrEmpty(refreshToken));
+
             if (string.IsNullOrEmpty(accessToken) || string.IsNullOrEmpty(refreshToken))
             {
+                _logger.LogWarning("[OAUTH DEBUG] Stored tokens are empty");
                 return Result<UserCredential>.Failure(new AuthenticationError("Stored tokens are empty"));
             }
 

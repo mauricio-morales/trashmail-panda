@@ -265,7 +265,8 @@ public class TokenRotationService : ITokenRotationService, IDisposable
             // Simplified logic - check if we have stored tokens for this provider
             var hasTokens = providerName.ToLowerInvariant() switch
             {
-                "gmail" => await CheckGmailTokenExpiryAsync(settings.ExpiryThreshold, cancellationToken),
+                "gmail" => await CheckGoogleTokenExpiryAsync(settings.ExpiryThreshold, cancellationToken),
+                "contacts" => await CheckGoogleTokenExpiryAsync(settings.ExpiryThreshold, cancellationToken),
                 "openai" => await CheckOpenAITokenExpiryAsync(settings.ExpiryThreshold, cancellationToken),
                 _ => Result<bool>.Failure(new UnsupportedOperationError($"Unsupported provider: {providerName}"))
             };
@@ -424,10 +425,10 @@ public class TokenRotationService : ITokenRotationService, IDisposable
         }
     }
 
-    private async Task<Result<bool>> CheckGmailTokenExpiryAsync(TimeSpan expiryThreshold, CancellationToken cancellationToken)
+    private async Task<Result<bool>> CheckGoogleTokenExpiryAsync(TimeSpan expiryThreshold, CancellationToken cancellationToken)
     {
-        // Check if we have Gmail tokens stored
-        var tokenExists = await _secureStorageManager.CredentialExistsAsync("gmail_access_token");
+        // Check if we have Google tokens stored (shared by Gmail, Contacts, etc.)
+        var tokenExists = await _secureStorageManager.CredentialExistsAsync("google_access_token");
         if (!tokenExists.IsSuccess || !tokenExists.Value)
         {
             return Result<bool>.Success(false); // No token to rotate

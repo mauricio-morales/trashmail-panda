@@ -21,7 +21,7 @@ public class GmailOAuthService : IGmailOAuthService
     private readonly ISecureStorageManager _secureStorageManager;
     private readonly ILogger<GmailOAuthService> _logger;
     private readonly IDataStore _dataStore;
-    private readonly string[] _scopes = { GmailService.Scope.GmailModify };
+    private readonly string[] _scopes = GoogleOAuthScopes.GmailWithContacts;
 
     public GmailOAuthService(
         ISecureStorageManager secureStorageManager,
@@ -46,17 +46,37 @@ public class GmailOAuthService : IGmailOAuthService
             var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
             var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
+            _logger.LogDebug("Retrieved OAuth credentials - ClientId success: {ClientIdSuccess}, ClientSecret success: {ClientSecretSuccess}",
+                clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+
             if (!clientIdResult.IsSuccess || !clientSecretResult.IsSuccess ||
                 string.IsNullOrEmpty(clientIdResult.Value) || string.IsNullOrEmpty(clientSecretResult.Value))
             {
+                _logger.LogWarning("OAuth client credentials validation failed - ClientId: {ClientIdStatus}, ClientSecret: {ClientSecretStatus}",
+                    clientIdResult.IsSuccess ? "present" : "missing",
+                    clientSecretResult.IsSuccess ? "present" : "missing");
                 return Result<bool>.Failure(new ConfigurationError("Gmail OAuth client credentials not configured"));
             }
 
+            _logger.LogDebug("OAuth client credentials validated successfully - ClientId length: {ClientIdLength}",
+                clientIdResult.Value?.Length ?? 0);
+
+            // Additional debug logging to see actual values (masked)
+            var clientId = clientIdResult.Value;
+            var clientSecret = clientSecretResult.Value;
+
+            _logger.LogInformation("[OAUTH DEBUG] About to create ClientSecrets with ClientId: {ClientIdPreview} (length: {ClientIdLength})",
+                string.IsNullOrEmpty(clientId) ? "NULL/EMPTY" : $"{clientId.Substring(0, Math.Min(12, clientId.Length))}...",
+                clientId?.Length ?? 0);
+
             var clientSecrets = new ClientSecrets
             {
-                ClientId = clientIdResult.Value,
-                ClientSecret = clientSecretResult.Value
+                ClientId = clientId,
+                ClientSecret = clientSecret
             };
+
+            _logger.LogInformation("[OAUTH DEBUG] ClientSecrets object created - ClientId is null: {ClientIdNull}, ClientSecret is null: {ClientSecretNull}",
+                string.IsNullOrEmpty(clientSecrets.ClientId), string.IsNullOrEmpty(clientSecrets.ClientSecret));
 
             // Request OAuth2 authorization - this will open browser
             var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
@@ -80,7 +100,7 @@ public class GmailOAuthService : IGmailOAuthService
                     var profile = await gmailService.Users.GetProfile("me").ExecuteAsync();
                     if (profile?.EmailAddress != null)
                     {
-                        await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GmailUserEmail, profile.EmailAddress);
+                        await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GoogleUserEmail, profile.EmailAddress);
                     }
                     else
                     {
@@ -112,7 +132,7 @@ public class GmailOAuthService : IGmailOAuthService
     {
         try
         {
-            var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailRefreshToken);
+            var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
             return Result<bool>.Success(refreshTokenResult.IsSuccess && !string.IsNullOrEmpty(refreshTokenResult.Value));
         }
         catch (Exception ex)
@@ -131,10 +151,10 @@ public class GmailOAuthService : IGmailOAuthService
         {
             _logger.LogInformation("Clearing Gmail authentication tokens");
 
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailAccessToken);
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailRefreshToken);
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailTokenExpiry);
-            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GmailUserEmail);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleAccessToken);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleTokenExpiry);
+            await _secureStorageManager.RemoveCredentialAsync(ProviderCredentialTypes.GoogleUserEmail);
 
             return Result<bool>.Success(true);
         }

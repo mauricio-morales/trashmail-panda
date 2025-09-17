@@ -596,7 +596,7 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     {
         try
         {
-            var scopes = new[] { GmailService.Scope.GmailModify };
+            var scopes = new[] { GoogleOAuthScopes.GmailModify };
 
             // Check if we have valid tokens for Google services (shared between Gmail and Contacts)
             var hasValidTokensResult = await _googleOAuthService.HasValidTokensAsync(

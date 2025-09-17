@@ -107,6 +107,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IProviderStatusService, ProviderStatusService>();
         services.AddSingleton<IApplicationService, ApplicationService>();
 
+        // Add dialog service for proper MVVM dialog management
+        services.AddSingleton<IDialogService, DialogService>();
+
         // Add provider bridge service for connecting legacy providers to new architecture
         services.AddSingleton<IProviderBridgeService, ProviderBridgeService>();
 
@@ -134,7 +137,7 @@ public static class ServiceCollectionExtensions
 
         // Add setup dialog ViewModels
         services.AddTransient<OpenAISetupViewModel>();
-        services.AddTransient<GmailSetupViewModel>();
+        services.AddTransient<GoogleOAuthSetupViewModel>();
 
         // Register MainWindowViewModel with navigation dependencies
         services.AddTransient<MainWindowViewModel>(provider => new MainWindowViewModel(
@@ -142,6 +145,7 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<EmailDashboardViewModel>(),
             provider,
             provider.GetRequiredService<IGoogleOAuthService>(),
+            provider.GetRequiredService<IDialogService>(),
             provider.GetRequiredService<ILogger<MainWindowViewModel>>()
         ));
 

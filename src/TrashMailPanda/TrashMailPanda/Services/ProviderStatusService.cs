@@ -4,8 +4,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Providers.Email;
+using TrashMailPanda.Providers.Contacts;
 
 namespace TrashMailPanda.Services;
 
@@ -16,6 +18,7 @@ public class ProviderStatusService : IProviderStatusService
 {
     private readonly ILogger<ProviderStatusService> _logger;
     private readonly IEmailProvider? _emailProvider;
+    private readonly IContactsProvider? _contactsProvider;
     private readonly ILLMProvider? _llmProvider;
     private readonly IStorageProvider _storageProvider;
 
@@ -28,10 +31,12 @@ public class ProviderStatusService : IProviderStatusService
         ILogger<ProviderStatusService> logger,
         IStorageProvider storageProvider,
         IEmailProvider? emailProvider = null,
+        IContactsProvider? contactsProvider = null,
         ILLMProvider? llmProvider = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _emailProvider = emailProvider; // Can be null - will be set after secrets are available
+        _contactsProvider = contactsProvider; // Can be null - will be set after secrets are available
         _llmProvider = llmProvider; // Can be null - will be set after secrets are available
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
     }
@@ -75,6 +80,8 @@ public class ProviderStatusService : IProviderStatusService
 
         if (_emailProvider != null)
             refreshTasks.Add(RefreshProviderStatusAsync("Email", _emailProvider));
+        if (_contactsProvider != null)
+            refreshTasks.Add(RefreshProviderStatusAsync("Contacts", _contactsProvider));
         if (_llmProvider != null)
             refreshTasks.Add(RefreshProviderStatusAsync("LLM", _llmProvider));
 
@@ -173,6 +180,89 @@ public class ProviderStatusService : IProviderStatusService
                         { "authenticated_user", authenticatedUser?.Email ?? "Not available" }
                     }
                 };
+                break;
+
+            case IContactsProvider contactsProvider:
+                // Perform actual health check by calling the provider's health check method
+                try
+                {
+                    _logger.LogDebug("Performing health check for Contacts provider");
+
+                    // Cast to BaseProvider to access HealthCheckAsync method
+                    Result<HealthCheckResult> healthCheckResult;
+                    if (contactsProvider is BaseProvider<ContactsProviderConfig> baseProvider)
+                    {
+                        healthCheckResult = await baseProvider.HealthCheckAsync();
+                    }
+                    else
+                    {
+                        // Fallback if not a BaseProvider
+                        healthCheckResult = Result<HealthCheckResult>.Failure(
+                            new ConfigurationError("Provider does not support health checks"));
+                    }
+
+                    if (healthCheckResult.IsSuccess)
+                    {
+                        var healthResult = healthCheckResult.Value;
+                        status = status with
+                        {
+                            IsHealthy = healthResult.Status == HealthStatus.Healthy,
+                            IsInitialized = true,
+                            RequiresSetup = healthResult.Status != HealthStatus.Healthy,
+                            Status = healthResult.Status == HealthStatus.Healthy ? "Connected" : "Authentication Required",
+                            ErrorMessage = healthResult.Status != HealthStatus.Healthy ? healthResult.Description : null,
+                            Details = new Dictionary<string, object>
+                            {
+                                { "type", "Contacts" },
+                                { "last_check", DateTime.UtcNow },
+                                { "health_status", healthResult.Status.ToString() },
+                                { "health_description", healthResult.Description ?? "No details" }
+                            }
+                        };
+
+                        _logger.LogDebug("Contacts provider health check result: {Status}, {Description}",
+                            healthResult.Status, healthResult.Description);
+                    }
+                    else
+                    {
+                        // Health check failed
+                        status = status with
+                        {
+                            IsHealthy = false,
+                            IsInitialized = false,
+                            RequiresSetup = true,
+                            Status = "Authentication Required",
+                            ErrorMessage = healthCheckResult.Error.Message,
+                            Details = new Dictionary<string, object>
+                            {
+                                { "type", "Contacts" },
+                                { "last_check", DateTime.UtcNow },
+                                { "error", healthCheckResult.Error.Message }
+                            }
+                        };
+
+                        _logger.LogDebug("Contacts provider health check failed: {Error}",
+                            healthCheckResult.Error.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Exception during Contacts provider health check");
+                    status = status with
+                    {
+                        IsHealthy = false,
+                        IsInitialized = false,
+                        RequiresSetup = true,
+                        Status = "Error",
+                        ErrorMessage = ex.Message,
+                        Details = new Dictionary<string, object>
+                        {
+                            { "type", "Contacts" },
+                            { "last_check", DateTime.UtcNow },
+                            { "error", ex.Message }
+                        }
+                    };
+                }
                 break;
 
             case ILLMProvider llmProvider:

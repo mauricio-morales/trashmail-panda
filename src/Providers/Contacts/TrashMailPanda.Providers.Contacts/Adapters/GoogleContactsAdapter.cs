@@ -136,27 +136,51 @@ public class GoogleContactsAdapter : IContactSourceAdapter
     {
         try
         {
+            _logger.LogInformation("[CONTACTS DEBUG] ValidateAsync starting...");
+
             // Validate configuration
             var configValidation = _config.ValidateConfiguration();
             if (configValidation.IsFailure)
+            {
+                _logger.LogWarning("[CONTACTS DEBUG] Config validation failed: {Error}", configValidation.Error.Message);
                 return Result<bool>.Failure(configValidation.Error);
+            }
+            _logger.LogInformation("[CONTACTS DEBUG] Config validation passed");
 
             // Test connectivity with a minimal API call
+            _logger.LogInformation("[CONTACTS DEBUG] Attempting to create People service...");
             var serviceResult = await CreatePeopleServiceAsync(cancellationToken);
             if (serviceResult.IsFailure)
+            {
+                _logger.LogWarning("[CONTACTS DEBUG] Failed to create People service: {Error}", serviceResult.Error.Message);
                 return Result<bool>.Failure(serviceResult.Error);
+            }
+            _logger.LogInformation("[CONTACTS DEBUG] People service created successfully");
 
             using var service = serviceResult.Value;
 
             // Test with a minimal request
+            _logger.LogInformation("[CONTACTS DEBUG] Attempting to execute People API request...");
             var request = service.People.Connections.List("people/me");
             request.PersonFields = "names";
             request.PageSize = 1;
 
-            await request.ExecuteAsync(cancellationToken);
+            var response = await request.ExecuteAsync(cancellationToken);
+            _logger.LogInformation("[CONTACTS DEBUG] People API request executed successfully, got {Count} connections",
+                response?.Connections?.Count ?? 0);
 
             _logger.LogInformation("Google People API validation successful");
             return Result<bool>.Success(true);
+        }
+        catch (GoogleApiException googleEx) when (googleEx.HttpStatusCode == HttpStatusCode.Unauthorized)
+        {
+            _logger.LogWarning("Google People API authentication failed - tokens may be expired or invalid");
+            return Result<bool>.Failure(new AuthenticationError("Google OAuth authentication required"));
+        }
+        catch (GoogleApiException googleEx) when (googleEx.HttpStatusCode == HttpStatusCode.Forbidden)
+        {
+            _logger.LogWarning("Google People API access forbidden - missing required scopes");
+            return Result<bool>.Failure(new AuthenticationError("Missing required OAuth scopes for Google People API"));
         }
         catch (Exception ex)
         {
@@ -255,10 +279,14 @@ public class GoogleContactsAdapter : IContactSourceAdapter
     {
         try
         {
-            _logger.LogDebug("Creating Google People API service using secure OAuth service");
+            _logger.LogInformation("[CONTACTS DEBUG] CreatePeopleServiceAsync starting...");
+            _logger.LogInformation("[CONTACTS DEBUG] Using ClientId: {ClientId}, Scopes: {Scopes}",
+                string.IsNullOrEmpty(_config.ClientId) ? "<empty>" : _config.ClientId.Substring(0, 10) + "...",
+                string.Join(", ", _config.Scopes));
 
             // Get UserCredential through the shared OAuth service
             // Use "google_" prefix to share OAuth credentials between Gmail and Contacts providers
+            _logger.LogInformation("[CONTACTS DEBUG] Calling GetUserCredentialAsync with prefix 'google_'");
             var credentialResult = await _googleOAuthService.GetUserCredentialAsync(
                 _config.Scopes,
                 "google_", // Shared prefix for all Google services
@@ -268,20 +296,22 @@ public class GoogleContactsAdapter : IContactSourceAdapter
 
             if (credentialResult.IsFailure)
             {
-                _logger.LogWarning("Failed to get OAuth credentials: {Error}", credentialResult.Error.Message);
+                _logger.LogWarning("[CONTACTS DEBUG] GetUserCredentialAsync failed: {Error}", credentialResult.Error.Message);
                 return Result<PeopleServiceService>.Failure(credentialResult.Error);
             }
 
+            _logger.LogInformation("[CONTACTS DEBUG] GetUserCredentialAsync succeeded, got credential");
             var credential = credentialResult.Value;
 
             // Create the People API service
+            _logger.LogInformation("[CONTACTS DEBUG] Creating PeopleServiceService...");
             var service = new PeopleServiceService(new BaseClientService.Initializer()
             {
                 HttpClientInitializer = credential,
                 ApplicationName = _config.ApplicationName
             });
 
-            _logger.LogDebug("Successfully created Google People API service");
+            _logger.LogInformation("[CONTACTS DEBUG] Successfully created Google People API service");
             return Result<PeopleServiceService>.Success(service);
         }
         catch (Exception ex)

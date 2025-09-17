@@ -340,9 +340,10 @@ public class ProviderBridgeService : IProviderBridgeService
                 }
             };
 
-            // Check if Gmail provider is healthy first - ContactsProvider depends on it
-            var gmailStatus = await GetEmailProviderStatusAsync();
-            if (gmailStatus.IsFailure || !gmailStatus.Value.IsHealthy)
+            // Check if Google OAuth client credentials exist (shared with Gmail)
+            // Both Gmail and Contacts use the same Google credentials now
+            var hasGoogleCredentials = await HasContactsCredentialsAsync(); // This now checks Google credentials
+            if (!hasGoogleCredentials)
             {
                 status = status with
                 {
@@ -350,10 +351,10 @@ public class ProviderBridgeService : IProviderBridgeService
                     IsInitialized = false,
                     RequiresSetup = true,
                     Status = "Requires Gmail Setup",
-                    ErrorMessage = "Gmail provider must be configured and healthy before enabling Contacts"
+                    ErrorMessage = "Google OAuth client credentials must be configured first"
                 };
 
-                _logger.LogDebug("Contacts provider requires Gmail to be healthy first");
+                _logger.LogDebug("Contacts provider requires Google OAuth client credentials to be configured");
                 return Result<ProviderStatus>.Success(status);
             }
 
@@ -380,12 +381,34 @@ public class ProviderBridgeService : IProviderBridgeService
                 // Contacts credentials are configured - test connectivity
                 var connectivityResult = await TestContactsConnectivityAsync();
 
+                // Determine appropriate status based on error type
+                string failureStatus;
+                if (!connectivityResult.IsSuccess)
+                {
+                    // Check if this is an authentication error
+                    var errorMessage = connectivityResult.Error?.Message ?? "";
+                    if (errorMessage.Contains("not available") || errorMessage.Contains("validate credentials") ||
+                        errorMessage.Contains("authentication", StringComparison.OrdinalIgnoreCase) ||
+                        errorMessage.Contains("unauthorized", StringComparison.OrdinalIgnoreCase))
+                    {
+                        failureStatus = "Authentication Required";
+                    }
+                    else
+                    {
+                        failureStatus = "Connection Failed";
+                    }
+                }
+                else
+                {
+                    failureStatus = "Connected";
+                }
+
                 status = status with
                 {
                     IsHealthy = connectivityResult.IsSuccess,
                     IsInitialized = true,
                     RequiresSetup = false,
-                    Status = connectivityResult.IsSuccess ? "Connected" : "Connection Failed",
+                    Status = failureStatus,
                     ErrorMessage = connectivityResult.IsSuccess ? null : connectivityResult.Error?.Message
                 };
 
@@ -473,21 +496,21 @@ public class ProviderBridgeService : IProviderBridgeService
     }
 
     /// <summary>
-    /// Check if Gmail OAuth client credentials are configured
+    /// Check if Google OAuth client credentials are configured (shared by Gmail, Contacts, etc.)
     /// </summary>
     private async Task<bool> HasGmailClientCredentialsAsync()
     {
         try
         {
-            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailClientId);
-            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailClientSecret);
+            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
             return clientIdResult.IsSuccess && !string.IsNullOrEmpty(clientIdResult.Value) &&
                    clientSecretResult.IsSuccess && !string.IsNullOrEmpty(clientSecretResult.Value);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception checking Gmail client credentials");
+            _logger.LogError(ex, "Exception checking Google OAuth client credentials");
             return false;
         }
     }
@@ -499,8 +522,8 @@ public class ProviderBridgeService : IProviderBridgeService
     {
         try
         {
-            var accessTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailAccessToken);
-            var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailRefreshToken);
+            var accessTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleAccessToken);
+            var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
 
             // Need at least a refresh token to maintain session
             if (!refreshTokenResult.IsSuccess || string.IsNullOrEmpty(refreshTokenResult.Value))
@@ -509,7 +532,7 @@ public class ProviderBridgeService : IProviderBridgeService
             }
 
             // Check token expiry if available
-            var expiryResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailTokenExpiry);
+            var expiryResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleTokenExpiry);
             if (expiryResult.IsSuccess && DateTime.TryParse(expiryResult.Value, out var expiry))
             {
                 // If access token expired but we have refresh token, that's still valid
@@ -548,14 +571,14 @@ public class ProviderBridgeService : IProviderBridgeService
                 if (authenticatedUserResult.IsSuccess && authenticatedUserResult.Value != null && !string.IsNullOrEmpty(authenticatedUserResult.Value.Email))
                 {
                     // Store user email in credentials for future reference
-                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GmailUserEmail, authenticatedUserResult.Value.Email);
+                    await _secureStorageManager.StoreCredentialAsync(ProviderCredentialTypes.GoogleUserEmail, authenticatedUserResult.Value.Email);
 
                     return Result<string>.Success(authenticatedUserResult.Value.Email);
                 }
             }
 
             // Fallback: try to get previously stored email
-            var emailResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailUserEmail);
+            var emailResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleUserEmail);
             if (emailResult.IsSuccess && !string.IsNullOrEmpty(emailResult.Value))
             {
                 return Result<string>.Success(emailResult.Value);
@@ -631,21 +654,21 @@ public class ProviderBridgeService : IProviderBridgeService
     }
 
     /// <summary>
-    /// Check if ContactsProvider OAuth credentials are configured
+    /// Check if Google OAuth client credentials are configured (shared by Gmail, Contacts, etc.)
     /// </summary>
     private async Task<bool> HasContactsCredentialsAsync()
     {
         try
         {
-            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.ContactsClientId);
-            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.ContactsClientSecret);
+            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
             return clientIdResult.IsSuccess && !string.IsNullOrEmpty(clientIdResult.Value) &&
                    clientSecretResult.IsSuccess && !string.IsNullOrEmpty(clientSecretResult.Value);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception checking Contacts client credentials");
+            _logger.LogError(ex, "Exception checking Google OAuth client credentials");
             return false;
         }
     }
@@ -661,7 +684,7 @@ public class ProviderBridgeService : IProviderBridgeService
             // If Gmail tokens exist but don't have the required scopes for Google People API,
             // we need scope expansion rather than separate OAuth flow
 
-            var gmailTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GmailRefreshToken);
+            var gmailTokenResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleRefreshToken);
             if (!gmailTokenResult.IsSuccess || string.IsNullOrEmpty(gmailTokenResult.Value))
             {
                 // No Gmail tokens - no scope expansion possible
@@ -702,15 +725,9 @@ public class ProviderBridgeService : IProviderBridgeService
                 return healthResult.IsSuccess ? Result<bool>.Success(true) : Result<bool>.Failure(healthResult.Error);
             }
 
-            // Fallback: check if credentials exist
-            var hasCredentials = await HasContactsCredentialsAsync();
-            if (!hasCredentials)
-            {
-                return Result<bool>.Failure(new ValidationError("ContactsProvider not available and no credentials configured"));
-            }
-
-            await Task.Delay(100); // Simulate API call
-            return Result<bool>.Success(true);
+            // Fallback: if ContactsProvider is not available, credentials cannot be tested
+            // This should fail since we can't validate OAuth tokens without the provider
+            return Result<bool>.Failure(new ValidationError("ContactsProvider not available - cannot validate credentials"));
         }
         catch (Exception ex)
         {

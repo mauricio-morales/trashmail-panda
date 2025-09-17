@@ -3,14 +3,14 @@ using TrashMailPanda.ViewModels;
 
 namespace TrashMailPanda.Views;
 
-public partial class GmailSetupDialog : Window
+public partial class GoogleOAuthSetupDialog : Window
 {
-    public GmailSetupDialog()
+    public GoogleOAuthSetupDialog()
     {
         InitializeComponent();
     }
 
-    public GmailSetupDialog(GmailSetupViewModel viewModel) : this()
+    public GoogleOAuthSetupDialog(GoogleOAuthSetupViewModel viewModel) : this()
     {
         DataContext = viewModel;
 

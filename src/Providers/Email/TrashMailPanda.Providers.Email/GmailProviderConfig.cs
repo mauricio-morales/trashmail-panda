@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations;
 using Google.Apis.Gmail.v1;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Security;
 
 namespace TrashMailPanda.Providers.Email;
 
@@ -106,20 +107,21 @@ public sealed class GmailProviderConfig : BaseProviderConfig
         if (Scopes == null || Scopes.Length == 0)
             return Result.Failure(new ValidationError("configuration validation failed: request must contain at least one valid OAuth scope"));
 
-        // Validate OAuth scopes
-        var validScopes = new[]
-        {
+        // Validate OAuth scopes using centralized scope constants from shared library
+        var validScopeStrings = GoogleOAuthScopes.AllValidScopes;
+
+        string[] gmailServiceScopes = [
             GmailService.Scope.GmailReadonly,
             GmailService.Scope.GmailModify,
             GmailService.Scope.GmailCompose,
             GmailService.Scope.GmailSend,
             GmailService.Scope.MailGoogleCom,
-            "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/gmail.modify",
-            "https://www.googleapis.com/auth/gmail.compose",
-            "https://www.googleapis.com/auth/gmail.send",
-            "https://mail.google.com/"
-        };
+            GmailService.Scope.GmailLabels,
+            GmailService.Scope.GmailSettingsBasic,
+            GmailService.Scope.GmailSettingsSharing
+        ];
+
+        var validScopes = validScopeStrings.Concat(gmailServiceScopes).ToArray();
 
         foreach (var scope in Scopes)
         {
@@ -147,8 +149,8 @@ public sealed class GmailProviderConfig : BaseProviderConfig
         // Ensure we have modify permissions for TrashMail Panda operations
         var hasModifyPermissions = Scopes.Contains(GmailService.Scope.GmailModify) ||
                                   Scopes.Contains(GmailService.Scope.MailGoogleCom) ||
-                                  Scopes.Contains("https://www.googleapis.com/auth/gmail.modify") ||
-                                  Scopes.Contains("https://mail.google.com/");
+                                  Scopes.Contains(GoogleOAuthScopes.GmailModify) ||
+                                  Scopes.Contains(GoogleOAuthScopes.GmailFullAccess);
 
         if (!hasModifyPermissions)
         {
