@@ -285,10 +285,12 @@ public class GoogleContactsAdapter : IContactSourceAdapter
                 string.Join(", ", _config.Scopes));
 
             // Get UserCredential through the shared OAuth service
-            // Use "google_" prefix to share OAuth credentials between Gmail and Contacts providers
-            _logger.LogInformation("[CONTACTS DEBUG] Calling GetUserCredentialAsync with prefix 'google_'");
+            // Use Gmail scopes since Contacts will reuse Gmail OAuth tokens
+            // This avoids requiring separate OAuth flows for Gmail and Contacts
+            _logger.LogInformation("[CONTACTS DEBUG] Calling GetUserCredentialAsync with Gmail scopes");
+            var gmailScopes = new[] { GoogleOAuthScopes.GmailModify };
             var credentialResult = await _googleOAuthService.GetUserCredentialAsync(
-                _config.Scopes,
+                gmailScopes, // Use Gmail scopes to reuse existing tokens
                 "google_", // Shared prefix for all Google services
                 _config.ClientId,
                 _config.ClientSecret,

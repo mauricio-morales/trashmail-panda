@@ -22,6 +22,7 @@ public class GoogleOAuthService : IGoogleOAuthService
     private readonly ISecurityAuditLogger _securityAuditLogger;
     private readonly IDataStore _dataStore;
     private readonly ILogger<GoogleOAuthService> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
     /// <summary>
     /// Storage key suffixes for OAuth token components
@@ -40,12 +41,14 @@ public class GoogleOAuthService : IGoogleOAuthService
         ISecureStorageManager secureStorageManager,
         ISecurityAuditLogger securityAuditLogger,
         IDataStore dataStore,
-        ILogger<GoogleOAuthService> logger)
+        ILogger<GoogleOAuthService> logger,
+        ILoggerFactory loggerFactory)
     {
         _secureStorageManager = secureStorageManager ?? throw new ArgumentNullException(nameof(secureStorageManager));
         _securityAuditLogger = securityAuditLogger ?? throw new ArgumentNullException(nameof(securityAuditLogger));
         _dataStore = dataStore ?? throw new ArgumentNullException(nameof(dataStore));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
     }
 
     /// <inheritdoc />
@@ -428,12 +431,15 @@ public class GoogleOAuthService : IGoogleOAuthService
                 ClientSecret = clientSecret
             };
 
+            var codeReceiver = new AvaloniaCodeReceiver(_loggerFactory.CreateLogger<AvaloniaCodeReceiver>());
+
             var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
                 clientSecrets,
                 scopes,
                 "user",
                 cancellationToken,
-                _dataStore);
+                _dataStore,
+                codeReceiver);
 
             // Store credentials
             await StoreCredentialsAsync(credential, storageKeyPrefix, scopes);
@@ -563,19 +569,77 @@ public class GoogleOAuthService : IGoogleOAuthService
             _logger.LogInformation("Starting Google OAuth authentication flow for scopes: {Scopes}",
                 string.Join(", ", scopes));
 
+            _logger.LogInformation("[OAUTH DEBUG] Client credentials - ID length: {ClientIdLength}, Secret length: {ClientSecretLength}",
+                clientId?.Length ?? 0, clientSecret?.Length ?? 0);
+
             var clientSecrets = new ClientSecrets
             {
                 ClientId = clientId,
                 ClientSecret = clientSecret
             };
 
-            // Request OAuth2 authorization - this will open browser
-            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-                clientSecrets,
-                scopes,
+            _logger.LogInformation("[OAUTH DEBUG] About to call GoogleWebAuthorizationBroker.AuthorizeAsync - this should open browser if no valid tokens exist");
+
+            // FORCE clear data store tokens to ensure fresh OAuth flow
+            try
+            {
+                var existingToken = await _dataStore.GetAsync<Google.Apis.Auth.OAuth2.Responses.TokenResponse>("user");
+                _logger.LogInformation("[OAUTH DEBUG] Existing token check - Token exists: {TokenExists}, Access token empty: {AccessTokenEmpty}",
+                    existingToken != null,
+                    existingToken?.AccessToken == null || string.IsNullOrEmpty(existingToken.AccessToken));
+
+                if (existingToken != null)
+                {
+                    _logger.LogInformation("[OAUTH DEBUG] FORCING clear of data store tokens to ensure fresh OAuth flow");
+                    await _dataStore.DeleteAsync<Google.Apis.Auth.OAuth2.Responses.TokenResponse>("user");
+                    _logger.LogInformation("[OAUTH DEBUG] Data store tokens cleared - browser should now open");
+                }
+                else
+                {
+                    _logger.LogInformation("[OAUTH DEBUG] No existing tokens found in data store");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("[OAUTH DEBUG] Error checking/clearing existing tokens: {Error}", ex.Message);
+            }
+
+            // Request OAuth2 authorization using DIRECT OAuth flow with custom code receiver
+            _logger.LogInformation("[OAUTH DEBUG] Using DIRECT OAuth flow with AvaloniaCodeReceiver to force browser opening");
+
+            var codeReceiver = new AvaloniaCodeReceiver(_loggerFactory.CreateLogger<AvaloniaCodeReceiver>());
+
+            // Create OAuth flow directly instead of using GoogleWebAuthorizationBroker
+            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+            {
+                ClientSecrets = clientSecrets,
+                Scopes = scopes,
+                DataStore = _dataStore
+            });
+
+            // Create authorization request
+            var request = flow.CreateAuthorizationCodeRequest(codeReceiver.RedirectUri);
+            request.Scope = string.Join(" ", scopes);
+
+            _logger.LogInformation("[OAUTH DEBUG] Starting direct OAuth flow - this WILL open browser");
+
+            // Get authorization code via our custom receiver (this will open browser)
+            var response = await codeReceiver.ReceiveCodeAsync(request, cancellationToken);
+
+            _logger.LogInformation("[OAUTH DEBUG] Received authorization code, exchanging for tokens");
+
+            // Exchange authorization code for tokens
+            var tokenResponse = await flow.ExchangeCodeForTokenAsync(
                 "user",
-                cancellationToken,
-                _dataStore);
+                response.Code,
+                codeReceiver.RedirectUri,
+                cancellationToken);
+
+            // Create UserCredential from token
+            var credential = new UserCredential(flow, "user", tokenResponse);
+
+            _logger.LogInformation("[OAUTH DEBUG] GoogleWebAuthorizationBroker.AuthorizeAsync completed, credential is null: {CredentialNull}",
+                credential == null);
 
             if (credential != null)
             {

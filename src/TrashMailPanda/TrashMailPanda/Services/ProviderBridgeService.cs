@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TrashMailPanda.Models;
+using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
@@ -154,46 +155,124 @@ public class ProviderBridgeService : IProviderBridgeService
             }
             else
             {
-                // Both client and session are available - test actual connectivity
-                var connectivityResult = await TestGmailConnectivityAsync();
-
-                status = status with
+                // Both client and session are available - use provider health check like Contacts does
+                try
                 {
-                    IsHealthy = connectivityResult.IsSuccess,
-                    IsInitialized = true,
-                    RequiresSetup = false,
-                    Status = connectivityResult.IsSuccess ? "Connected" : "Connection Failed",
-                    ErrorMessage = connectivityResult.IsSuccess ? null : connectivityResult.Error?.Message
-                };
+                    _logger.LogDebug("Performing health check for Gmail provider");
 
-                if (connectivityResult.IsSuccess && connectivityResult.Value != null)
-                {
-                    status.Details["user_email"] = connectivityResult.Value;
-
-                    // Get full authenticated user info from Gmail provider
-                    AuthenticatedUserInfo? authenticatedUser = null;
-                    if (_emailProvider != null)
+                    // Use the email provider's health check method (same approach as Contacts)
+                    Result<HealthCheckResult> healthCheckResult;
+                    if (_emailProvider is GmailEmailProvider gmailProvider)
                     {
-                        try
+                        // Gmail provider's HealthCheckAsync returns Result<bool>, so we need to convert it
+                        var boolHealthResult = await gmailProvider.HealthCheckAsync();
+                        if (boolHealthResult.IsSuccess)
                         {
-                            var userResult = await _emailProvider.GetAuthenticatedUserAsync();
-                            authenticatedUser = userResult.IsSuccess ? userResult.Value : null;
+                            healthCheckResult = Result<HealthCheckResult>.Success(
+                                boolHealthResult.Value
+                                    ? HealthCheckResult.Healthy("Gmail health check passed")
+                                    : HealthCheckResult.Unhealthy("Gmail health check failed"));
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            _logger.LogWarning(ex, "Failed to get detailed authenticated user info, using basic info");
+                            healthCheckResult = Result<HealthCheckResult>.Failure(boolHealthResult.Error);
+                        }
+                    }
+                    else
+                    {
+                        // Fallback to connectivity test if not a GmailEmailProvider
+                        var connectivityResult = await TestGmailConnectivityAsync();
+                        if (connectivityResult.IsSuccess)
+                        {
+                            healthCheckResult = Result<HealthCheckResult>.Success(
+                                HealthCheckResult.Healthy("Gmail connectivity verified"));
+                        }
+                        else
+                        {
+                            healthCheckResult = Result<HealthCheckResult>.Failure(connectivityResult.Error);
                         }
                     }
 
-                    // Create authenticated user info (use detailed info if available, fallback to email only)
+                    if (healthCheckResult.IsSuccess)
+                    {
+                        var healthResult = healthCheckResult.Value;
+                        status = status with
+                        {
+                            IsHealthy = healthResult.Status == HealthStatus.Healthy,
+                            IsInitialized = true,
+                            RequiresSetup = false,
+                            Status = healthResult.Status == HealthStatus.Healthy ? "Connected" : "Authentication Required",
+                            ErrorMessage = healthResult.Status != HealthStatus.Healthy ? healthResult.Description : null,
+                            Details = new Dictionary<string, object>
+                            {
+                                { "type", "Gmail" },
+                                { "last_check", DateTime.UtcNow },
+                                { "health_status", healthResult.Status.ToString() },
+                                { "health_description", healthResult.Description ?? "No details" }
+                            }
+                        };
+
+                        _logger.LogDebug("Gmail provider health check result: {Status}, {Description}",
+                            healthResult.Status, healthResult.Description);
+
+                        // If healthy, get authenticated user info
+                        if (healthResult.Status == HealthStatus.Healthy && _emailProvider != null)
+                        {
+                            try
+                            {
+                                var userResult = await _emailProvider.GetAuthenticatedUserAsync();
+                                if (userResult.IsSuccess && userResult.Value != null)
+                                {
+                                    status = status with
+                                    {
+                                        AuthenticatedUser = userResult.Value
+                                    };
+                                    status.Details["user_email"] = userResult.Value.Email;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to get authenticated user info from Gmail provider");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Health check failed
+                        status = status with
+                        {
+                            IsHealthy = false,
+                            IsInitialized = false,
+                            RequiresSetup = false,
+                            Status = "Authentication Required",
+                            ErrorMessage = healthCheckResult.Error.Message,
+                            Details = new Dictionary<string, object>
+                            {
+                                { "type", "Gmail" },
+                                { "last_check", DateTime.UtcNow },
+                                { "error", healthCheckResult.Error.Message }
+                            }
+                        };
+
+                        _logger.LogDebug("Gmail provider health check failed: {Error}",
+                            healthCheckResult.Error.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Exception during Gmail provider health check");
                     status = status with
                     {
-                        AuthenticatedUser = authenticatedUser ?? new AuthenticatedUserInfo
+                        IsHealthy = false,
+                        IsInitialized = false,
+                        RequiresSetup = false,
+                        Status = "Authentication Required",
+                        ErrorMessage = ex.Message,
+                        Details = new Dictionary<string, object>
                         {
-                            Email = connectivityResult.Value,
-                            MessagesTotal = 0,
-                            ThreadsTotal = 0,
-                            HistoryId = string.Empty
+                            { "type", "Gmail" },
+                            { "last_check", DateTime.UtcNow },
+                            { "error", ex.Message }
                         }
                     };
                 }
@@ -535,8 +614,14 @@ public class ProviderBridgeService : IProviderBridgeService
             var expiryResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleTokenExpiry);
             if (expiryResult.IsSuccess && DateTime.TryParse(expiryResult.Value, out var expiry))
             {
-                // If access token expired but we have refresh token, that's still valid
-                // The provider should handle token refresh automatically
+                // Check if access token is still valid (with 5-minute buffer)
+                if (expiry > DateTime.UtcNow.AddMinutes(5))
+                {
+                    // Access token is still valid
+                    return true;
+                }
+                // Access token expired, but we have refresh token so provider can handle refresh
+                // Return true to allow connectivity test, which will trigger refresh if needed
                 return true;
             }
 

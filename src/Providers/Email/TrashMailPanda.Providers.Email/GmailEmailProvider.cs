@@ -795,33 +795,39 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     }
 
     /// <summary>
-    /// Performs OAuth2 authentication flow
+    /// Performs OAuth2 authentication flow using shared GoogleOAuthService
     /// </summary>
     private async Task<Result<bool>> PerformOAuthFlowAsync(GmailProviderConfig config, CancellationToken cancellationToken)
     {
         try
         {
-            var clientSecrets = new ClientSecrets
-            {
-                ClientId = config.ClientId,
-                ClientSecret = config.ClientSecret
-            };
-
-            _credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-                clientSecrets,
+            // Use shared GoogleOAuthService for consistent token management
+            var authResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
                 config.Scopes,
-                "user",
-                cancellationToken,
-                _dataStore);
+                "google_", // Use consistent storage key prefix
+                config.ClientId,
+                config.ClientSecret,
+                cancellationToken);
 
-            // Store tokens securely
-            var storeResult = await StoreCredentialsAsync(_credential);
-            if (storeResult.IsFailure)
+            if (authResult.IsFailure)
             {
-                Logger.LogWarning("Failed to store OAuth credentials: {Error}", storeResult.Error.Message);
-                // Continue with success since OAuth flow succeeded, token storage is optional
+                return authResult;
             }
 
+            // Get the credential from the shared service
+            var credentialResult = await _googleOAuthService.GetUserCredentialAsync(
+                config.Scopes,
+                "google_",
+                config.ClientId,
+                config.ClientSecret,
+                cancellationToken);
+
+            if (credentialResult.IsFailure)
+            {
+                return Result<bool>.Failure(credentialResult.Error);
+            }
+
+            _credential = credentialResult.Value;
             return Result<bool>.Success(true);
         }
         catch (Exception ex)
@@ -831,7 +837,7 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     }
 
     /// <summary>
-    /// Creates a Gmail service instance
+    /// Creates a Gmail service instance using shared GoogleOAuthService
     /// </summary>
     private async Task<Result<GmailService>> CreateGmailServiceAsync(GmailProviderConfig config, CancellationToken cancellationToken)
     {
@@ -839,10 +845,26 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
         {
             if (_credential == null)
             {
-                var authResult = await PerformOAuthFlowAsync(config, cancellationToken);
-                if (authResult.IsFailure)
+                // First try to get existing credential from shared GoogleOAuthService
+                var credentialResult = await _googleOAuthService.GetUserCredentialAsync(
+                    config.Scopes,
+                    "google_",
+                    config.ClientId,
+                    config.ClientSecret,
+                    cancellationToken);
+
+                if (credentialResult.IsSuccess)
                 {
-                    return Result<GmailService>.Failure(authResult.Error);
+                    _credential = credentialResult.Value;
+                }
+                else
+                {
+                    // No existing credential, perform OAuth flow
+                    var authResult = await PerformOAuthFlowAsync(config, cancellationToken);
+                    if (authResult.IsFailure)
+                    {
+                        return Result<GmailService>.Failure(authResult.Error);
+                    }
                 }
             }
 

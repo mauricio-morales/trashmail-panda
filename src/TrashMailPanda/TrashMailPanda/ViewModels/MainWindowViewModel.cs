@@ -8,6 +8,7 @@ using TrashMailPanda.Views;
 using TrashMailPanda.Services;
 using TrashMailPanda.Models;
 using TrashMailPanda.Shared.Security;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.ViewModels;
 
@@ -290,34 +291,15 @@ public partial class MainWindowViewModel : ViewModelBase
                     break;
 
                 case "contacts":
-                    _logger.LogInformation("Handling Contacts provider configuration");
-
-                    // For contacts, check if we already have OAuth client credentials
-                    var hasExistingCredentials = await CheckForExistingGoogleCredentialsAsync();
-
-                    if (hasExistingCredentials)
+                    _logger.LogInformation("Opening Google OAuth setup dialog for {Provider} configuration (shared with Gmail)", providerName);
+                    var contactsSetupResult = await _dialogService.ShowGoogleOAuthSetupAsync();
+                    if (contactsSetupResult)
                     {
-                        _logger.LogInformation("Google OAuth client credentials exist - proceeding to contacts authentication");
-                        NavigationStatus = "OAuth credentials found - starting contacts authentication...";
-
-                        // Skip setup dialog and go directly to authentication with contacts scope
-                        await HandleContactsAuthenticationAsync();
+                        NavigationStatus = "Google OAuth setup completed successfully";
                     }
                     else
                     {
-                        _logger.LogInformation("No Google OAuth client credentials - opening setup dialog");
-                        NavigationStatus = "No credentials found - opening setup dialog...";
-
-                        // No credentials exist, show setup dialog
-                        var contactsSetupResult = await _dialogService.ShowGoogleOAuthSetupAsync();
-                        if (contactsSetupResult)
-                        {
-                            NavigationStatus = "Google OAuth setup completed successfully";
-                        }
-                        else
-                        {
-                            NavigationStatus = "Google OAuth setup was cancelled";
-                        }
+                        NavigationStatus = "Google OAuth setup was cancelled";
                     }
                     break;
 
@@ -404,7 +386,40 @@ public partial class MainWindowViewModel : ViewModelBase
                     break;
 
                 case "contacts":
-                    await HandleContactsAuthenticationAsync();
+                    _logger.LogInformation("Initiating Contacts authentication (reusing Gmail OAuth tokens)");
+                    NavigationStatus = "Opening browser for Google sign-in (Gmail & Contacts)...";
+
+                    // Contacts provider reuses Gmail OAuth tokens - use same authentication flow
+                    var contactsCredentials = await GetGoogleOAuthCredentialsAsync();
+                    if (contactsCredentials == null)
+                    {
+                        _logger.LogWarning("Google OAuth client credentials not available - redirecting to setup");
+                        NavigationStatus = "Google OAuth setup required - opening setup dialog...";
+                        await _dialogService.ShowGoogleOAuthSetupAsync();
+                        return;
+                    }
+
+                    var contactsAuthResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
+                        GoogleOAuthScopes.BasicGmail, // Reuse Gmail scopes for Contacts provider
+                        "google_",
+                        contactsCredentials.Value.clientId,
+                        contactsCredentials.Value.clientSecret);
+
+                    if (contactsAuthResult.IsSuccess)
+                    {
+                        _logger.LogInformation("Contacts OAuth authentication completed successfully (using Gmail tokens)");
+                        NavigationStatus = "Contacts authentication successful - refreshing status...";
+
+                        // Refresh provider status to reflect the change
+                        await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+
+                        NavigationStatus = "Contacts authentication completed";
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Contacts OAuth authentication failed: {Error}", contactsAuthResult.Error?.Message);
+                        NavigationStatus = $"Contacts authentication failed: {contactsAuthResult.Error?.Message}";
+                    }
                     break;
 
                 default:
@@ -508,54 +523,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>
-    /// Handle contacts authentication by initiating OAuth flow with contacts scope
-    /// </summary>
-    private async Task HandleContactsAuthenticationAsync()
-    {
-        try
-        {
-            _logger.LogInformation("Initiating Contacts OAuth authentication in browser");
-            NavigationStatus = "Opening browser for Google Contacts sign-in...";
-
-            // Retrieve Google OAuth client credentials from secure storage
-            var contactsCredentials = await GetGoogleOAuthCredentialsAsync();
-            if (contactsCredentials == null)
-            {
-                _logger.LogWarning("Google OAuth client credentials not available for Contacts - redirecting to setup");
-                NavigationStatus = "Google OAuth setup required - opening setup dialog...";
-                await _dialogService.ShowGoogleOAuthSetupAsync();
-                return;
-            }
-
-            var contactsAuthResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
-                GoogleOAuthScopes.GmailWithContacts,
-                "google_",
-                contactsCredentials.Value.clientId,
-                contactsCredentials.Value.clientSecret);
-
-            if (contactsAuthResult.IsSuccess)
-            {
-                _logger.LogInformation("Contacts OAuth authentication completed successfully");
-                NavigationStatus = "Contacts authentication successful - refreshing status...";
-
-                // Refresh provider status to reflect the change
-                await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
-
-                NavigationStatus = "Contacts authentication completed";
-            }
-            else
-            {
-                _logger.LogWarning("Contacts OAuth authentication failed: {Error}", contactsAuthResult.Error?.Message);
-                NavigationStatus = $"Contacts authentication failed: {contactsAuthResult.Error?.Message}";
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Exception during contacts authentication");
-            NavigationStatus = "Contacts authentication failed - check logs";
-        }
-    }
 
     /// <summary>
     /// Monitor CanAccessMainDashboard changes from provider dashboard
