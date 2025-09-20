@@ -9,6 +9,7 @@ public enum StartupStep
     InitializingStorage,
     InitializingSecurity,
     InitializingEmailProvider,
+    InitializingContactsProvider,
     InitializingLLMProvider,
     CheckingProviderHealth,
     Ready,

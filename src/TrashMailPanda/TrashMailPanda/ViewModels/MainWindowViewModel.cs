@@ -371,10 +371,25 @@ public partial class MainWindowViewModel : ViewModelBase
                     if (authResult.IsSuccess)
                     {
                         _logger.LogInformation("Gmail OAuth authentication completed successfully");
-                        NavigationStatus = "Gmail authentication successful - refreshing status...";
+                        NavigationStatus = "Gmail authentication successful - reinitializing provider...";
 
-                        // Refresh provider status to reflect the change
-                        await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+                        // Re-initialize Gmail provider to pick up new OAuth tokens
+                        var startupOrchestrator = _serviceProvider.GetRequiredService<IStartupOrchestrator>();
+                        var reinitResult = await startupOrchestrator.ReinitializeGmailProviderAsync();
+
+                        if (reinitResult.IsSuccess)
+                        {
+                            _logger.LogInformation("Gmail provider re-initialized successfully after OAuth");
+                            NavigationStatus = "Gmail provider connected successfully";
+
+                            // Now refresh status to reflect the healthy state
+                            await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Gmail provider re-initialization failed: {Error}", reinitResult.Error?.Message);
+                            NavigationStatus = "Gmail authentication completed but provider initialization failed";
+                        }
 
                         NavigationStatus = "Gmail authentication completed";
                     }
@@ -386,10 +401,10 @@ public partial class MainWindowViewModel : ViewModelBase
                     break;
 
                 case "contacts":
-                    _logger.LogInformation("Initiating Contacts authentication (reusing Gmail OAuth tokens)");
-                    NavigationStatus = "Opening browser for Google sign-in (Gmail & Contacts)...";
+                    _logger.LogInformation("Initiating Contacts authentication using shared Google OAuth");
+                    NavigationStatus = "Opening browser for Google sign-in (Gmail + Contacts)...";
 
-                    // Contacts provider reuses Gmail OAuth tokens - use same authentication flow
+                    // Contacts uses the same Google OAuth tokens as Gmail - expand the scope instead of separate tokens
                     var contactsCredentials = await GetGoogleOAuthCredentialsAsync();
                     if (contactsCredentials == null)
                     {
@@ -399,21 +414,45 @@ public partial class MainWindowViewModel : ViewModelBase
                         return;
                     }
 
+                    // Use expanded scopes that include both Gmail and People API access
+                    var expandedScopes = new[] {
+                        "https://www.googleapis.com/auth/gmail.modify",
+                        "https://www.googleapis.com/auth/contacts.readonly",
+                        "https://www.googleapis.com/auth/userinfo.profile"
+                    };
+
                     var contactsAuthResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
-                        GoogleOAuthScopes.BasicGmail, // Reuse Gmail scopes for Contacts provider
-                        "google_",
+                        expandedScopes, // Use expanded scopes for both Gmail and Contacts
+                        "google_", // Use same prefix as Gmail - shared Google OAuth tokens
                         contactsCredentials.Value.clientId,
                         contactsCredentials.Value.clientSecret);
 
                     if (contactsAuthResult.IsSuccess)
                     {
-                        _logger.LogInformation("Contacts OAuth authentication completed successfully (using Gmail tokens)");
-                        NavigationStatus = "Contacts authentication successful - refreshing status...";
+                        _logger.LogInformation("Google OAuth authentication completed successfully with expanded scopes (Gmail + Contacts)");
+                        NavigationStatus = "Google authentication successful - reinitializing providers...";
 
-                        // Refresh provider status to reflect the change
-                        await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+                        // Re-initialize both Gmail and Contacts providers to pick up expanded OAuth tokens
+                        var startupOrchestrator = _serviceProvider.GetRequiredService<IStartupOrchestrator>();
+                        var gmailReinitResult = await startupOrchestrator.ReinitializeGmailProviderAsync();
+                        var contactsReinitResult = await startupOrchestrator.ReinitializeContactsProviderAsync();
 
-                        NavigationStatus = "Contacts authentication completed";
+                        if (gmailReinitResult.IsSuccess && contactsReinitResult.IsSuccess)
+                        {
+                            _logger.LogInformation("Both Gmail and Contacts providers re-initialized successfully after OAuth");
+                            NavigationStatus = "Google providers connected successfully";
+
+                            // Now refresh status to reflect the healthy state
+                            await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Provider re-initialization failed - Gmail: {GmailSuccess}, Contacts: {ContactsSuccess}",
+                                gmailReinitResult.IsSuccess, contactsReinitResult.IsSuccess);
+                            NavigationStatus = "Google authentication completed but some providers failed to initialize";
+                        }
+
+                        NavigationStatus = "Google authentication completed";
                     }
                     else
                     {

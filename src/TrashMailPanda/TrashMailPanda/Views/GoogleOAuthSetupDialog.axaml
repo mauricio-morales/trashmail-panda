@@ -30,8 +30,8 @@
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="Gmail OAuth Setup" FontSize="18" FontWeight="Bold"/>
-                <TextBlock Text="Configure secure Gmail API access for email processing" FontSize="12" Foreground="Gray"/>
+                <TextBlock Text="Google OAuth Setup" FontSize="18" FontWeight="Bold"/>
+                <TextBlock Text="Configure secure Gmail and Contacts API access for email and contact processing" FontSize="12" Foreground="Gray"/>
             </StackPanel>
         </StackPanel>
 
@@ -49,16 +49,17 @@
             <ScrollViewer Grid.Column="0">
                 <StackPanel Spacing="20">
                     <StackPanel Spacing="15">
-                        <TextBlock Text="Step 1: Create OAuth Credentials" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Step 1: Setup Google Cloud Project" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         <Border Background="{DynamicResource BackgroundPrimary}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource BorderLight}" BorderThickness="1">
                             <StackPanel Spacing="6">
                                 <TextBlock Text="1. Go to Google Cloud Console" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="2. Create or select a project" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="3. Enable the Gmail API" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="4. Go to Credentials page" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="5. Create OAuth 2.0 Client ID" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="6. Choose 'Desktop application'" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="7. Copy Client ID and Secret" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="3. Enable APIs: Gmail API &amp; People API" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="4. Configure OAuth consent screen (see Step 2)" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="5. Go to Credentials page" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="6. Create OAuth 2.0 Client ID" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="7. Choose 'Desktop application'" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="8. Copy Client ID and Secret" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </Border>
                         
@@ -79,10 +80,11 @@
                         <TextBlock Text="Important Notes:" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         <Border Background="{DynamicResource StatusWarningBackground}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource StatusWarning}" BorderThickness="1">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="• Select 'Desktop application' as application type" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="• Enable both Gmail API and People API" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="• Configure OAuth consent screen with all 3 scopes" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="• Select 'Desktop application' as application type" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="• No need to configure redirect URIs in Console" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="• Keep your Client Secret secure" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Gmail API must be enabled for your project" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -93,7 +95,28 @@
             <ScrollViewer Grid.Column="2">
                 <StackPanel Spacing="20">
                     <StackPanel Spacing="15">
-                        <TextBlock Text="Step 2: Enter OAuth Credentials" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Step 2: Configure OAuth Consent Screen" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+
+                        <!-- OAuth Consent Screen Instructions -->
+                        <Border Background="{DynamicResource StatusWarningBackground}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource StatusWarning}" BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="⚠️ CRITICAL: Configure OAuth consent screen with required scopes:" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource StatusWarning}"/>
+                                <TextBlock Text="1. Go to 'OAuth consent screen' in Google Cloud Console" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="2. Click 'Edit App'" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="3. In 'Scopes' section, add these scopes:" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <Border Background="{DynamicResource BackgroundPrimary}" Padding="8" CornerRadius="4" Margin="8,4,8,4">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="• https://www.googleapis.com/auth/gmail.modify" FontSize="11" FontFamily="Consolas, Monaco, 'Courier New', monospace" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="• https://www.googleapis.com/auth/contacts.readonly" FontSize="11" FontFamily="Consolas, Monaco, 'Courier New', monospace" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="• https://www.googleapis.com/auth/userinfo.profile" FontSize="11" FontFamily="Consolas, Monaco, 'Courier New', monospace" Foreground="{DynamicResource TextSecondary}"/>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="4. Save changes" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="Without these scopes, OAuth authentication will fail!" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource StatusWarning}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Step 3: Enter OAuth Credentials" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         
                         <!-- Status Display -->
                         <Border Background="{DynamicResource BackgroundPrimary}" 
@@ -162,7 +185,7 @@
             <ScrollViewer Grid.Column="4">
                 <StackPanel Spacing="20">
                     <StackPanel Spacing="15">
-                        <TextBlock Text="Step 3: Authentication" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Step 4: Authentication" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         
                         <Border Background="{DynamicResource BackgroundPrimary}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource BorderLight}" BorderThickness="1">
                             <StackPanel Spacing="8">

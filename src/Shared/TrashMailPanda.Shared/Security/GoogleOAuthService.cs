@@ -604,39 +604,21 @@ public class GoogleOAuthService : IGoogleOAuthService
                 _logger.LogInformation("[OAUTH DEBUG] Error checking/clearing existing tokens: {Error}", ex.Message);
             }
 
-            // Request OAuth2 authorization using DIRECT OAuth flow with custom code receiver
-            _logger.LogInformation("[OAUTH DEBUG] Using DIRECT OAuth flow with AvaloniaCodeReceiver to force browser opening");
+            // Use standard GoogleWebAuthorizationBroker with custom code receiver to ensure proper scope handling
+            _logger.LogInformation("[OAUTH DEBUG] Using GoogleWebAuthorizationBroker with AvaloniaCodeReceiver to fix scope parameter handling");
 
             var codeReceiver = new AvaloniaCodeReceiver(_loggerFactory.CreateLogger<AvaloniaCodeReceiver>());
 
-            // Create OAuth flow directly instead of using GoogleWebAuthorizationBroker
-            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
-            {
-                ClientSecrets = clientSecrets,
-                Scopes = scopes,
-                DataStore = _dataStore
-            });
-
-            // Create authorization request
-            var request = flow.CreateAuthorizationCodeRequest(codeReceiver.RedirectUri);
-            request.Scope = string.Join(" ", scopes);
-
-            _logger.LogInformation("[OAUTH DEBUG] Starting direct OAuth flow - this WILL open browser");
-
-            // Get authorization code via our custom receiver (this will open browser)
-            var response = await codeReceiver.ReceiveCodeAsync(request, cancellationToken);
-
-            _logger.LogInformation("[OAUTH DEBUG] Received authorization code, exchanging for tokens");
-
-            // Exchange authorization code for tokens
-            var tokenResponse = await flow.ExchangeCodeForTokenAsync(
+            // Use GoogleWebAuthorizationBroker.AuthorizeAsync with custom code receiver for proper scope handling
+            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                clientSecrets,
+                scopes, // IEnumerable<string> - this should properly handle multiple scopes
                 "user",
-                response.Code,
-                codeReceiver.RedirectUri,
-                cancellationToken);
+                cancellationToken,
+                _dataStore,
+                codeReceiver); // Use our custom code receiver to control browser opening
 
-            // Create UserCredential from token
-            var credential = new UserCredential(flow, "user", tokenResponse);
+            _logger.LogInformation("[OAUTH DEBUG] GoogleWebAuthorizationBroker completed successfully");
 
             _logger.LogInformation("[OAUTH DEBUG] GoogleWebAuthorizationBroker.AuthorizeAsync completed, credential is null: {CredentialNull}",
                 credential == null);

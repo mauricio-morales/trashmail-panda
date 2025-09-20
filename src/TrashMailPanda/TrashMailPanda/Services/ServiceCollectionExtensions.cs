@@ -2,13 +2,21 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TrashMailPanda.Providers.Email;
+using TrashMailPanda.Providers.Email.Models;
 using TrashMailPanda.Providers.LLM;
 using TrashMailPanda.Providers.Storage;
+using TrashMailPanda.Providers.Contacts;
+using TrashMailPanda.Providers.Contacts.Models;
+using TrashMailPanda.Providers.Contacts.Services;
+using TrashMailPanda.Providers.Contacts.Adapters;
+using TrashMailPanda.Providers.Email.Services;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Shared.Services;
 using TrashMailPanda.ViewModels;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace TrashMailPanda.Services;
 
@@ -35,6 +43,7 @@ public static class ServiceCollectionExtensions
         services.Configure<EmailProviderConfig>(configuration.GetSection("EmailProvider"));
         services.Configure<LLMProviderConfig>(configuration.GetSection("LLMProvider"));
         services.Configure<StorageProviderConfig>(configuration.GetSection("StorageProvider"));
+        services.Configure<ContactsProviderConfig>(configuration.GetSection("ContactsProvider"));
 
         // Add security services
         services.AddSecurityServices();
@@ -92,8 +101,43 @@ public static class ServiceCollectionExtensions
             return new SqliteStorageProvider(databasePath, password);
         });
 
-        // Email and LLM providers are NOT registered here
-        // They will be created by application services after secrets are captured through UI
+        // Register providers as singletons - they exist immediately but operational state
+        // depends on credential availability at runtime (runtime credential-dependent pattern)
+
+        // Gmail provider dependencies
+        services.AddSingleton<IGmailRateLimitHandler, GmailRateLimitHandler>();
+
+        // Register Gmail Email Provider - will check credentials at runtime
+        services.AddSingleton<IEmailProvider, GmailEmailProvider>();
+
+        // Contacts provider dependencies
+        services.AddSingleton<ContactsCacheManager>();
+        services.AddSingleton<TrustSignalCalculator>();
+        services.AddSingleton<IMemoryCache, MemoryCache>();
+
+        // Register GoogleContactsAdapter with config resolution
+        services.AddSingleton<GoogleContactsAdapter>(provider =>
+        {
+            var config = provider.GetRequiredService<IOptions<ContactsProviderConfig>>().Value;
+            var googleOAuthService = provider.GetRequiredService<IGoogleOAuthService>();
+            var secureStorageManager = provider.GetRequiredService<ISecureStorageManager>();
+            var securityAuditLogger = provider.GetRequiredService<ISecurityAuditLogger>();
+            var phoneNumberService = provider.GetRequiredService<IPhoneNumberService>();
+            var logger = provider.GetRequiredService<ILogger<GoogleContactsAdapter>>();
+
+            return new GoogleContactsAdapter(
+                googleOAuthService,
+                secureStorageManager,
+                securityAuditLogger,
+                config,
+                phoneNumberService,
+                logger);
+        });
+
+        // Register Contacts Provider - will check credentials at runtime
+        services.AddSingleton<IContactsProvider, ContactsProvider>();
+
+        // LLM provider can be added here if needed
 
         return services;
     }
@@ -103,7 +147,19 @@ public static class ServiceCollectionExtensions
     /// </summary>
     private static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        services.AddSingleton<IStartupOrchestrator, StartupOrchestrator>();
+        // Register StartupOrchestrator with explicit provider injection
+        services.AddSingleton<IStartupOrchestrator>(provider =>
+            new StartupOrchestrator(
+                provider.GetRequiredService<ILogger<StartupOrchestrator>>(),
+                provider.GetRequiredService<IStorageProvider>(),
+                provider.GetRequiredService<ISecureStorageManager>(),
+                provider.GetRequiredService<IProviderStatusService>(),
+                provider.GetRequiredService<IProviderBridgeService>(),
+                provider,
+                provider.GetRequiredService<IEmailProvider>(), // Explicit injection of Gmail provider
+                null, // LLM provider not implemented yet
+                provider.GetRequiredService<IContactsProvider>() // Explicit injection of Contacts provider
+            ));
         services.AddSingleton<IProviderStatusService, ProviderStatusService>();
         services.AddSingleton<IApplicationService, ApplicationService>();
 

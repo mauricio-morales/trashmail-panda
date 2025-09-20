@@ -97,6 +97,8 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     {
         try
         {
+            Logger.LogInformation("[GMAIL INIT DEBUG] PerformInitializationAsync called - starting Gmail provider initialization");
+
             // Initialize secure storage
             var storageResult = await _secureStorageManager.InitializeAsync();
             if (!storageResult.IsSuccess)
@@ -843,8 +845,12 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     {
         try
         {
+            Logger.LogInformation("[GMAIL INIT DEBUG] Creating Gmail service, credential is null: {CredentialNull}", _credential == null);
+
             if (_credential == null)
             {
+                Logger.LogInformation("[GMAIL INIT DEBUG] Attempting to get existing credential from GoogleOAuthService with scopes: {Scopes}", string.Join(", ", config.Scopes));
+
                 // First try to get existing credential from shared GoogleOAuthService
                 var credentialResult = await _googleOAuthService.GetUserCredentialAsync(
                     config.Scopes,
@@ -853,12 +859,19 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
                     config.ClientSecret,
                     cancellationToken);
 
+                Logger.LogInformation("[GMAIL INIT DEBUG] GetUserCredentialAsync result: Success={Success}, Error={Error}",
+                    credentialResult.IsSuccess,
+                    credentialResult.IsFailure ? credentialResult.Error?.Message : "None");
+
                 if (credentialResult.IsSuccess)
                 {
                     _credential = credentialResult.Value;
+                    Logger.LogInformation("[GMAIL INIT DEBUG] Successfully retrieved existing credential from GoogleOAuthService");
                 }
                 else
                 {
+                    Logger.LogWarning("[GMAIL INIT DEBUG] Failed to get existing credential: {Error}", credentialResult.Error?.Message);
+
                     // No existing credential, perform OAuth flow
                     var authResult = await PerformOAuthFlowAsync(config, cancellationToken);
                     if (authResult.IsFailure)
