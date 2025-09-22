@@ -12,6 +12,7 @@ using TrashMailPanda.Providers.Contacts.Models;
 using TrashMailPanda.Providers.Contacts.Services;
 using TrashMailPanda.Providers.Contacts.Adapters;
 using TrashMailPanda.Providers.Email.Services;
+using TrashMailPanda.Providers.GoogleServices;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Shared.Services;
@@ -44,6 +45,7 @@ public static class ServiceCollectionExtensions
         services.Configure<LLMProviderConfig>(configuration.GetSection("LLMProvider"));
         services.Configure<StorageProviderConfig>(configuration.GetSection("StorageProvider"));
         services.Configure<ContactsProviderConfig>(configuration.GetSection("ContactsProvider"));
+        services.Configure<GoogleServicesProviderConfig>(configuration.GetSection("GoogleServicesProvider"));
 
         // Add security services
         services.AddSecurityServices();
@@ -70,6 +72,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISecureStorageManager, SecureStorageManager>();
         services.AddSingleton<ISecurityAuditLogger, SecurityAuditLogger>();
         services.AddSingleton<ITokenRotationService, TokenRotationService>();
+        services.AddSingleton<IGoogleTokenMigrationService, GoogleTokenMigrationService>();
+        services.AddSingleton<IConfigurationMigrationService, ConfigurationMigrationService>();
 
         // Register unified Google OAuth service for all Google APIs (Gmail, Contacts, etc.)
         services.AddSingleton<IGoogleOAuthService, GoogleOAuthService>();
@@ -136,6 +140,24 @@ public static class ServiceCollectionExtensions
 
         // Register Contacts Provider - will check credentials at runtime
         services.AddSingleton<IContactsProvider, ContactsProvider>();
+
+        // Register GoogleServicesProvider as a unified provider for both Gmail and Contacts
+        // This uses the delegation pattern to provide both IEmailProvider and IContactsProvider interfaces
+        services.AddSingleton<GoogleServicesProvider>(provider =>
+        {
+            var gmailProvider = provider.GetRequiredService<IEmailProvider>() as GmailEmailProvider;
+            var contactsProvider = provider.GetRequiredService<IContactsProvider>() as ContactsProvider;
+            var googleOAuthService = provider.GetRequiredService<IGoogleOAuthService>();
+            var secureStorageManager = provider.GetRequiredService<ISecureStorageManager>();
+            var logger = provider.GetRequiredService<ILogger<GoogleServicesProvider>>();
+
+            return new GoogleServicesProvider(
+                gmailProvider!,
+                contactsProvider!,
+                googleOAuthService,
+                secureStorageManager,
+                logger);
+        });
 
         // LLM provider can be added here if needed
 

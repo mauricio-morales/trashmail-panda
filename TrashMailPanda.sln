@@ -25,6 +25,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Contacts", "Contacts", "{C6
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrashMailPanda.Providers.Contacts", "src\Providers\Contacts\TrashMailPanda.Providers.Contacts\TrashMailPanda.Providers.Contacts.csproj", "{BE365F45-4176-4466-9962-AF9FC6D3BE39}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "GoogleServices", "GoogleServices", "{B1A620CF-B784-03CC-8641-DB305EA6DAF2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrashMailPanda.Providers.GoogleServices", "src\Providers\GoogleServices\TrashMailPanda.Providers.GoogleServices\TrashMailPanda.Providers.GoogleServices.csproj", "{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -119,6 +123,18 @@ Global
 		{BE365F45-4176-4466-9962-AF9FC6D3BE39}.Release|x64.Build.0 = Release|Any CPU
 		{BE365F45-4176-4466-9962-AF9FC6D3BE39}.Release|x86.ActiveCfg = Release|Any CPU
 		{BE365F45-4176-4466-9962-AF9FC6D3BE39}.Release|x86.Build.0 = Release|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Debug|x64.Build.0 = Debug|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Debug|x86.Build.0 = Debug|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Release|x64.ActiveCfg = Release|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Release|x64.Build.0 = Release|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Release|x86.ActiveCfg = Release|Any CPU
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -134,5 +150,7 @@ Global
 		{4158EF5F-2C93-D6F3-98CF-1EDBE6F18EA0} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C626AA52-CA33-F46A-E26D-F9A2915A862C} = {4158EF5F-2C93-D6F3-98CF-1EDBE6F18EA0}
 		{BE365F45-4176-4466-9962-AF9FC6D3BE39} = {C626AA52-CA33-F46A-E26D-F9A2915A862C}
+		{B1A620CF-B784-03CC-8641-DB305EA6DAF2} = {4158EF5F-2C93-D6F3-98CF-1EDBE6F18EA0}
+		{9A2F8573-8E06-49F3-BD36-59E899A9C3C3} = {B1A620CF-B784-03CC-8641-DB305EA6DAF2}
 	EndGlobalSection
 EndGlobal

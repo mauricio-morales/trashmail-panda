@@ -14,6 +14,7 @@ using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.Contacts;
 using TrashMailPanda.Providers.Contacts.Models;
+using TrashMailPanda.Providers.GoogleServices;
 
 namespace TrashMailPanda.Services;
 
@@ -154,6 +155,48 @@ public class StartupOrchestrator : IStartupOrchestrator
         {
             _logger.LogError(ex, "Failed to re-initialize Contacts provider");
             return Result<bool>.Failure(new InitializationError($"Contacts re-initialization failed: {ex.Message}", ex.ToString(), ex));
+        }
+    }
+
+    /// <summary>
+    /// Re-initializes the unified Google Services provider with stored OAuth credentials
+    /// Used after successful OAuth authentication to pick up new tokens for both Gmail and Contacts
+    /// </summary>
+    public async Task<Result<bool>> ReinitializeGoogleServicesProviderAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Re-initializing unified Google Services provider with stored credentials");
+
+            // Attempt token migration first
+            var migrationService = _serviceProvider.GetService<IGoogleTokenMigrationService>();
+            if (migrationService != null)
+            {
+                var migrationNeededResult = await migrationService.IsMigrationNeededAsync(cancellationToken);
+                if (migrationNeededResult.IsSuccess && migrationNeededResult.Value)
+                {
+                    _logger.LogInformation("Token migration needed, performing migration from gmail_ to google_ prefix");
+                    var migrationResult = await migrationService.MigrateTokensAsync(preserveLegacyTokens: false, cancellationToken);
+                    if (migrationResult.IsSuccess)
+                    {
+                        _logger.LogInformation("Token migration completed successfully: {TokensMigrated} migrated, {TokensSkipped} skipped",
+                            migrationResult.Value.TokensMigrated, migrationResult.Value.TokensSkipped);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Token migration failed: {Error}", migrationResult.Error?.Message);
+                    }
+                }
+            }
+
+            await InitializeGoogleServicesProviderAsync(cancellationToken);
+            _logger.LogInformation("Google Services provider re-initialization completed successfully");
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to re-initialize Google Services provider");
+            return Result<bool>.Failure(new InitializationError($"Google Services re-initialization failed: {ex.Message}", ex.ToString(), ex));
         }
     }
 
@@ -450,6 +493,52 @@ public class StartupOrchestrator : IStartupOrchestrator
             _logger.LogError(ex, "Failed to initialize LLM provider");
             UpdateProgressWithError(StartupStep.InitializingLLMProvider, "LLM provider initialization failed", ex.Message);
             throw new InvalidOperationException("LLM provider initialization failed", ex);
+        }
+    }
+
+    private async Task InitializeGoogleServicesProviderAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("[GOOGLE SERVICES INIT] Starting unified Google Services provider initialization");
+
+            // Get the unified GoogleServicesProvider from DI
+            var googleServicesProvider = _serviceProvider.GetService<GoogleServicesProvider>();
+
+            if (googleServicesProvider != null)
+            {
+                _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider instance found, checking initialization");
+
+                // The GoogleServicesProvider uses delegation, so we can check if it's already initialized
+                // by checking the health of its delegated providers
+                var healthResult = await googleServicesProvider.HealthCheckAsync(cancellationToken);
+
+                if (healthResult.IsSuccess && healthResult.Value.IsHealthy)
+                {
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] ✅ Google Services provider is already healthy and initialized");
+                }
+                else
+                {
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider needs initialization - health status: {Status}",
+                        healthResult.IsSuccess ? healthResult.Value.Status : "Failed to check health");
+
+                    // Since the GoogleServicesProvider delegates to existing providers, the individual
+                    // provider initialization in ExecuteStartupSequenceAsync should handle the actual setup
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Unified provider delegates to individual providers for initialization");
+                }
+            }
+            else
+            {
+                _logger.LogInformation("[GOOGLE SERVICES INIT] No unified Google Services provider instance registered - individual providers will be used");
+            }
+
+            _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider initialization process completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[GOOGLE SERVICES INIT] ❌ Exception during Google Services provider initialization");
+            // Don't throw - unified provider is optional, individual providers should still work
+            _logger.LogWarning("[GOOGLE SERVICES INIT] Unified provider initialization failed, falling back to individual providers");
         }
     }
 

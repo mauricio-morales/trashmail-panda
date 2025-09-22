@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AssemblyTitle>TrashMail Panda Google Services Provider</AssemblyTitle>
+    <Description>Unified Google Services Provider for TrashMail Panda that consolidates Gmail and Contacts functionality under a single OAuth flow</Description>
+    <Product>TrashMail Panda</Product>
+    <Copyright>Copyright © 2024</Copyright>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../Shared/TrashMailPanda.Shared/TrashMailPanda.Shared.csproj" />
+    <ProjectReference Include="../../Email/TrashMailPanda.Providers.Email/TrashMailPanda.Providers.Email.csproj" />
+    <ProjectReference Include="../../Contacts/TrashMailPanda.Providers.Contacts/TrashMailPanda.Providers.Contacts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Apis.Gmail.v1" Version="1.70.0.3833" />
+    <PackageReference Include="Google.Apis.PeopleService.v1" Version="1.69.0.3785" />
+    <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>
