@@ -8,6 +8,7 @@ public enum StartupStep
     Initializing,
     InitializingStorage,
     InitializingSecurity,
+    InitializingGoogleServices,
     InitializingEmailProvider,
     InitializingContactsProvider,
     InitializingLLMProvider,

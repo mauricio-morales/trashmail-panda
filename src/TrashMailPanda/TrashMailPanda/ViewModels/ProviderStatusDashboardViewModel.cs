@@ -130,6 +130,9 @@ public partial class ProviderStatusDashboardViewModel : ViewModelBase
             {
                 var cardViewModel = new ProviderStatusCardViewModel(providerInfo);
 
+                // Enhanced card for GoogleServices with sub-service indicators
+                // Note: Enhanced sub-service functionality can be added when ProviderStatusCardViewModel supports metadata
+
                 // Subscribe to card events
                 cardViewModel.SetupRequested += OnProviderSetupRequested;
                 cardViewModel.ConfigurationRequested += OnProviderConfigurationRequested;

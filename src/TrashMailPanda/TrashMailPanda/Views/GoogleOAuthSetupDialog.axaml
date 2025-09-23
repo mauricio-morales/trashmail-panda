@@ -6,7 +6,7 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
         x:Class="TrashMailPanda.Views.GoogleOAuthSetupDialog"
         x:DataType="vm:GoogleOAuthSetupViewModel"
-        Title="Google OAuth Setup"
+        Title="Google Services Setup"
         Width="1200" Height="700"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
@@ -25,13 +25,13 @@
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="0,0,0,20">
-            <Border Background="{DynamicResource StatusError}" Width="40" Height="40" CornerRadius="20">
-                <Image Source="/Assets/Logos/gmail-logo.png" Width="20" Height="20"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <Border Background="{DynamicResource AccentBlue}" Width="40" Height="40" CornerRadius="20">
+                <TextBlock Text="🔗" FontSize="18" Foreground="White"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="Google OAuth Setup" FontSize="18" FontWeight="Bold"/>
-                <TextBlock Text="Configure secure Gmail and Contacts API access for email and contact processing" FontSize="12" Foreground="Gray"/>
+                <TextBlock Text="Google Services Setup" FontSize="18" FontWeight="Bold"/>
+                <TextBlock Text="Configure unified Google account access for Gmail email processing and Contacts integration" FontSize="12" Foreground="Gray"/>
             </StackPanel>
         </StackPanel>
 
@@ -191,9 +191,9 @@
                             <StackPanel Spacing="8">
                                 <TextBlock Text="After saving OAuth credentials:" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="• Browser window will open" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Sign in to your Gmail account" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Grant TrashMail Panda access" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Access tokens will be saved securely" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="• Sign in to your Google account" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="• Grant TrashMail Panda unified access" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="• Gmail and Contacts access tokens saved" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -222,8 +222,8 @@
                             BorderThickness="1">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock Text="✅" FontSize="16"/>
-                            <TextBlock Text="OAuth credentials saved! Gmail authentication will begin..." 
-                                      FontSize="13" 
+                            <TextBlock Text="OAuth credentials saved! Google Services authentication will begin..."
+                                      FontSize="13"
                                       Foreground="{DynamicResource StatusSuccess}"
                                       TextWrapping="Wrap"
                                       VerticalAlignment="Center"/>

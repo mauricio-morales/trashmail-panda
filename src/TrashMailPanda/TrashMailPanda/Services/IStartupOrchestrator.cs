@@ -40,4 +40,11 @@ public interface IStartupOrchestrator
     /// </summary>
     /// <param name="cancellationToken">Cancellation token for the operation</param>
     Task<Result<bool>> ReinitializeContactsProviderAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-initializes the unified Google Services provider with stored OAuth credentials
+    /// Used after successful OAuth authentication to pick up new tokens for both Gmail and Contacts
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token for the operation</param>
+    Task<Result<bool>> ReinitializeGoogleServicesProviderAsync(CancellationToken cancellationToken = default);
 }

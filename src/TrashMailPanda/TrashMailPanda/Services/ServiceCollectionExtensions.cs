@@ -111,9 +111,6 @@ public static class ServiceCollectionExtensions
         // Gmail provider dependencies
         services.AddSingleton<IGmailRateLimitHandler, GmailRateLimitHandler>();
 
-        // Register Gmail Email Provider - will check credentials at runtime
-        services.AddSingleton<IEmailProvider, GmailEmailProvider>();
-
         // Contacts provider dependencies
         services.AddSingleton<ContactsCacheManager>();
         services.AddSingleton<TrustSignalCalculator>();
@@ -138,26 +135,41 @@ public static class ServiceCollectionExtensions
                 logger);
         });
 
-        // Register Contacts Provider - will check credentials at runtime
-        services.AddSingleton<IContactsProvider, ContactsProvider>();
-
-        // Register GoogleServicesProvider as a unified provider for both Gmail and Contacts
-        // This uses the delegation pattern to provide both IEmailProvider and IContactsProvider interfaces
+        // Create GoogleServicesProvider with DIRECT dependency creation (no interface resolution)
         services.AddSingleton<GoogleServicesProvider>(provider =>
         {
-            var gmailProvider = provider.GetRequiredService<IEmailProvider>() as GmailEmailProvider;
-            var contactsProvider = provider.GetRequiredService<IContactsProvider>() as ContactsProvider;
+            // Create sub-providers DIRECTLY with their own dependencies
+            var gmailRateLimitHandler = provider.GetRequiredService<IGmailRateLimitHandler>();
             var googleOAuthService = provider.GetRequiredService<IGoogleOAuthService>();
             var secureStorageManager = provider.GetRequiredService<ISecureStorageManager>();
-            var logger = provider.GetRequiredService<ILogger<GoogleServicesProvider>>();
+            var securityAuditLogger = provider.GetRequiredService<ISecurityAuditLogger>();
+            var dataStore = provider.GetRequiredService<Google.Apis.Util.Store.IDataStore>();
+            var memoryCache = provider.GetRequiredService<IMemoryCache>();
+            var gmailLogger = provider.GetRequiredService<ILogger<GmailEmailProvider>>();
+            var contactsLogger = provider.GetRequiredService<ILogger<ContactsProvider>>();
+            var unifiedLogger = provider.GetRequiredService<ILogger<GoogleServicesProvider>>();
+            var googleContactsAdapter = provider.GetRequiredService<GoogleContactsAdapter>();
+            var contactsCacheManager = provider.GetRequiredService<ContactsCacheManager>();
+            var trustSignalCalculator = provider.GetRequiredService<TrustSignalCalculator>();
+            var contactsConfigOptions = provider.GetRequiredService<IOptionsMonitor<ContactsProviderConfig>>();
+
+            // Create sub-providers directly (CRITICAL: not through interface resolution)
+            var gmailProvider = new GmailEmailProvider(
+                secureStorageManager, gmailRateLimitHandler, dataStore, securityAuditLogger, googleOAuthService, gmailLogger);
+            var contactsProvider = new ContactsProvider(
+                contactsCacheManager, trustSignalCalculator, googleContactsAdapter, memoryCache,
+                secureStorageManager, securityAuditLogger, contactsConfigOptions, contactsLogger);
 
             return new GoogleServicesProvider(
-                gmailProvider!,
-                contactsProvider!,
-                googleOAuthService,
-                secureStorageManager,
-                logger);
+                gmailProvider, contactsProvider, googleOAuthService,
+                secureStorageManager, unifiedLogger);
         });
+
+        // Forward interface registrations to shared unified instance
+        services.AddSingleton<IEmailProvider>(provider =>
+            provider.GetRequiredService<GoogleServicesProvider>());
+        services.AddSingleton<IContactsProvider>(provider =>
+            provider.GetRequiredService<GoogleServicesProvider>());
 
         // LLM provider can be added here if needed
 

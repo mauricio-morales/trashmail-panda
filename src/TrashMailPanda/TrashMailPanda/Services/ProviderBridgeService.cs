@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TrashMailPanda.Models;
 using TrashMailPanda.Providers.Email;
+using TrashMailPanda.Providers.GoogleServices;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
@@ -24,18 +25,18 @@ public class ProviderBridgeService : IProviderBridgeService
     // Provider display information for UI
     private static readonly Dictionary<string, ProviderDisplayInfo> _providerDisplayInfo = new()
     {
-        ["Gmail"] = new()
+        ["GoogleServices"] = new()
         {
-            Name = "Gmail",
-            DisplayName = "Gmail",
-            Description = "Connect to your Gmail account for email processing and cleanup",
-            Type = ProviderType.Email,
+            Name = "GoogleServices",
+            DisplayName = "Google Services",
+            Description = "Connect Gmail and Contacts with unified Google account authentication",
+            Type = ProviderType.Email, // Primary type for unified services
             IsRequired = true,
             AllowsMultiple = false,
-            Icon = "📧",
+            Icon = "🔗", // Unified services icon
             Complexity = SetupComplexity.Moderate,
             EstimatedSetupTimeMinutes = 3,
-            Prerequisites = "Gmail account and web browser access"
+            Prerequisites = "Google account and web browser access"
         },
         ["OpenAI"] = new()
         {
@@ -62,19 +63,6 @@ public class ProviderBridgeService : IProviderBridgeService
             Complexity = SetupComplexity.Simple,
             EstimatedSetupTimeMinutes = 0,
             Prerequisites = "None - automatically configured"
-        },
-        ["Contacts"] = new()
-        {
-            Name = "Contacts",
-            DisplayName = "Google Contacts",
-            Description = "Enhanced email classification using Google Contacts for trust signals",
-            Type = ProviderType.Contacts,
-            IsRequired = false,
-            AllowsMultiple = false,
-            Icon = "👥",
-            Complexity = SetupComplexity.Moderate,
-            EstimatedSetupTimeMinutes = 2,
-            Prerequisites = "Gmail already configured with expanded permissions"
         }
     };
 
@@ -536,6 +524,162 @@ public class ProviderBridgeService : IProviderBridgeService
     }
 
     /// <summary>
+    /// Get Google Services provider status with unified authentication
+    /// </summary>
+    public async Task<Result<ProviderStatus>> GetGoogleServicesProviderStatusAsync()
+    {
+        try
+        {
+            _logger.LogDebug("Checking Google Services provider status");
+
+            var status = new ProviderStatus
+            {
+                Name = "GoogleServices",
+                LastCheck = DateTime.UtcNow,
+                Details = new Dictionary<string, object>
+                {
+                    { "type", "GoogleServices" },
+                    { "provider_version", "1.0.0" },
+                    { "services", new[] { "Gmail", "Contacts" } }
+                }
+            };
+
+            // Check if OAuth client credentials are configured
+            var hasClientCredentials = await HasGmailClientCredentialsAsync();
+
+            // Check if session tokens exist and are valid
+            var hasValidSession = await HasValidGmailSessionAsync();
+
+            // Determine provider state based on credential availability
+            if (!hasClientCredentials)
+            {
+                // No OAuth client configured - needs initial setup
+                status = status with
+                {
+                    IsHealthy = false,
+                    IsInitialized = false,
+                    RequiresSetup = true,
+                    Status = "OAuth Setup Required",
+                    ErrorMessage = "Google OAuth client credentials not configured"
+                };
+            }
+            else if (!hasValidSession)
+            {
+                // Client configured but no valid session - needs user authentication
+                status = status with
+                {
+                    IsHealthy = false,
+                    IsInitialized = true, // Client is configured
+                    RequiresSetup = false, // Don't need client setup
+                    Status = "Authentication Required",
+                    ErrorMessage = "Google session expired - please sign in again"
+                };
+            }
+            else
+            {
+                // Both client and session are available - perform health check
+                try
+                {
+                    _logger.LogDebug("Performing health check for Google Services provider");
+
+                    // Use the unified provider's health check method
+                    if (_emailProvider is GoogleServicesProvider googleServicesProvider)
+                    {
+                        var healthCheckResult = await googleServicesProvider.HealthCheckAsync(CancellationToken.None);
+
+                        if (healthCheckResult.IsSuccess)
+                        {
+                            var healthResult = healthCheckResult.Value;
+                            status = status with
+                            {
+                                IsHealthy = healthResult.Status == HealthStatus.Healthy,
+                                IsInitialized = true,
+                                RequiresSetup = false,
+                                Status = healthResult.Status == HealthStatus.Healthy ? "Connected" : "Authentication Required",
+                                ErrorMessage = healthResult.Status != HealthStatus.Healthy ? healthResult.Description : null,
+                                Details = new Dictionary<string, object>
+                                {
+                                    { "type", "GoogleServices" },
+                                    { "last_check", DateTime.UtcNow },
+                                    { "health_status", healthResult.Status.ToString() },
+                                    { "health_description", healthResult.Description ?? "No details" },
+                                    { "services", new[] { "Gmail", "Contacts" } }
+                                }
+                            };
+
+                            // Get authenticated user info if healthy
+                            if (healthResult.Status == HealthStatus.Healthy)
+                            {
+                                try
+                                {
+                                    var userResult = await googleServicesProvider.GetAuthenticatedUserAsync();
+                                    if (userResult.IsSuccess && userResult.Value != null)
+                                    {
+                                        status = status with
+                                        {
+                                            AuthenticatedUser = userResult.Value
+                                        };
+                                        status.Details["user_email"] = userResult.Value.Email;
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Failed to get authenticated user info from Google Services provider");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Health check failed
+                            status = status with
+                            {
+                                IsHealthy = false,
+                                IsInitialized = false,
+                                RequiresSetup = false,
+                                Status = "Authentication Required",
+                                ErrorMessage = healthCheckResult.Error.Message
+                            };
+                        }
+                    }
+                    else
+                    {
+                        // Fallback to Gmail connectivity test
+                        var connectivityResult = await TestGmailConnectivityAsync();
+                        status = status with
+                        {
+                            IsHealthy = connectivityResult.IsSuccess,
+                            IsInitialized = true,
+                            RequiresSetup = false,
+                            Status = connectivityResult.IsSuccess ? "Connected" : "Authentication Required",
+                            ErrorMessage = connectivityResult.IsSuccess ? null : connectivityResult.Error?.Message
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Exception during Google Services provider health check");
+                    status = status with
+                    {
+                        IsHealthy = false,
+                        IsInitialized = false,
+                        RequiresSetup = false,
+                        Status = "Authentication Required",
+                        ErrorMessage = ex.Message
+                    };
+                }
+            }
+
+            _logger.LogDebug("Google Services provider status: {Status} (Healthy: {IsHealthy})", status.Status, status.IsHealthy);
+            return Result<ProviderStatus>.Success(status);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception checking Google Services provider status");
+            return Result<ProviderStatus>.Failure(new ProcessingError($"Status check failed: {ex.Message}"));
+        }
+    }
+
+    /// <summary>
     /// Get status for all providers
     /// </summary>
     public async Task<Dictionary<string, ProviderStatus>> GetAllProviderStatusAsync()
@@ -545,10 +689,9 @@ public class ProviderBridgeService : IProviderBridgeService
         // Execute provider status checks in parallel
         var tasks = new[]
         {
-            GetEmailProviderStatusAsync(),
+            GetGoogleServicesProviderStatusAsync(),
             GetLLMProviderStatusAsync(),
-            GetStorageProviderStatusAsync(),
-            GetContactsProviderStatusAsync()
+            GetStorageProviderStatusAsync()
         };
 
         var statuses = await Task.WhenAll(tasks);
@@ -566,10 +709,9 @@ public class ProviderBridgeService : IProviderBridgeService
                 // Create error status for failed provider
                 var providerName = i switch
                 {
-                    0 => "Gmail",
+                    0 => "GoogleServices",
                     1 => "OpenAI",
                     2 => "SQLite",
-                    3 => "Contacts",
                     _ => "Unknown"
                 };
 
@@ -845,6 +987,11 @@ public interface IProviderBridgeService
     /// Get provider display information for UI
     /// </summary>
     IReadOnlyDictionary<string, ProviderDisplayInfo> GetProviderDisplayInfo();
+
+    /// <summary>
+    /// Get Google Services provider status
+    /// </summary>
+    Task<Result<ProviderStatus>> GetGoogleServicesProviderStatusAsync();
 
     /// <summary>
     /// Get email provider status

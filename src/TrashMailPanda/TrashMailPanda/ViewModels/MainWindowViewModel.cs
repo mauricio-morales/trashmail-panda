@@ -233,6 +233,7 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 case "gmail":
                 case "contacts":
+                case "googleservices":
                     _logger.LogInformation("Opening Google OAuth setup dialog for {Provider}", providerName);
                     var googleResult = await _dialogService.ShowGoogleOAuthSetupAsync();
                     NavigationStatus = googleResult ? "Google OAuth setup completed" : "Google OAuth setup cancelled";
@@ -278,22 +279,11 @@ public partial class MainWindowViewModel : ViewModelBase
             switch (providerName?.ToLowerInvariant())
             {
                 case "gmail":
-                    _logger.LogInformation("Opening Google OAuth setup dialog for {Provider} configuration", providerName);
-                    var gmailSetupResult = await _dialogService.ShowGoogleOAuthSetupAsync();
-                    if (gmailSetupResult)
-                    {
-                        NavigationStatus = "Google OAuth setup completed successfully";
-                    }
-                    else
-                    {
-                        NavigationStatus = "Google OAuth setup was cancelled";
-                    }
-                    break;
-
                 case "contacts":
-                    _logger.LogInformation("Opening Google OAuth setup dialog for {Provider} configuration (shared with Gmail)", providerName);
-                    var contactsSetupResult = await _dialogService.ShowGoogleOAuthSetupAsync();
-                    if (contactsSetupResult)
+                case "googleservices":
+                    _logger.LogInformation("Opening Google OAuth setup dialog for {Provider} configuration", providerName);
+                    var googleSetupResult = await _dialogService.ShowGoogleOAuthSetupAsync();
+                    if (googleSetupResult)
                     {
                         NavigationStatus = "Google OAuth setup completed successfully";
                     }
@@ -349,64 +339,14 @@ public partial class MainWindowViewModel : ViewModelBase
             switch (providerName?.ToLowerInvariant())
             {
                 case "gmail":
-                    _logger.LogInformation("Initiating Gmail OAuth authentication in browser");
-                    NavigationStatus = "Opening browser for Gmail sign-in...";
-
-                    // Retrieve Google OAuth client credentials from secure storage
-                    var gmailCredentials = await GetGoogleOAuthCredentialsAsync();
-                    if (gmailCredentials == null)
-                    {
-                        _logger.LogWarning("Gmail OAuth client credentials not available - redirecting to setup");
-                        NavigationStatus = "Gmail OAuth setup required - opening setup dialog...";
-                        await _dialogService.ShowGoogleOAuthSetupAsync();
-                        return;
-                    }
-
-                    var authResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
-                        GoogleOAuthScopes.BasicGmail,
-                        "google_",
-                        gmailCredentials.Value.clientId,
-                        gmailCredentials.Value.clientSecret);
-
-                    if (authResult.IsSuccess)
-                    {
-                        _logger.LogInformation("Gmail OAuth authentication completed successfully");
-                        NavigationStatus = "Gmail authentication successful - reinitializing provider...";
-
-                        // Re-initialize Gmail provider to pick up new OAuth tokens
-                        var startupOrchestrator = _serviceProvider.GetRequiredService<IStartupOrchestrator>();
-                        var reinitResult = await startupOrchestrator.ReinitializeGmailProviderAsync();
-
-                        if (reinitResult.IsSuccess)
-                        {
-                            _logger.LogInformation("Gmail provider re-initialized successfully after OAuth");
-                            NavigationStatus = "Gmail provider connected successfully";
-
-                            // Now refresh status to reflect the healthy state
-                            await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Gmail provider re-initialization failed: {Error}", reinitResult.Error?.Message);
-                            NavigationStatus = "Gmail authentication completed but provider initialization failed";
-                        }
-
-                        NavigationStatus = "Gmail authentication completed";
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Gmail OAuth authentication failed: {Error}", authResult.Error?.Message);
-                        NavigationStatus = $"Gmail authentication failed: {authResult.Error?.Message}";
-                    }
-                    break;
-
                 case "contacts":
-                    _logger.LogInformation("Initiating Contacts authentication using shared Google OAuth");
+                case "googleservices":
+                    _logger.LogInformation("Initiating unified Google Services OAuth authentication in browser");
                     NavigationStatus = "Opening browser for Google sign-in (Gmail + Contacts)...";
 
-                    // Contacts uses the same Google OAuth tokens as Gmail - expand the scope instead of separate tokens
-                    var contactsCredentials = await GetGoogleOAuthCredentialsAsync();
-                    if (contactsCredentials == null)
+                    // Retrieve Google OAuth client credentials from secure storage
+                    var googleCredentials = await GetGoogleOAuthCredentialsAsync();
+                    if (googleCredentials == null)
                     {
                         _logger.LogWarning("Google OAuth client credentials not available - redirecting to setup");
                         NavigationStatus = "Google OAuth setup required - opening setup dialog...";
@@ -415,49 +355,47 @@ public partial class MainWindowViewModel : ViewModelBase
                     }
 
                     // Use expanded scopes that include both Gmail and People API access
-                    var expandedScopes = new[] {
+                    var unifiedScopes = new[] {
                         "https://www.googleapis.com/auth/gmail.modify",
                         "https://www.googleapis.com/auth/contacts.readonly",
                         "https://www.googleapis.com/auth/userinfo.profile"
                     };
 
-                    var contactsAuthResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
-                        expandedScopes, // Use expanded scopes for both Gmail and Contacts
-                        "google_", // Use same prefix as Gmail - shared Google OAuth tokens
-                        contactsCredentials.Value.clientId,
-                        contactsCredentials.Value.clientSecret);
+                    var authResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
+                        unifiedScopes, // Use expanded scopes for both Gmail and Contacts
+                        "google_", // Use shared prefix - unified Google OAuth tokens
+                        googleCredentials.Value.clientId,
+                        googleCredentials.Value.clientSecret);
 
-                    if (contactsAuthResult.IsSuccess)
+                    if (authResult.IsSuccess)
                     {
-                        _logger.LogInformation("Google OAuth authentication completed successfully with expanded scopes (Gmail + Contacts)");
-                        NavigationStatus = "Google authentication successful - reinitializing providers...";
+                        _logger.LogInformation("Google Services OAuth authentication completed successfully with unified scopes");
+                        NavigationStatus = "Google authentication successful - reinitializing services...";
 
-                        // Re-initialize both Gmail and Contacts providers to pick up expanded OAuth tokens
+                        // Re-initialize unified Google Services provider to pick up new OAuth tokens
                         var startupOrchestrator = _serviceProvider.GetRequiredService<IStartupOrchestrator>();
-                        var gmailReinitResult = await startupOrchestrator.ReinitializeGmailProviderAsync();
-                        var contactsReinitResult = await startupOrchestrator.ReinitializeContactsProviderAsync();
+                        var reinitResult = await startupOrchestrator.ReinitializeGoogleServicesProviderAsync();
 
-                        if (gmailReinitResult.IsSuccess && contactsReinitResult.IsSuccess)
+                        if (reinitResult.IsSuccess)
                         {
-                            _logger.LogInformation("Both Gmail and Contacts providers re-initialized successfully after OAuth");
-                            NavigationStatus = "Google providers connected successfully";
+                            _logger.LogInformation("Google Services provider re-initialized successfully after OAuth");
+                            NavigationStatus = "Google Services connected successfully";
 
                             // Now refresh status to reflect the healthy state
                             await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
                         }
                         else
                         {
-                            _logger.LogWarning("Provider re-initialization failed - Gmail: {GmailSuccess}, Contacts: {ContactsSuccess}",
-                                gmailReinitResult.IsSuccess, contactsReinitResult.IsSuccess);
-                            NavigationStatus = "Google authentication completed but some providers failed to initialize";
+                            _logger.LogWarning("Google Services provider re-initialization failed: {Error}", reinitResult.Error?.Message);
+                            NavigationStatus = "Google authentication completed but provider initialization failed";
                         }
 
-                        NavigationStatus = "Google authentication completed";
+                        NavigationStatus = "Google Services authentication completed";
                     }
                     else
                     {
-                        _logger.LogWarning("Contacts OAuth authentication failed: {Error}", contactsAuthResult.Error?.Message);
-                        NavigationStatus = $"Contacts authentication failed: {contactsAuthResult.Error?.Message}";
+                        _logger.LogWarning("Google Services OAuth authentication failed: {Error}", authResult.Error?.Message);
+                        NavigationStatus = $"Google Services authentication failed: {authResult.Error?.Message}";
                     }
                     break;
 

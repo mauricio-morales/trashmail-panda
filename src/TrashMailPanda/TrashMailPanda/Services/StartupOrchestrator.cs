@@ -38,7 +38,7 @@ public class StartupOrchestrator : IStartupOrchestrator
 
     public event EventHandler<StartupProgressChangedEventArgs>? ProgressChanged;
 
-    private const int TotalSteps = 7;
+    private const int TotalSteps = 6;
     private const int DefaultTimeoutMinutes = 5;
 
     public StartupOrchestrator(
@@ -215,27 +215,22 @@ public class StartupOrchestrator : IStartupOrchestrator
         await InitializeSecurityAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Step 3: Initialize Email Provider
-        UpdateProgress(StartupStep.InitializingEmailProvider, "Initializing email provider", 3);
-        await InitializeEmailProviderAsync(cancellationToken);
+        // Step 3: Initialize Google Services Provider (unified Gmail and Contacts)
+        UpdateProgress(StartupStep.InitializingGoogleServices, "Initializing Google Services provider", 3);
+        await InitializeGoogleServicesProviderAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Step 4: Initialize Contacts Provider
-        UpdateProgress(StartupStep.InitializingContactsProvider, "Initializing contacts provider", 4);
-        await InitializeContactsProviderAsync(cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // Step 5: Initialize LLM Provider
-        UpdateProgress(StartupStep.InitializingLLMProvider, "Initializing LLM provider", 5);
+        // Step 4: Initialize LLM Provider
+        UpdateProgress(StartupStep.InitializingLLMProvider, "Initializing LLM provider", 4);
         await InitializeLLMProviderAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Step 6: Health Checks
-        UpdateProgress(StartupStep.CheckingProviderHealth, "Checking provider health", 6);
+        // Step 5: Health Checks
+        UpdateProgress(StartupStep.CheckingProviderHealth, "Checking provider health", 5);
         await PerformHealthChecksAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Step 7: Complete
+        // Step 6: Complete
         UpdateProgress(StartupStep.Ready, "Startup complete", TotalSteps, isComplete: true);
     }
 
@@ -507,29 +502,73 @@ public class StartupOrchestrator : IStartupOrchestrator
 
             if (googleServicesProvider != null)
             {
-                _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider instance found, checking initialization");
+                _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider instance found, attempting to initialize with stored credentials");
 
-                // The GoogleServicesProvider uses delegation, so we can check if it's already initialized
-                // by checking the health of its delegated providers
-                var healthResult = await googleServicesProvider.HealthCheckAsync(cancellationToken);
-
-                if (healthResult.IsSuccess && healthResult.Value.IsHealthy)
+                // Cast to IProvider to access the proper initialization method
+                if (googleServicesProvider is IProvider<GoogleServicesProviderConfig> unifiedProvider)
                 {
-                    _logger.LogInformation("[GOOGLE SERVICES INIT] ✅ Google Services provider is already healthy and initialized");
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider cast successful, creating configuration");
+
+                    // Get GoogleServices configuration from DI - this loads from appsettings.json
+                    var configOptions = _serviceProvider.GetRequiredService<IOptions<GoogleServicesProviderConfig>>();
+                    var config = configOptions.Value;
+
+                    // Load Google OAuth client credentials from secure storage
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Loading Google OAuth client credentials from storage");
+                    var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+                    var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Client ID result: {ClientIdSuccess}, Client Secret result: {ClientSecretSuccess}",
+                        clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+
+                    if (clientIdResult.IsSuccess && clientSecretResult.IsSuccess)
+                    {
+                        config.ClientId = clientIdResult.Value;
+                        config.ClientSecret = clientSecretResult.Value;
+
+                        _logger.LogInformation("[GOOGLE SERVICES INIT] Config loaded with OAuth credentials (ID length: {IdLength}), calling InitializeAsync",
+                            config.ClientId?.Length ?? 0);
+
+                        // Actually initialize the unified provider with stored OAuth tokens
+                        var initResult = await unifiedProvider.InitializeAsync(config, cancellationToken);
+
+                        _logger.LogInformation("[GOOGLE SERVICES INIT] InitializeAsync completed - Success: {Success}, Error: {Error}",
+                            initResult.IsSuccess,
+                            initResult.IsFailure ? initResult.Error?.Message : "None");
+
+                        if (initResult.IsSuccess)
+                        {
+                            _logger.LogInformation("[GOOGLE SERVICES INIT] ✅ Google Services provider initialized successfully with stored credentials");
+
+                            // Check provider health immediately after initialization
+                            var healthResult = await unifiedProvider.HealthCheckAsync(cancellationToken);
+                            _logger.LogInformation("[GOOGLE SERVICES INIT] Health check after init - Healthy: {IsHealthy}, Status: {Status}",
+                                healthResult.IsSuccess && healthResult.Value.Status == HealthStatus.Healthy,
+                                healthResult.IsSuccess ? healthResult.Value.Status : "Failed");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ Google Services provider initialization failed: {Error}", initResult.Error?.Message);
+                            _logger.LogWarning("[GOOGLE SERVICES INIT] Error details: {ErrorDetails}", initResult.Error?.ToString());
+                            // Don't throw - this means provider needs authentication but that's handled by UI
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ Google OAuth client credentials not available - provider needs setup");
+                        _logger.LogWarning("[GOOGLE SERVICES INIT] Client ID error: {ClientIdError}, Client Secret error: {ClientSecretError}",
+                            clientIdResult.ErrorMessage, clientSecretResult.ErrorMessage);
+                    }
                 }
                 else
                 {
-                    _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider needs initialization - health status: {Status}",
-                        healthResult.IsSuccess ? healthResult.Value.Status : "Failed to check health");
-
-                    // Since the GoogleServicesProvider delegates to existing providers, the individual
-                    // provider initialization in ExecuteStartupSequenceAsync should handle the actual setup
-                    _logger.LogInformation("[GOOGLE SERVICES INIT] Unified provider delegates to individual providers for initialization");
+                    _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ Google Services provider is not a typed provider - cannot initialize");
+                    _logger.LogWarning("[GOOGLE SERVICES INIT] Provider type: {ProviderType}", googleServicesProvider.GetType().FullName);
                 }
             }
             else
             {
-                _logger.LogInformation("[GOOGLE SERVICES INIT] No unified Google Services provider instance registered - individual providers will be used");
+                _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ No unified Google Services provider instance registered - startup configuration issue");
             }
 
             _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider initialization process completed");
@@ -537,8 +576,8 @@ public class StartupOrchestrator : IStartupOrchestrator
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GOOGLE SERVICES INIT] ❌ Exception during Google Services provider initialization");
-            // Don't throw - unified provider is optional, individual providers should still work
-            _logger.LogWarning("[GOOGLE SERVICES INIT] Unified provider initialization failed, falling back to individual providers");
+            UpdateProgressWithError(StartupStep.InitializingGoogleServices, "Google Services provider initialization failed", ex.Message);
+            throw new InvalidOperationException("Google Services provider initialization failed", ex);
         }
     }
 
