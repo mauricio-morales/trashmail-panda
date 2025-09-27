@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using TrashMailPanda.Models;
 using TrashMailPanda.Services;
 using TrashMailPanda.Shared;
@@ -13,6 +14,8 @@ namespace TrashMailPanda.ViewModels;
 /// </summary>
 public partial class ProviderStatusCardViewModel : ViewModelBase
 {
+    private readonly ILogger<ProviderStatusCardViewModel>? _logger;
+
     // Core provider information
     [ObservableProperty]
     private ProviderDisplayInfo _displayInfo = new();
@@ -73,9 +76,11 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
         _ => "10+ minutes"
     };
 
-    // Button states and text  
-    public bool ShowSetupButton => !IsHealthy;
+    // Button states and text
+    public bool ShowSetupButton => true; // Always show a button - let ActionButtonText determine appropriate action
     public bool ShowStatusDetails => IsInitialized || !string.IsNullOrEmpty(ErrorMessage);
+    public bool IsValidating => CurrentStatus == "Validating";
+    public bool CanTakeAction => !IsLoading && !IsValidating;
 
     public string ActionButtonText
     {
@@ -84,6 +89,7 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
             // Check specific status messages first for appropriate actions
             return CurrentStatus switch
             {
+                "Validating" => "Please wait...",
                 "OAuth Setup Required" => "Setup OAuth",
                 "API Key Required" => "Enter API Key",
                 "Setup Required" => "Setup",
@@ -110,6 +116,7 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
                 "Connected" => "✅ Connected and working",
                 "Ready" => "✅ Ready to use",
                 "Healthy" => "✅ Operating normally",
+                "Validating" => "🔄 Checking provider status...",
                 "OAuth Setup Required" => "⚙️ OAuth setup needed",
                 "API Key Required" => "🔑 API key needed",
                 "Authentication Required" => "🔐 Please sign in",
@@ -130,18 +137,19 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
     /// <summary>
     /// Initialize the view model with provider information
     /// </summary>
-    public ProviderStatusCardViewModel(ProviderDisplayInfo displayInfo)
+    public ProviderStatusCardViewModel(ProviderDisplayInfo displayInfo, ILogger<ProviderStatusCardViewModel>? logger = null)
     {
         DisplayInfo = displayInfo ?? throw new ArgumentNullException(nameof(displayInfo));
+        _logger = logger;
 
-        // Initialize with default status
+        // Initialize with default status - show as "Validating" while waiting for first health check
         Status = new ProviderStatus
         {
             Name = displayInfo.Name,
             IsHealthy = false,
             IsInitialized = false,
-            RequiresSetup = true,
-            Status = "Not checked",
+            RequiresSetup = false, // Don't show setup required until we know the actual status
+            Status = "Validating",
             LastCheck = DateTime.MinValue
         };
 
@@ -161,10 +169,19 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
     public void UpdateFromProviderStatus(ProviderStatus newStatus)
     {
         if (newStatus == null)
+        {
+            _logger?.LogWarning("[CARD UPDATE] UpdateFromProviderStatus called with null status for provider {Provider}", ProviderName);
             return;
+        }
+
+        _logger?.LogInformation("[CARD UPDATE] Updating provider {Provider} - Old: Status={OldStatus}, Healthy={OldHealthy}, RequiresSetup={OldSetup}, Initialized={OldInit}",
+            ProviderName, CurrentStatus, IsHealthy, RequiresSetup, IsInitialized);
 
         Status = newStatus;
         UpdateLastRefreshTime();
+
+        _logger?.LogInformation("[CARD UPDATE] Updated provider {Provider} - New: Status={NewStatus}, Healthy={NewHealthy}, RequiresSetup={NewSetup}, Initialized={NewInit}",
+            ProviderName, CurrentStatus, IsHealthy, RequiresSetup, IsInitialized);
 
         // Clear any temporary status messages when status is updated
         if (!IsLoading)
@@ -183,6 +200,8 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
         OnPropertyChanged(nameof(AuthenticatedUserDisplayName));
         OnPropertyChanged(nameof(ShowSetupButton));
         OnPropertyChanged(nameof(ShowStatusDetails));
+        OnPropertyChanged(nameof(IsValidating));
+        OnPropertyChanged(nameof(CanTakeAction));
         OnPropertyChanged(nameof(ActionButtonText));
         OnPropertyChanged(nameof(StatusDisplayText));
     }
@@ -213,7 +232,7 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
     [RelayCommand]
     private async Task HandleActionAsync()
     {
-        if (!CanConfigureProvider || IsLoading)
+        if (!CanConfigureProvider || IsLoading || CurrentStatus == "Validating")
             return;
 
         IsLoading = true;
@@ -403,6 +422,8 @@ public partial class ProviderStatusCardViewModel : ViewModelBase
         OnPropertyChanged(nameof(AuthenticatedUserDisplayName));
         OnPropertyChanged(nameof(ShowSetupButton));
         OnPropertyChanged(nameof(ShowStatusDetails));
+        OnPropertyChanged(nameof(IsValidating));
+        OnPropertyChanged(nameof(CanTakeAction));
         OnPropertyChanged(nameof(ActionButtonText));
         OnPropertyChanged(nameof(StatusDisplayText));
         OnPropertyChanged(nameof(SetupComplexity));

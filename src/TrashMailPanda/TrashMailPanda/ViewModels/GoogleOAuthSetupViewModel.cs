@@ -204,12 +204,12 @@ public partial class GoogleOAuthSetupViewModel : ViewModelBase
             // Wait a moment to show success message
             await Task.Delay(1500);
 
-            // Close dialog with success and trigger Gmail sign-in
+            // Trigger provider refresh before closing dialog
+            RequestGoogleSignIn?.Invoke(this, EventArgs.Empty);
+
+            // Close dialog with success
             DialogResult = true;
             RequestClose?.Invoke(this, EventArgs.Empty);
-
-            // Trigger Google sign-in after dialog closes
-            RequestGoogleSignIn?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {

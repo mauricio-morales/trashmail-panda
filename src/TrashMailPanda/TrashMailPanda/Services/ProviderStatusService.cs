@@ -8,6 +8,7 @@ using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.Contacts;
+using TrashMailPanda.Providers.GoogleServices;
 
 namespace TrashMailPanda.Services;
 
@@ -79,13 +80,14 @@ public class ProviderStatusService : IProviderStatusService
         var refreshTasks = new List<Task>();
 
         if (_emailProvider != null)
-            refreshTasks.Add(RefreshProviderStatusAsync("Email", _emailProvider));
-        if (_contactsProvider != null)
-            refreshTasks.Add(RefreshProviderStatusAsync("Contacts", _contactsProvider));
+            refreshTasks.Add(RefreshProviderStatusAsync("GoogleServices", _emailProvider));
+        // Note: Contacts are handled within GoogleServices unified provider, not separately
+        // if (_contactsProvider != null)
+        //     refreshTasks.Add(RefreshProviderStatusAsync("Contacts", _contactsProvider));
         if (_llmProvider != null)
-            refreshTasks.Add(RefreshProviderStatusAsync("LLM", _llmProvider));
+            refreshTasks.Add(RefreshProviderStatusAsync("OpenAI", _llmProvider));
 
-        refreshTasks.Add(RefreshProviderStatusAsync("Storage", _storageProvider));
+        refreshTasks.Add(RefreshProviderStatusAsync("SQLite", _storageProvider));
 
         await Task.WhenAll(refreshTasks);
 
@@ -149,35 +151,99 @@ public class ProviderStatusService : IProviderStatusService
         switch (provider)
         {
             case IEmailProvider emailProvider:
-                // Get authenticated user info if it's a Gmail provider
+                // Log provider type for debugging
+                _logger.LogDebug("Processing IEmailProvider of type: {ProviderType}", emailProvider.GetType().Name);
+
+                // Get authenticated user info and perform health check
                 AuthenticatedUserInfo? authenticatedUser = null;
-                if (emailProvider is GmailEmailProvider gmailProvider)
+                bool isHealthy = true;
+                string providerStatus = "Connected";
+                string? errorMessage = null;
+
+                // Handle GoogleServicesProvider (unified provider for Gmail and Contacts)
+                if (emailProvider is GoogleServicesProvider googleServicesProvider)
+                {
+                    try
+                    {
+                        // Perform health check using the unified provider
+                        var healthCheckResult = await googleServicesProvider.HealthCheckAsync(CancellationToken.None);
+                        if (healthCheckResult.IsSuccess)
+                        {
+                            var healthResult = healthCheckResult.Value;
+                            isHealthy = healthResult.Status == HealthStatus.Healthy;
+                            providerStatus = isHealthy ? "Connected" : "Authentication Required";
+                            errorMessage = isHealthy ? null : healthResult.Description;
+
+                            _logger.LogDebug("GoogleServicesProvider health check result: {Status}, {Description}",
+                                healthResult.Status, healthResult.Description);
+                        }
+                        else
+                        {
+                            isHealthy = false;
+                            providerStatus = "Authentication Required";
+                            errorMessage = healthCheckResult.Error.Message;
+
+                            _logger.LogDebug("GoogleServicesProvider health check failed: {Error}",
+                                healthCheckResult.Error.Message);
+                        }
+
+                        // Get authenticated user info if healthy
+                        if (isHealthy)
+                        {
+                            var userResult = await googleServicesProvider.GetAuthenticatedUserAsync();
+                            authenticatedUser = userResult.IsSuccess ? userResult.Value : null;
+                            _logger.LogDebug("Retrieved authenticated user info from GoogleServicesProvider: {Email}",
+                                authenticatedUser?.Email ?? "None");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to perform health check or get user info from GoogleServicesProvider");
+                        isHealthy = false;
+                        providerStatus = "Authentication Required";
+                        errorMessage = ex.Message;
+                    }
+                }
+                // Handle legacy GmailEmailProvider (for backward compatibility)
+                else if (emailProvider is GmailEmailProvider gmailProvider)
                 {
                     try
                     {
                         var userResult = await gmailProvider.GetAuthenticatedUserAsync();
                         authenticatedUser = userResult.IsSuccess ? userResult.Value : null;
-                        _logger.LogDebug("Retrieved authenticated user info for Gmail: {Email}",
+                        _logger.LogDebug("Retrieved authenticated user info from GmailEmailProvider: {Email}",
                             authenticatedUser?.Email ?? "None");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to get authenticated user info from Gmail provider");
+                        _logger.LogWarning(ex, "Failed to get authenticated user info from GmailEmailProvider");
+                        isHealthy = false;
+                        providerStatus = "Authentication Required";
+                        errorMessage = ex.Message;
                     }
+                }
+                else
+                {
+                    _logger.LogWarning("Unknown email provider type: {ProviderType}", emailProvider.GetType().Name);
+                    isHealthy = false;
+                    providerStatus = "Unknown Provider";
+                    errorMessage = $"Unsupported email provider type: {emailProvider.GetType().Name}";
                 }
 
                 status = status with
                 {
-                    IsHealthy = true,
+                    IsHealthy = isHealthy,
                     IsInitialized = true,
-                    RequiresSetup = false,
-                    Status = "Connected",
+                    RequiresSetup = !isHealthy,
+                    Status = providerStatus,
+                    ErrorMessage = errorMessage,
                     AuthenticatedUser = authenticatedUser,
                     Details = new Dictionary<string, object>
                     {
                         { "type", "Gmail" },
                         { "last_check", DateTime.UtcNow },
-                        { "authenticated_user", authenticatedUser?.Email ?? "Not available" }
+                        { "authenticated_user", authenticatedUser?.Email ?? "Not available" },
+                        { "provider_type", emailProvider.GetType().Name }
                     }
                 };
                 break;

@@ -15,6 +15,7 @@ namespace TrashMailPanda.Shared.Security;
 public class TokenRotationService : ITokenRotationService, IDisposable
 {
     private readonly ISecureStorageManager _secureStorageManager;
+    private readonly GoogleOAuthService _googleOAuthService;
     private readonly ILogger<TokenRotationService> _logger;
 
     private readonly Timer? _rotationTimer;
@@ -39,9 +40,13 @@ public class TokenRotationService : ITokenRotationService, IDisposable
     public event EventHandler<TokenRotatedEventArgs>? TokenRotated;
     public event EventHandler<TokenRotationFailedEventArgs>? TokenRotationFailed;
 
-    public TokenRotationService(ISecureStorageManager secureStorageManager, ILogger<TokenRotationService> logger)
+    public TokenRotationService(
+        ISecureStorageManager secureStorageManager,
+        GoogleOAuthService googleOAuthService,
+        ILogger<TokenRotationService> logger)
     {
         _secureStorageManager = secureStorageManager ?? throw new ArgumentNullException(nameof(secureStorageManager));
+        _googleOAuthService = googleOAuthService ?? throw new ArgumentNullException(nameof(googleOAuthService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         _providerSettings = new ConcurrentDictionary<string, TokenRotationSettings>();
@@ -168,6 +173,8 @@ public class TokenRotationService : ITokenRotationService, IDisposable
                 var rotationResult = providerName.ToLowerInvariant() switch
                 {
                     "gmail" => await RotateGmailTokensAsync(cancellationToken),
+                    "contacts" => await RotateGmailTokensAsync(cancellationToken), // Contacts use same Google OAuth tokens
+                    "googleservices" => await RotateGmailTokensAsync(cancellationToken), // GoogleServices provider
                     "openai" => await RotateOpenAITokensAsync(cancellationToken),
                     _ => Result<TokenRotationResult>.Failure(new UnsupportedOperationError($"Unsupported provider: {providerName}"))
                 };
@@ -427,16 +434,52 @@ public class TokenRotationService : ITokenRotationService, IDisposable
 
     private async Task<Result<bool>> CheckGoogleTokenExpiryAsync(TimeSpan expiryThreshold, CancellationToken cancellationToken)
     {
-        // Check if we have Google tokens stored (shared by Gmail, Contacts, etc.)
-        var tokenExists = await _secureStorageManager.CredentialExistsAsync("google_access_token");
-        if (!tokenExists.IsSuccess || !tokenExists.Value)
+        try
         {
-            return Result<bool>.Success(false); // No token to rotate
-        }
+            // Check if we have valid tokens first
+            var scopes = new[] { "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/contacts.readonly" };
+            var hasValidTokensResult = await _googleOAuthService.HasValidTokensAsync(scopes, "google_", cancellationToken);
+            if (!hasValidTokensResult.IsSuccess)
+            {
+                return Result<bool>.Failure(hasValidTokensResult.Error);
+            }
 
-        // In a real implementation, you would check the actual expiry time
-        // For now, return true to demonstrate rotation capability
-        return Result<bool>.Success(true);
+            // If tokens are invalid or missing, they need rotation
+            if (!hasValidTokensResult.Value)
+            {
+                return Result<bool>.Success(true); // Needs rotation
+            }
+
+            // Get the actual token expiry time to check against threshold
+            var tokenExpiryResult = await _secureStorageManager.RetrieveCredentialAsync("google_token_expiry");
+            if (!tokenExpiryResult.IsSuccess || string.IsNullOrEmpty(tokenExpiryResult.Value))
+            {
+                return Result<bool>.Success(true); // No expiry info, assume needs rotation
+            }
+
+            if (!DateTime.TryParse(tokenExpiryResult.Value, out var expiryTime))
+            {
+                return Result<bool>.Success(true); // Invalid expiry format, assume needs rotation
+            }
+
+            // Check if token expires within the threshold
+            var timeUntilExpiry = expiryTime - DateTime.UtcNow;
+            if (timeUntilExpiry <= expiryThreshold)
+            {
+                _logger.LogDebug("Google token expires in {TimeUntilExpiry}, threshold is {Threshold} - rotation needed",
+                    timeUntilExpiry, expiryThreshold);
+                return Result<bool>.Success(true); // Near expiry, needs rotation
+            }
+
+            _logger.LogDebug("Google token expires in {TimeUntilExpiry}, threshold is {Threshold} - no rotation needed",
+                timeUntilExpiry, expiryThreshold);
+            return Result<bool>.Success(false); // Not near expiry
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception checking Google token expiry");
+            return Result<bool>.Failure(new ProcessingError($"Failed to check Google token expiry: {ex.Message}", null, ex));
+        }
     }
 
     private async Task<Result<bool>> CheckOpenAITokenExpiryAsync(TimeSpan expiryThreshold, CancellationToken cancellationToken)
@@ -453,24 +496,73 @@ public class TokenRotationService : ITokenRotationService, IDisposable
         return Result<bool>.Success(false);
     }
 
-    private Task<Result<TokenRotationResult>> RotateGmailTokensAsync(CancellationToken cancellationToken)
+    private async Task<Result<TokenRotationResult>> RotateGmailTokensAsync(CancellationToken cancellationToken)
     {
-        // In a real implementation, you would:
-        // 1. Retrieve the refresh token from secure storage
-        // 2. Call Gmail's OAuth refresh endpoint
-        // 3. Store the new access token and updated refresh token
-
-        // For now, return a placeholder result
-        var result = new TokenRotationResult
+        try
         {
-            ProviderName = "gmail",
-            WasRotated = true,
-            Reason = "Simulated Gmail token rotation",
-            NewExpiryDate = DateTime.UtcNow.AddHours(1),
-            PreviousExpiryDate = DateTime.UtcNow.AddMinutes(-30)
-        };
+            _logger.LogDebug("Starting Gmail token rotation using GoogleOAuthService");
 
-        return Task.FromResult(Result<TokenRotationResult>.Success(result));
+            // Use GoogleOAuthService to validate tokens, which will trigger refresh if needed
+            var scopes = new[] { "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/contacts.readonly" };
+            var hasValidTokensResult = await _googleOAuthService.HasValidTokensAsync(scopes, "google_", cancellationToken);
+
+            if (!hasValidTokensResult.IsSuccess)
+            {
+                var result = new TokenRotationResult
+                {
+                    ProviderName = "gmail",
+                    WasRotated = false,
+                    Reason = "Token validation failed",
+                    ErrorMessage = hasValidTokensResult.Error?.Message,
+                    AttemptedAt = DateTime.UtcNow
+                };
+
+                return Result<TokenRotationResult>.Success(result);
+            }
+
+            // Check if tokens are now valid (refresh would have been triggered automatically)
+            if (hasValidTokensResult.Value)
+            {
+                var successResult = new TokenRotationResult
+                {
+                    ProviderName = "gmail",
+                    WasRotated = true,
+                    Reason = "Google OAuth tokens validated and refreshed if needed",
+                    NewExpiryDate = DateTime.UtcNow.AddHours(1), // Google tokens typically last 1 hour
+                    AttemptedAt = DateTime.UtcNow
+                };
+
+                _logger.LogInformation("Gmail tokens successfully validated/rotated via GoogleOAuthService");
+                return Result<TokenRotationResult>.Success(successResult);
+            }
+            else
+            {
+                var result = new TokenRotationResult
+                {
+                    ProviderName = "gmail",
+                    WasRotated = false,
+                    Reason = "Tokens remain invalid after validation attempt",
+                    AttemptedAt = DateTime.UtcNow
+                };
+
+                return Result<TokenRotationResult>.Success(result);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception during Gmail token rotation");
+
+            var result = new TokenRotationResult
+            {
+                ProviderName = "gmail",
+                WasRotated = false,
+                Reason = "Exception during rotation",
+                ErrorMessage = ex.Message,
+                AttemptedAt = DateTime.UtcNow
+            };
+
+            return Result<TokenRotationResult>.Success(result);
+        }
     }
 
     private Task<Result<TokenRotationResult>> RotateOpenAITokensAsync(CancellationToken cancellationToken)

@@ -30,7 +30,7 @@ public class AvaloniaCodeReceiver : ICodeReceiver
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _port = port;
         // Don't set _redirectUri here if port is 0 - we'll set it when we know the actual port
-        _redirectUri = _port == 0 ? string.Empty : $"http://127.0.0.1:{_port}/";
+        _redirectUri = _port == 0 ? string.Empty : $"http://localhost:{_port}/";
     }
 
     public string RedirectUri
@@ -41,7 +41,7 @@ public class AvaloniaCodeReceiver : ICodeReceiver
             if (string.IsNullOrEmpty(_redirectUri))
             {
                 var actualPort = GetAvailablePort();
-                _redirectUri = $"http://127.0.0.1:{actualPort}/";
+                _redirectUri = $"http://localhost:{actualPort}/";
                 _logger.LogInformation("Redirect URI set to: {RedirectUri}", _redirectUri);
             }
             return _redirectUri;

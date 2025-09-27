@@ -138,14 +138,27 @@ public class GoogleContactsAdapter : IContactSourceAdapter
         {
             _logger.LogInformation("[CONTACTS DEBUG] ValidateAsync starting...");
 
-            // Validate configuration
-            var configValidation = _config.ValidateConfiguration();
-            if (configValidation.IsFailure)
+            // Check for shared Google OAuth credentials first (skip config validation for ClientId/ClientSecret)
+            _logger.LogInformation("[CONTACTS DEBUG] Checking for shared Google OAuth credentials...");
+            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+            if (!clientIdResult.IsSuccess || !clientSecretResult.IsSuccess)
             {
-                _logger.LogWarning("[CONTACTS DEBUG] Config validation failed: {Error}", configValidation.Error.Message);
-                return Result<bool>.Failure(configValidation.Error);
+                _logger.LogWarning("[CONTACTS DEBUG] Shared Google OAuth credentials not available - ClientId: {ClientIdSuccess}, ClientSecret: {ClientSecretSuccess}",
+                    clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+                return Result<bool>.Failure(new AuthenticationError("Google OAuth client credentials not configured"));
             }
-            _logger.LogInformation("[CONTACTS DEBUG] Config validation passed");
+            _logger.LogInformation("[CONTACTS DEBUG] Shared Google OAuth credentials available");
+
+            // Validate basic configuration (scopes, timeouts, etc. - but not OAuth credentials)
+            _logger.LogInformation("[CONTACTS DEBUG] Validating basic configuration...");
+            if (_config.Scopes == null || _config.Scopes.Length == 0)
+            {
+                _logger.LogWarning("[CONTACTS DEBUG] No OAuth scopes configured");
+                return Result<bool>.Failure(new ValidationError("OAuth scopes must be configured"));
+            }
+            _logger.LogInformation("[CONTACTS DEBUG] Basic config validation passed");
 
             // Test connectivity with a minimal API call
             _logger.LogInformation("[CONTACTS DEBUG] Attempting to create People service...");
@@ -280,9 +293,24 @@ public class GoogleContactsAdapter : IContactSourceAdapter
         try
         {
             _logger.LogInformation("[CONTACTS DEBUG] CreatePeopleServiceAsync starting...");
-            _logger.LogInformation("[CONTACTS DEBUG] Using ClientId: {ClientId}, Scopes: {Scopes}",
-                string.IsNullOrEmpty(_config.ClientId) ? "<empty>" : _config.ClientId.Substring(0, 10) + "...",
-                string.Join(", ", _config.Scopes));
+
+            // Get shared Google OAuth client credentials from secure storage (same as Gmail)
+            _logger.LogInformation("[CONTACTS DEBUG] Retrieving shared Google OAuth credentials from secure storage");
+            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+            if (!clientIdResult.IsSuccess || !clientSecretResult.IsSuccess)
+            {
+                _logger.LogWarning("[CONTACTS DEBUG] Failed to retrieve shared Google OAuth credentials - ClientId: {ClientIdSuccess}, ClientSecret: {ClientSecretSuccess}",
+                    clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+                return Result<PeopleServiceService>.Failure(new AuthenticationError("Shared Google OAuth credentials not available"));
+            }
+
+            var clientId = clientIdResult.Value!;
+            var clientSecret = clientSecretResult.Value!;
+
+            _logger.LogInformation("[CONTACTS DEBUG] Using shared Google OAuth credentials (ID length: {IdLength}), Scopes: {Scopes}",
+                clientId?.Length ?? 0, string.Join(", ", _config.Scopes));
 
             // Get UserCredential through the shared OAuth service
             // Use the same google_ prefix as Gmail since both are Google services
@@ -290,8 +318,8 @@ public class GoogleContactsAdapter : IContactSourceAdapter
             var credentialResult = await _googleOAuthService.GetUserCredentialAsync(
                 _config.Scopes, // Use People API scopes but with shared Google tokens
                 "google_", // Use same prefix as Gmail - shared Google OAuth tokens
-                _config.ClientId,
-                _config.ClientSecret,
+                clientId,
+                clientSecret,
                 cancellationToken);
 
             if (credentialResult.IsFailure)

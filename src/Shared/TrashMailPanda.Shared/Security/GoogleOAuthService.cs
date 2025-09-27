@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -9,6 +10,7 @@ using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Util.Store;
 using Microsoft.Extensions.Logging;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Shared.Security;
 
@@ -23,6 +25,10 @@ public class GoogleOAuthService : IGoogleOAuthService
     private readonly IDataStore _dataStore;
     private readonly ILogger<GoogleOAuthService> _logger;
     private readonly ILoggerFactory _loggerFactory;
+
+    // Concurrency protection for token refresh operations
+    private readonly SemaphoreSlim _refreshSemaphore = new(1, 1);
+    private readonly ConcurrentDictionary<string, DateTime> _lastRefreshAttempts = new();
 
     /// <summary>
     /// Storage key suffixes for OAuth token components
@@ -167,13 +173,37 @@ public class GoogleOAuthService : IGoogleOAuthService
                 return Result<bool>.Success(false);
             }
 
-            // Check if token is still valid or can be refreshed
+            // Check if token is still valid
             var validResult = await IsTokenValidAsync(storageKeyPrefix);
-            if (validResult.IsSuccess)
+            if (validResult.IsSuccess && validResult.Value)
             {
-                return Result<bool>.Success(validResult.Value);
+                _logger.LogDebug("Tokens are still valid for prefix: {Prefix}", storageKeyPrefix);
+                return Result<bool>.Success(true);
             }
 
+            if (!validResult.IsSuccess)
+            {
+                // Token validation failed due to corrupted data - clear the tokens
+                _logger.LogWarning("Token validation failed for prefix: {Prefix}, clearing potentially corrupted tokens", storageKeyPrefix);
+                await ClearTokensAsync(storageKeyPrefix);
+                return Result<bool>.Success(false);
+            }
+
+            // Token is expired but validation succeeded - attempt refresh
+            _logger.LogInformation("Tokens are expired for prefix: {Prefix}, attempting automatic refresh", storageKeyPrefix);
+            var refreshResult = await RefreshTokenAsync(storageKeyPrefix);
+
+            if (refreshResult.IsSuccess)
+            {
+                _logger.LogInformation("Successfully refreshed expired tokens for prefix: {Prefix}", storageKeyPrefix);
+                return Result<bool>.Success(true);
+            }
+
+            // Refresh failed - determine if we should clear tokens or allow retry
+            _logger.LogWarning("Failed to refresh expired tokens for prefix: {Prefix}: {Error}", storageKeyPrefix, refreshResult.Error?.Message);
+
+            // If refresh failed due to invalid refresh token, the RefreshTokenAsync method already cleared tokens
+            // For other errors, we keep tokens to allow manual retry
             return Result<bool>.Success(false);
         }
         catch (Exception ex)
@@ -458,25 +488,79 @@ public class GoogleOAuthService : IGoogleOAuthService
     {
         try
         {
+            _logger.LogInformation("[TOKEN VALID DEBUG] Checking token validity for prefix: {Prefix}", storageKeyPrefix);
+
             var tokenIssuedKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_ISSUED_UTC}";
             var tokenExpiryKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_EXPIRY}";
 
             var issuedResult = await _secureStorageManager.RetrieveCredentialAsync(tokenIssuedKey);
             var expiryResult = await _secureStorageManager.RetrieveCredentialAsync(tokenExpiryKey);
 
+            _logger.LogInformation("[TOKEN VALID DEBUG] Retrieval results - IssuedResult: Success={IssuedSuccess}, Value='{IssuedValue}', ExpiryResult: Success={ExpirySuccess}, Value='{ExpiryValue}'",
+                issuedResult.IsSuccess,
+                issuedResult.IsSuccess ? issuedResult.Value : "null",
+                expiryResult.IsSuccess,
+                expiryResult.IsSuccess ? expiryResult.Value : "null");
+
             if (!issuedResult.IsSuccess || !expiryResult.IsSuccess)
             {
+                _logger.LogInformation("[TOKEN VALID DEBUG] Token retrieval failed - returning false");
                 return Result<bool>.Success(false);
             }
 
-            if (!DateTime.TryParse(issuedResult.Value, out var issuedUtc) ||
-                !int.TryParse(expiryResult.Value, out var expiresInSeconds))
+            var issuedParseSuccess = DateTime.TryParse(issuedResult.Value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var issuedUtc);
+            var expiryParseSuccess = int.TryParse(expiryResult.Value, out var expiresInSeconds);
+
+            _logger.LogInformation("[TOKEN VALID DEBUG] Parsing results - IssuedParse: Success={IssuedParseSuccess}, Value={IssuedUtc}, ExpiryParse: Success={ExpiryParseSuccess}, Value={ExpiresInSeconds}",
+                issuedParseSuccess,
+                issuedParseSuccess ? issuedUtc.ToString("O") : "failed",
+                expiryParseSuccess,
+                expiryParseSuccess ? expiresInSeconds : -1);
+
+            if (!issuedParseSuccess || !expiryParseSuccess)
             {
+                _logger.LogInformation("[TOKEN VALID DEBUG] Token parsing failed - returning false");
                 return Result<bool>.Success(false);
             }
 
-            var expiresAt = issuedUtc.AddSeconds(expiresInSeconds);
-            var isValid = DateTime.UtcNow < expiresAt.AddMinutes(-5); // 5 minute buffer
+            // Validate expiresInSeconds is reasonable (between 0 and 10 years in seconds)
+            if (expiresInSeconds < 0 || expiresInSeconds > 315360000) // 10 years = 315360000 seconds
+            {
+                _logger.LogWarning("Token expiry seconds value is invalid: {ExpiresInSeconds}", expiresInSeconds);
+                return Result<bool>.Success(false);
+            }
+
+            // Safely add seconds with overflow protection
+            DateTime expiresAt;
+            try
+            {
+                expiresAt = issuedUtc.AddSeconds(expiresInSeconds);
+                _logger.LogInformation("[TOKEN VALID DEBUG] Calculated expiry - IssuedUtc: {IssuedUtc}, ExpiresInSeconds: {ExpiresInSeconds}, ExpiresAt: {ExpiresAt}",
+                    issuedUtc.ToString("O"), expiresInSeconds, expiresAt.ToString("O"));
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                _logger.LogWarning("DateTime overflow when calculating token expiry: IssuedUtc={IssuedUtc}, ExpiresInSeconds={ExpiresInSeconds}",
+                    issuedUtc, expiresInSeconds);
+                return Result<bool>.Success(false);
+            }
+
+            // Safely subtract 5 minutes with overflow protection
+            DateTime bufferedExpiresAt;
+            try
+            {
+                bufferedExpiresAt = expiresAt.AddMinutes(-5); // 5 minute buffer
+                _logger.LogInformation("[TOKEN VALID DEBUG] Applied buffer - ExpiresAt: {ExpiresAt}, BufferedExpiresAt: {BufferedExpiresAt}, CurrentUtc: {CurrentUtc}",
+                    expiresAt.ToString("O"), bufferedExpiresAt.ToString("O"), DateTime.UtcNow.ToString("O"));
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                _logger.LogWarning("DateTime overflow when applying 5-minute buffer to token expiry: ExpiresAt={ExpiresAt}",
+                    expiresAt);
+                return Result<bool>.Success(false);
+            }
+
+            var isValid = DateTime.UtcNow < bufferedExpiresAt;
 
             return Result<bool>.Success(isValid);
         }
@@ -487,27 +571,279 @@ public class GoogleOAuthService : IGoogleOAuthService
         }
     }
 
-    private async Task<Result<bool>> RefreshTokenAsync(string storageKeyPrefix)
+    /// <summary>
+    /// Clears all stored tokens for the given storage key prefix
+    /// </summary>
+    /// <param name="storageKeyPrefix">The storage key prefix for the tokens to clear</param>
+    /// <returns>A task representing the async operation</returns>
+    private async Task ClearTokensAsync(string storageKeyPrefix)
     {
         try
         {
+            var keysToRemove = new[]
+            {
+                $"{storageKeyPrefix}{TokenKeySuffixes.ACCESS_TOKEN}",
+                $"{storageKeyPrefix}{TokenKeySuffixes.REFRESH_TOKEN}",
+                $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_ISSUED_UTC}",
+                $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_EXPIRY}",
+                $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_TYPE}",
+                $"{storageKeyPrefix}{TokenKeySuffixes.SCOPES}"
+            };
+
+            foreach (var key in keysToRemove)
+            {
+                await _secureStorageManager.RemoveCredentialAsync(key);
+            }
+
+            _logger.LogInformation("Cleared all tokens for prefix: {Prefix}", storageKeyPrefix);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear tokens for prefix: {Prefix}", storageKeyPrefix);
+        }
+    }
+
+    private async Task<Result<bool>> RefreshTokenAsync(string storageKeyPrefix)
+    {
+        const int lockTimeoutMs = 30000; // 30 second timeout
+
+        _logger.LogInformation("[TOKEN REFRESH] Starting token refresh for prefix: {Prefix}", storageKeyPrefix);
+
+        // Concurrency protection - only one refresh at a time per prefix
+        if (!await _refreshSemaphore.WaitAsync(lockTimeoutMs))
+        {
+            _logger.LogWarning("[TOKEN REFRESH] Token refresh timeout - another refresh in progress for prefix: {Prefix}", storageKeyPrefix);
+            return Result<bool>.Failure(new AuthenticationError("Token refresh timeout - another refresh operation in progress"));
+        }
+
+        try
+        {
+            // Check if another thread just completed refresh while we were waiting
+            var isValidResult = await IsTokenValidAsync(storageKeyPrefix);
+            if (isValidResult.IsSuccess && isValidResult.Value)
+            {
+                _logger.LogInformation("[TOKEN REFRESH] Token was refreshed by another thread for prefix: {Prefix}", storageKeyPrefix);
+                return Result<bool>.Success(true);
+            }
+
+            // Check if we've attempted refresh recently to avoid rapid retry loops
+            if (_lastRefreshAttempts.TryGetValue(storageKeyPrefix, out var lastAttempt))
+            {
+                var timeSinceLastAttempt = DateTime.UtcNow - lastAttempt;
+                if (timeSinceLastAttempt < TimeSpan.FromMinutes(1))
+                {
+                    _logger.LogWarning("[TOKEN REFRESH] Recent refresh attempt failed, waiting before retry. Last attempt: {LastAttempt}", lastAttempt);
+                    return Result<bool>.Failure(new AuthenticationError("Recent refresh attempt failed - please wait before retrying"));
+                }
+            }
+
+            // Record this refresh attempt
+            _lastRefreshAttempts[storageKeyPrefix] = DateTime.UtcNow;
+
             var refreshTokenKey = $"{storageKeyPrefix}{TokenKeySuffixes.REFRESH_TOKEN}";
             var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(refreshTokenKey);
 
             if (!refreshTokenResult.IsSuccess || string.IsNullOrEmpty(refreshTokenResult.Value))
             {
-                return Result<bool>.Failure(new AuthenticationError("No refresh token available"));
+                _logger.LogWarning("[TOKEN REFRESH] No refresh token available for prefix: {Prefix}", storageKeyPrefix);
+                return Result<bool>.Failure(new AuthenticationError("No refresh token available - re-authentication required"));
             }
 
-            // TODO: Implement actual token refresh logic using Google APIs
-            _logger.LogWarning("Token refresh not yet implemented");
-            return Result<bool>.Failure(new AuthenticationError("Token refresh not implemented"));
+            var refreshToken = refreshTokenResult.Value;
+            _logger.LogDebug("[TOKEN REFRESH] Found refresh token for prefix: {Prefix}", storageKeyPrefix);
+
+            // Get client credentials from secure storage (needed for token refresh)
+            var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+            if (!clientIdResult.IsSuccess || !clientSecretResult.IsSuccess ||
+                string.IsNullOrEmpty(clientIdResult.Value) || string.IsNullOrEmpty(clientSecretResult.Value))
+            {
+                _logger.LogWarning("[TOKEN REFRESH] No client credentials available for token refresh");
+                return Result<bool>.Failure(new AuthenticationError("Client credentials not available for token refresh"));
+            }
+
+            var clientId = clientIdResult.Value;
+            var clientSecret = clientSecretResult.Value;
+
+            _logger.LogDebug("[TOKEN REFRESH] Creating GoogleAuthorizationCodeFlow for token refresh");
+
+            // Create OAuth flow for token refresh
+            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+            {
+                ClientSecrets = new ClientSecrets
+                {
+                    ClientId = clientId,
+                    ClientSecret = clientSecret
+                },
+                DataStore = _dataStore
+            });
+
+            // Create TokenResponse with current refresh token
+            var currentTokenResponse = new TokenResponse
+            {
+                RefreshToken = refreshToken
+            };
+
+            _logger.LogInformation("[TOKEN REFRESH] Attempting to refresh access token using Google APIs");
+
+            // Use Google's built-in token refresh mechanism
+            var refreshedToken = await flow.RefreshTokenAsync("user", refreshToken, CancellationToken.None);
+
+            if (refreshedToken == null)
+            {
+                _logger.LogWarning("[TOKEN REFRESH] Google API returned null refreshed token");
+                return await HandleRefreshFailure(new InvalidOperationException("Google API returned null refreshed token"), storageKeyPrefix);
+            }
+
+            _logger.LogInformation("[TOKEN REFRESH] Successfully refreshed token - new expiry: {ExpiresInSeconds} seconds",
+                refreshedToken.ExpiresInSeconds ?? 0);
+
+            // Store the refreshed tokens atomically
+            await StoreRefreshedTokensAsync(refreshedToken, storageKeyPrefix, refreshToken);
+
+            // Clear the refresh attempt record on success
+            _lastRefreshAttempts.TryRemove(storageKeyPrefix, out _);
+
+            // Log audit events for token refresh
+            await _securityAuditLogger.LogCredentialOperationAsync(new CredentialOperationEvent
+            {
+                Operation = "Refresh",
+                CredentialKey = storageKeyPrefix,
+                Success = true,
+                UserContext = "Google OAuth Service - Automatic Token Refresh"
+            });
+
+            _logger.LogInformation("[TOKEN REFRESH] Token refresh completed successfully for prefix: {Prefix}", storageKeyPrefix);
+            return Result<bool>.Success(true);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to refresh token");
-            return Result<bool>.Failure(ex.ToProviderError("Failed to refresh token"));
+            _logger.LogError(ex, "[TOKEN REFRESH] Failed to refresh token for prefix: {Prefix}", storageKeyPrefix);
+            return await HandleRefreshFailure(ex, storageKeyPrefix);
         }
+        finally
+        {
+            _refreshSemaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Handles token refresh failures with appropriate error classification and recovery
+    /// </summary>
+    private async Task<Result<bool>> HandleRefreshFailure(Exception ex, string storageKeyPrefix)
+    {
+        var reason = ClassifyRefreshFailure(ex);
+
+        // Log audit event for failed refresh
+        await _securityAuditLogger.LogCredentialOperationAsync(new CredentialOperationEvent
+        {
+            Operation = "Refresh",
+            CredentialKey = storageKeyPrefix,
+            Success = false,
+            ErrorMessage = ex.Message,
+            UserContext = "Google OAuth Service - Automatic Token Refresh"
+        });
+
+        switch (reason)
+        {
+            case TokenRefreshFailureReason.InvalidRefreshToken:
+            case TokenRefreshFailureReason.RevokedToken:
+                _logger.LogWarning("[TOKEN REFRESH] Refresh token is invalid or revoked, clearing tokens for prefix: {Prefix}", storageKeyPrefix);
+                await ClearTokensAsync(storageKeyPrefix);
+                return Result<bool>.Failure(new AuthenticationError("Refresh token is invalid - re-authentication required"));
+
+            case TokenRefreshFailureReason.NetworkError:
+            case TokenRefreshFailureReason.ServerError:
+                _logger.LogWarning("[TOKEN REFRESH] Temporary failure refreshing token for prefix: {Prefix}: {Error}", storageKeyPrefix, ex.Message);
+                // Don't clear tokens - let caller retry
+                return Result<bool>.Failure(new AuthenticationError($"Temporary refresh failure: {ex.Message}"));
+
+            default:
+                _logger.LogError("[TOKEN REFRESH] Unknown refresh failure for prefix: {Prefix}: {Error}", storageKeyPrefix, ex.Message);
+                return Result<bool>.Failure(ex.ToProviderError("Token refresh failed"));
+        }
+    }
+
+    /// <summary>
+    /// Classifies refresh failures to determine appropriate recovery action
+    /// </summary>
+    private TokenRefreshFailureReason ClassifyRefreshFailure(Exception ex)
+    {
+        var message = ex?.Message?.ToLowerInvariant() ?? string.Empty;
+
+        if (message.Contains("invalid_grant") || message.Contains("invalid refresh token"))
+        {
+            return TokenRefreshFailureReason.InvalidRefreshToken;
+        }
+
+        if (message.Contains("revoked") || message.Contains("unauthorized"))
+        {
+            return TokenRefreshFailureReason.RevokedToken;
+        }
+
+        if (message.Contains("network") || message.Contains("timeout") || message.Contains("connection"))
+        {
+            return TokenRefreshFailureReason.NetworkError;
+        }
+
+        if (message.Contains("server error") || message.Contains("internal error") || message.Contains("503") || message.Contains("502"))
+        {
+            return TokenRefreshFailureReason.ServerError;
+        }
+
+        return TokenRefreshFailureReason.Unknown;
+    }
+
+    /// <summary>
+    /// Stores refreshed tokens atomically to secure storage
+    /// </summary>
+    private async Task StoreRefreshedTokensAsync(TokenResponse refreshedToken, string storageKeyPrefix, string originalRefreshToken)
+    {
+        var storeOperations = new List<Task>();
+
+        var accessTokenKey = $"{storageKeyPrefix}{TokenKeySuffixes.ACCESS_TOKEN}";
+        var tokenExpiryKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_EXPIRY}";
+        var tokenIssuedKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_ISSUED_UTC}";
+        var tokenTypeKey = $"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_TYPE}";
+        var refreshTokenKey = $"{storageKeyPrefix}{TokenKeySuffixes.REFRESH_TOKEN}";
+
+        // Store new access token
+        storeOperations.Add(_secureStorageManager.StoreCredentialAsync(accessTokenKey, refreshedToken.AccessToken ?? string.Empty));
+
+        // Store new expiry information
+        storeOperations.Add(_secureStorageManager.StoreCredentialAsync(tokenExpiryKey, (refreshedToken.ExpiresInSeconds ?? 3600).ToString()));
+
+        // Store new issued time
+        storeOperations.Add(_secureStorageManager.StoreCredentialAsync(tokenIssuedKey, refreshedToken.IssuedUtc.ToString("O")));
+
+        // Store token type
+        storeOperations.Add(_secureStorageManager.StoreCredentialAsync(tokenTypeKey, refreshedToken.TokenType ?? "Bearer"));
+
+        // Update refresh token if a new one was provided, otherwise keep the original
+        var refreshTokenToStore = !string.IsNullOrEmpty(refreshedToken.RefreshToken) ? refreshedToken.RefreshToken : originalRefreshToken;
+        storeOperations.Add(_secureStorageManager.StoreCredentialAsync(refreshTokenKey, refreshTokenToStore));
+
+        if (!string.IsNullOrEmpty(refreshedToken.RefreshToken) && refreshedToken.RefreshToken != originalRefreshToken)
+        {
+            _logger.LogDebug("[TOKEN REFRESH] Storing updated refresh token");
+        }
+
+        // Wait for all storage operations to complete
+        await Task.WhenAll(storeOperations);
+    }
+
+    /// <summary>
+    /// Token refresh failure reasons for error classification
+    /// </summary>
+    private enum TokenRefreshFailureReason
+    {
+        Unknown,
+        NetworkError,           // Retry with backoff
+        InvalidRefreshToken,    // Clear tokens, force re-auth
+        RevokedToken,          // Clear tokens, force re-auth
+        QuotaExceeded,         // Retry with longer backoff
+        ServerError            // Retry with backoff
     }
 
     private async Task<Result<bool>> CheckStoredScopesAsync(string[] requiredScopes, string storageKeyPrefix)
@@ -580,43 +916,29 @@ public class GoogleOAuthService : IGoogleOAuthService
 
             _logger.LogInformation("[OAUTH DEBUG] About to call GoogleWebAuthorizationBroker.AuthorizeAsync - this should open browser if no valid tokens exist");
 
-            // FORCE clear data store tokens to ensure fresh OAuth flow
+            // Check existing tokens for debugging
             try
             {
                 var existingToken = await _dataStore.GetAsync<Google.Apis.Auth.OAuth2.Responses.TokenResponse>("user");
                 _logger.LogInformation("[OAUTH DEBUG] Existing token check - Token exists: {TokenExists}, Access token empty: {AccessTokenEmpty}",
                     existingToken != null,
                     existingToken?.AccessToken == null || string.IsNullOrEmpty(existingToken.AccessToken));
-
-                if (existingToken != null)
-                {
-                    _logger.LogInformation("[OAUTH DEBUG] FORCING clear of data store tokens to ensure fresh OAuth flow");
-                    await _dataStore.DeleteAsync<Google.Apis.Auth.OAuth2.Responses.TokenResponse>("user");
-                    _logger.LogInformation("[OAUTH DEBUG] Data store tokens cleared - browser should now open");
-                }
-                else
-                {
-                    _logger.LogInformation("[OAUTH DEBUG] No existing tokens found in data store");
-                }
             }
             catch (Exception ex)
             {
-                _logger.LogInformation("[OAUTH DEBUG] Error checking/clearing existing tokens: {Error}", ex.Message);
+                _logger.LogInformation("[OAUTH DEBUG] Error checking existing tokens: {Error}", ex.Message);
             }
 
-            // Use standard GoogleWebAuthorizationBroker with custom code receiver to ensure proper scope handling
-            _logger.LogInformation("[OAUTH DEBUG] Using GoogleWebAuthorizationBroker with AvaloniaCodeReceiver to fix scope parameter handling");
+            // Use standard GoogleWebAuthorizationBroker with default code receiver for desktop apps
+            _logger.LogInformation("[OAUTH DEBUG] Using GoogleWebAuthorizationBroker with default code receiver for proper redirect URI handling");
 
-            var codeReceiver = new AvaloniaCodeReceiver(_loggerFactory.CreateLogger<AvaloniaCodeReceiver>());
-
-            // Use GoogleWebAuthorizationBroker.AuthorizeAsync with custom code receiver for proper scope handling
+            // Use GoogleWebAuthorizationBroker.AuthorizeAsync with default code receiver for desktop apps
             var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
                 clientSecrets,
                 scopes, // IEnumerable<string> - this should properly handle multiple scopes
                 "user",
                 cancellationToken,
-                _dataStore,
-                codeReceiver); // Use our custom code receiver to control browser opening
+                _dataStore); // Use default code receiver that handles localhost properly
 
             _logger.LogInformation("[OAUTH DEBUG] GoogleWebAuthorizationBroker completed successfully");
 
@@ -667,6 +989,12 @@ public class GoogleOAuthService : IGoogleOAuthService
             throw new ArgumentException("Credential or token is null", nameof(credential));
         }
 
+        _logger.LogInformation("[TOKEN STORE DEBUG] Storing credentials for prefix: {Prefix}", storageKeyPrefix);
+        _logger.LogInformation("[TOKEN STORE DEBUG] Token details - ExpiresInSeconds: {ExpiresInSeconds}, IssuedUtc: {IssuedUtc}, TokenType: {TokenType}",
+            credential.Token.ExpiresInSeconds,
+            credential.Token.IssuedUtc.ToString("O"),
+            credential.Token.TokenType);
+
         var operations = new[]
         {
             ($"{storageKeyPrefix}{TokenKeySuffixes.ACCESS_TOKEN}", credential.Token.AccessToken),
@@ -676,6 +1004,10 @@ public class GoogleOAuthService : IGoogleOAuthService
             ($"{storageKeyPrefix}{TokenKeySuffixes.TOKEN_TYPE}", credential.Token.TokenType ?? "Bearer"),
             ($"{storageKeyPrefix}{TokenKeySuffixes.SCOPES}", string.Join(",", scopes))
         };
+
+        _logger.LogInformation("[TOKEN STORE DEBUG] About to store - TOKEN_EXPIRY: '{TokenExpiry}', TOKEN_ISSUED_UTC: '{TokenIssuedUtc}'",
+            credential.Token.ExpiresInSeconds?.ToString() ?? "0",
+            credential.Token.IssuedUtc.ToString("O"));
 
         foreach (var (key, value) in operations)
         {

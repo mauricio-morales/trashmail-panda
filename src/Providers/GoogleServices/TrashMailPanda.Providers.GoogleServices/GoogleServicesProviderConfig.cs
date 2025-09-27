@@ -26,6 +26,12 @@ public sealed class GoogleServicesProviderConfig : BaseProviderConfig
     /// </summary>
     public new List<string> Tags { get; set; } = new() { "google", "gmail", "contacts", "oauth", "unified" };
 
+    /// <summary>
+    /// Gets or sets the timeout in seconds for provider operations (overridden to ensure proper JSON binding)
+    /// </summary>
+    [Range(1, 3600, ErrorMessage = "Timeout must be between 1 and 3600 seconds")]
+    public new int TimeoutSeconds { get; set; } = 180;
+
     #region OAuth Configuration
 
     /// <summary>

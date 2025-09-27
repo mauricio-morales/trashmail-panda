@@ -16,7 +16,6 @@ public class ProviderHealthMonitorService : BackgroundService
 
     // Health check intervals
     private static readonly TimeSpan HealthCheckInterval = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan QuickCheckInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(5);
 
     private readonly object _monitoringLock = new();
@@ -48,8 +47,8 @@ public class ProviderHealthMonitorService : BackgroundService
             // Perform initial health check immediately
             await PerformHealthCheckCycleAsync(isInitialCheck: true);
 
-            // Start monitoring loop with configurable intervals
-            using var timer = new PeriodicTimer(QuickCheckInterval);
+            // Start monitoring loop with health check intervals
+            using var timer = new PeriodicTimer(HealthCheckInterval);
 
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
@@ -74,35 +73,23 @@ public class ProviderHealthMonitorService : BackgroundService
         try
         {
             var now = DateTime.UtcNow;
-            var shouldPerformFullCheck = isInitialCheck ||
-                                       _isFirstRun ||
-                                       (now - _lastHealthCheck) >= HealthCheckInterval;
 
-            if (shouldPerformFullCheck)
+            _logger.LogDebug("Performing full provider health check cycle");
+
+            // Get updated status for all providers
+            var providerStatuses = await _providerBridgeService.GetAllProviderStatusAsync();
+
+            // Update the provider status service with new information
+            await UpdateProviderStatusesAsync(providerStatuses);
+
+            lock (_monitoringLock)
             {
-                _logger.LogDebug("Performing full provider health check cycle");
-
-                // Get updated status for all providers
-                var providerStatuses = await _providerBridgeService.GetAllProviderStatusAsync();
-
-                // Update the provider status service with new information
-                await UpdateProviderStatusesAsync(providerStatuses);
-
-                lock (_monitoringLock)
-                {
-                    _lastHealthCheck = now;
-                    _isFirstRun = false;
-                }
-
-                _logger.LogDebug("Completed provider health check cycle - checked {Count} providers",
-                    providerStatuses.Count);
+                _lastHealthCheck = now;
+                _isFirstRun = false;
             }
-            else
-            {
-                // Quick check - just refresh existing status without full provider calls
-                _logger.LogTrace("Performing quick provider status refresh");
-                await _providerStatusService.RefreshProviderStatusAsync();
-            }
+
+            _logger.LogDebug("Completed provider health check cycle - checked {Count} providers",
+                providerStatuses.Count);
         }
         catch (Exception ex)
         {
@@ -134,9 +121,8 @@ public class ProviderHealthMonitorService : BackgroundService
                         newStatus.Status,
                         newStatus.IsHealthy);
 
-                    // The provider status service will handle firing events
-                    // We don't need to manually trigger events here since
-                    // RefreshProviderStatusAsync will detect changes
+                    // Trigger the provider status service to update and fire events
+                    await _providerStatusService.RefreshProviderStatusAsync();
                 }
                 else
                 {
@@ -192,7 +178,7 @@ public class ProviderHealthMonitorService : BackgroundService
                 LastHealthCheck = _lastHealthCheck,
                 NextScheduledCheck = _lastHealthCheck.Add(HealthCheckInterval),
                 HealthCheckInterval = HealthCheckInterval,
-                QuickCheckInterval = QuickCheckInterval
+                QuickCheckInterval = HealthCheckInterval // Now using same interval for both
             };
         }
     }
