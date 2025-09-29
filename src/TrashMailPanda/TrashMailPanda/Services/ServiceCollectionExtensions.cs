@@ -171,7 +171,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContactsProvider>(provider =>
             provider.GetRequiredService<GoogleServicesProvider>());
 
-        // LLM provider can be added here if needed
+        // LLM provider registration
+        services.AddSingleton<ILLMProvider, OpenAIProvider>();
 
         return services;
     }
@@ -191,7 +192,7 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<IProviderBridgeService>(),
                 provider,
                 provider.GetRequiredService<IEmailProvider>(), // Explicit injection of Gmail provider
-                null, // LLM provider not implemented yet
+                provider.GetRequiredService<ILLMProvider>(), // Explicit injection of OpenAI provider
                 provider.GetRequiredService<IContactsProvider>() // Explicit injection of Contacts provider
             ));
         services.AddSingleton<IProviderStatusService, ProviderStatusService>();

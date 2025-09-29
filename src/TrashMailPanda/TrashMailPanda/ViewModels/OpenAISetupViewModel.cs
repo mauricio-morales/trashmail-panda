@@ -7,6 +7,7 @@ using TrashMailPanda.Models;
 using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Models;
+using TrashMailPanda.Services;
 
 namespace TrashMailPanda.ViewModels;
 
@@ -17,6 +18,7 @@ namespace TrashMailPanda.ViewModels;
 public partial class OpenAISetupViewModel : ViewModelBase
 {
     private readonly ISecureStorageManager _secureStorage;
+    private readonly IProviderStatusService _providerStatusService;
     private readonly ILogger<OpenAISetupViewModel> _logger;
 
     [ObservableProperty]
@@ -45,9 +47,13 @@ public partial class OpenAISetupViewModel : ViewModelBase
 
     public string SaveButtonText => IsValidating ? "Validating..." : (IsValidated ? "Save & Close" : "Validate & Save");
 
-    public OpenAISetupViewModel(ISecureStorageManager secureStorage, ILogger<OpenAISetupViewModel> logger)
+    public OpenAISetupViewModel(
+        ISecureStorageManager secureStorage,
+        IProviderStatusService providerStatusService,
+        ILogger<OpenAISetupViewModel> logger)
     {
         _secureStorage = secureStorage ?? throw new ArgumentNullException(nameof(secureStorage));
+        _providerStatusService = providerStatusService ?? throw new ArgumentNullException(nameof(providerStatusService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Subscribe to property changes to update validation
@@ -146,9 +152,26 @@ public partial class OpenAISetupViewModel : ViewModelBase
                 return;
             }
 
-            // TODO: Implement actual API validation by making a test call to OpenAI
-            // For now, we'll just save the key after format validation
-            await Task.Delay(1000); // Simulate API call
+            // Perform actual API validation by testing the key
+            await Task.Delay(500); // Brief pause for UI feedback
+
+            // Test the API key by creating a provider instance and initializing it
+            try
+            {
+                // Create a logger for the OpenAI provider using a logger factory
+                using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+                var providerLogger = loggerFactory.CreateLogger<TrashMailPanda.Providers.LLM.OpenAIProvider>();
+
+                var testProvider = new TrashMailPanda.Providers.LLM.OpenAIProvider(providerLogger);
+                await testProvider.InitAsync(new LLMAuth.ApiKey { Key = ApiKey.Trim() });
+                _logger.LogInformation("OpenAI API key validation successful");
+            }
+            catch (Exception validationEx)
+            {
+                _logger.LogWarning(validationEx, "OpenAI API key validation failed");
+                ValidationMessage = $"API key validation failed: {validationEx.Message}";
+                return;
+            }
 
             // Save to secure storage
             var result = await _secureStorage.StoreCredentialAsync(
@@ -163,6 +186,21 @@ public partial class OpenAISetupViewModel : ViewModelBase
                 DialogResult = true;
 
                 _logger.LogInformation("OpenAI API key saved successfully to secure storage");
+
+                // Trigger immediate provider status refresh so UI updates right away
+                try
+                {
+                    StatusMessage = "Updating provider status...";
+                    await _providerStatusService.RefreshProviderStatusAsync();
+                    _logger.LogInformation("Provider status refreshed after OpenAI API key save");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to refresh provider status after API key save");
+                    // Don't fail the save operation if refresh fails
+                }
+
+                StatusMessage = "Setup completed successfully";
 
                 // Close dialog after short delay to show success message
                 await Task.Delay(1500);

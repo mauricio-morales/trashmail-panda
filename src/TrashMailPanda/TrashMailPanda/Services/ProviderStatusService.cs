@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
+using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.Contacts;
 using TrashMailPanda.Providers.GoogleServices;
+using TrashMailPanda.Providers.LLM;
 
 namespace TrashMailPanda.Services;
 
@@ -22,6 +26,7 @@ public class ProviderStatusService : IProviderStatusService
     private readonly IContactsProvider? _contactsProvider;
     private readonly ILLMProvider? _llmProvider;
     private readonly IStorageProvider _storageProvider;
+    private readonly IServiceProvider? _serviceProvider;
 
     private readonly Dictionary<string, ProviderStatus> _providerStatus = new();
     private readonly object _statusLock = new();
@@ -33,13 +38,15 @@ public class ProviderStatusService : IProviderStatusService
         IStorageProvider storageProvider,
         IEmailProvider? emailProvider = null,
         IContactsProvider? contactsProvider = null,
-        ILLMProvider? llmProvider = null)
+        ILLMProvider? llmProvider = null,
+        IServiceProvider? serviceProvider = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _emailProvider = emailProvider; // Can be null - will be set after secrets are available
         _contactsProvider = contactsProvider; // Can be null - will be set after secrets are available
         _llmProvider = llmProvider; // Can be null - will be set after secrets are available
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
+        _serviceProvider = serviceProvider;
     }
 
     public async Task<Dictionary<string, ProviderStatus>> GetAllProviderStatusAsync()
@@ -84,8 +91,27 @@ public class ProviderStatusService : IProviderStatusService
         // Note: Contacts are handled within GoogleServices unified provider, not separately
         // if (_contactsProvider != null)
         //     refreshTasks.Add(RefreshProviderStatusAsync("Contacts", _contactsProvider));
+        // Always check OpenAI provider status, even if not registered yet
+        // Create a temporary instance for health checking if needed
         if (_llmProvider != null)
+        {
             refreshTasks.Add(RefreshProviderStatusAsync("OpenAI", _llmProvider));
+        }
+        else
+        {
+            // Create temporary OpenAI provider instance for health check
+            var loggerFactory = _serviceProvider?.GetService<ILoggerFactory>();
+            if (loggerFactory != null)
+            {
+                var tempProvider = new TrashMailPanda.Providers.LLM.OpenAIProvider(
+                    loggerFactory.CreateLogger<TrashMailPanda.Providers.LLM.OpenAIProvider>());
+                refreshTasks.Add(RefreshProviderStatusAsync("OpenAI", tempProvider));
+            }
+            else
+            {
+                _logger.LogWarning("LoggerFactory not available, skipping OpenAI provider status check");
+            }
+        }
 
         refreshTasks.Add(RefreshProviderStatusAsync("SQLite", _storageProvider));
 
@@ -332,19 +358,212 @@ public class ProviderStatusService : IProviderStatusService
                 break;
 
             case ILLMProvider llmProvider:
-                status = status with
+                // Perform actual health check for OpenAI provider
+                try
                 {
-                    IsHealthy = true,
-                    IsInitialized = true,
-                    RequiresSetup = false,
-                    Status = "Ready",
-                    Details = new Dictionary<string, object>
+                    _logger.LogDebug("Performing health check for OpenAI provider");
+
+                    // Check if API key exists in secure storage
+                    var secureStorage = _serviceProvider?.GetService<ISecureStorageManager>();
+                    if (secureStorage == null)
                     {
-                        { "type", "OpenAI" },
-                        { "model", "gpt-4o-mini" },
-                        { "last_check", DateTime.UtcNow }
+                        throw new InvalidOperationException("Secure storage manager not available");
                     }
-                };
+
+                    var apiKeyResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.OpenAIApiKey);
+                    if (!apiKeyResult.IsSuccess || string.IsNullOrEmpty(apiKeyResult.Value))
+                    {
+                        _logger.LogDebug("OpenAI API key not found or empty");
+                        status = status with
+                        {
+                            IsHealthy = false,
+                            IsInitialized = false,
+                            RequiresSetup = true,
+                            Status = "API Key Required",
+                            ErrorMessage = "OpenAI API key not configured",
+                            Details = new Dictionary<string, object>
+                            {
+                                { "type", "OpenAI" },
+                                { "model", "gpt-4o-mini" },
+                                { "last_check", DateTime.UtcNow },
+                                { "error", "No API key found" }
+                            }
+                        };
+                        break;
+                    }
+
+                    // Check if provider implements BaseProvider pattern for health checks
+                    if (llmProvider is IProvider<OpenAIConfig> providerWithHealthCheck)
+                    {
+                        try
+                        {
+                            // Create a temporary config for health check if provider is not initialized
+                            var config = OpenAIConfig.CreateDevelopmentConfig(apiKeyResult.Value);
+
+                            // Only initialize if the provider is not already in a ready state
+                            // Check state to avoid invalid transitions (Ready → Initializing is not allowed)
+                            if (providerWithHealthCheck.State != ProviderState.Ready &&
+                                providerWithHealthCheck.State != ProviderState.Busy &&
+                                providerWithHealthCheck.State != ProviderState.Suspended)
+                            {
+                                _logger.LogDebug("OpenAI provider state is {State}, initializing with temporary config", providerWithHealthCheck.State);
+                                var initResult = await providerWithHealthCheck.InitializeAsync(config);
+                                if (initResult.IsFailure)
+                                {
+                                    _logger.LogWarning("OpenAI provider initialization failed: {Error}", initResult.Error?.Message);
+                                    status = status with
+                                    {
+                                        IsHealthy = false,
+                                        IsInitialized = false,
+                                        RequiresSetup = true,
+                                        Status = "Configuration Invalid",
+                                        ErrorMessage = initResult.Error?.Message ?? "Initialization failed",
+                                        Details = new Dictionary<string, object>
+                                        {
+                                            { "type", "OpenAI" },
+                                            { "model", config.Model },
+                                            { "last_check", DateTime.UtcNow },
+                                            { "error", initResult.Error?.Message ?? "Initialization failed" }
+                                        }
+                                    };
+                                    break;
+                                }
+                            }
+                            else
+                            {
+                                _logger.LogDebug("OpenAI provider already in ready state ({State}), performing health check directly", providerWithHealthCheck.State);
+                            }
+
+                            // Perform health check using the proper method
+                            var healthResult = await providerWithHealthCheck.HealthCheckAsync(CancellationToken.None);
+                            if (healthResult.IsSuccess && healthResult.Value != null)
+                            {
+                                var health = healthResult.Value;
+                                var providerIsHealthy = health.Status == HealthStatus.Healthy || health.Status == HealthStatus.Degraded;
+
+                                _logger.LogDebug("OpenAI provider health check completed: {Status}", health.Status);
+                                status = status with
+                                {
+                                    IsHealthy = providerIsHealthy,
+                                    IsInitialized = true,
+                                    RequiresSetup = false,
+                                    Status = health.Description ?? health.Status.ToString(),
+                                    ErrorMessage = providerIsHealthy ? null : health.Description,
+                                    Details = new Dictionary<string, object>
+                                    {
+                                        { "type", "OpenAI" },
+                                        { "model", config.Model },
+                                        { "last_check", DateTime.UtcNow },
+                                        { "health_status", health.Status.ToString() },
+                                        { "health_description", health.Description ?? "" }
+                                    }
+                                };
+                            }
+                            else
+                            {
+                                _logger.LogWarning("OpenAI provider health check failed");
+                                status = status with
+                                {
+                                    IsHealthy = false,
+                                    IsInitialized = true,
+                                    RequiresSetup = false,
+                                    Status = "Health Check Failed",
+                                    ErrorMessage = "Provider health check returned failure",
+                                    Details = new Dictionary<string, object>
+                                    {
+                                        { "type", "OpenAI" },
+                                        { "model", config.Model },
+                                        { "last_check", DateTime.UtcNow },
+                                        { "error", "Health check failed" }
+                                    }
+                                };
+                            }
+                        }
+                        catch (Exception healthEx)
+                        {
+                            _logger.LogWarning(healthEx, "OpenAI provider health check threw exception");
+                            status = status with
+                            {
+                                IsHealthy = false,
+                                IsInitialized = false,
+                                RequiresSetup = true,
+                                Status = "Health Check Error",
+                                ErrorMessage = healthEx.Message,
+                                Details = new Dictionary<string, object>
+                                {
+                                    { "type", "OpenAI" },
+                                    { "model", "gpt-4o-mini" },
+                                    { "last_check", DateTime.UtcNow },
+                                    { "error", healthEx.Message }
+                                }
+                            };
+                        }
+                    }
+                    else
+                    {
+                        // Fallback to legacy initialization method for backward compatibility
+                        try
+                        {
+                            await llmProvider.InitAsync(new LLMAuth.ApiKey { Key = apiKeyResult.Value });
+
+                            _logger.LogDebug("OpenAI provider legacy initialization successful");
+                            status = status with
+                            {
+                                IsHealthy = true,
+                                IsInitialized = true,
+                                RequiresSetup = false,
+                                Status = "Ready (Legacy)",
+                                ErrorMessage = null,
+                                Details = new Dictionary<string, object>
+                                {
+                                    { "type", "OpenAI" },
+                                    { "model", "gpt-4o-mini" },
+                                    { "last_check", DateTime.UtcNow },
+                                    { "api_key_status", "Valid" },
+                                    { "method", "legacy" }
+                                }
+                            };
+                        }
+                        catch (Exception initEx)
+                        {
+                            _logger.LogWarning(initEx, "OpenAI provider legacy initialization failed");
+                            status = status with
+                            {
+                                IsHealthy = false,
+                                IsInitialized = false,
+                                RequiresSetup = true,
+                                Status = "API Key Invalid",
+                                ErrorMessage = "API key validation failed",
+                                Details = new Dictionary<string, object>
+                                {
+                                    { "type", "OpenAI" },
+                                    { "model", "gpt-4o-mini" },
+                                    { "last_check", DateTime.UtcNow },
+                                    { "error", initEx.Message },
+                                    { "method", "legacy" }
+                                }
+                            };
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Exception during OpenAI provider health check");
+                    status = status with
+                    {
+                        IsHealthy = false,
+                        IsInitialized = false,
+                        RequiresSetup = true,
+                        Status = "Error",
+                        ErrorMessage = ex.Message,
+                        Details = new Dictionary<string, object>
+                        {
+                            { "type", "OpenAI" },
+                            { "last_check", DateTime.UtcNow },
+                            { "error", ex.Message }
+                        }
+                    };
+                }
                 break;
 
             case IStorageProvider storageProvider:

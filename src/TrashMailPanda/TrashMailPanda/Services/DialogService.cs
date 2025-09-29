@@ -106,8 +106,11 @@ public class DialogService : IDialogService
 
             var dialog = new OpenAISetupDialog(viewModel);
 
-            // Subscribe to close event
-            viewModel.RequestClose += (sender, args) => dialog.Close();
+            // Subscribe to close event - set dialog result based on view model state
+            viewModel.RequestClose += (sender, args) =>
+            {
+                dialog.Close(viewModel.DialogResult);
+            };
 
             // Show dialog modal
             var parentWindow = GetMainWindow();
@@ -127,7 +130,8 @@ public class DialogService : IDialogService
             if (result)
             {
                 _logger.LogInformation("OpenAI setup completed successfully");
-                await TriggerProviderRefreshAsync();
+                // Note: Provider refresh is now handled by the OpenAISetupViewModel itself
+                // for immediate UI feedback during the save process
             }
             else
             {

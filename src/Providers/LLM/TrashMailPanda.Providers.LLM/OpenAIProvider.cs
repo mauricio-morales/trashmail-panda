@@ -1,48 +1,215 @@
 using OpenAI.Chat;
+using OpenAI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Providers.LLM;
 
 /// <summary>
-/// OpenAI implementation of ILLMProvider
-/// Provides email classification using GPT-4o-mini for cost optimization
+/// OpenAI implementation of ILLMProvider using BaseProvider architecture
+/// Provides email classification using GPT-4o-mini for cost optimization with intelligent health checks
 /// </summary>
-public class OpenAIProvider : ILLMProvider
+public class OpenAIProvider : BaseProvider<OpenAIConfig>, ILLMProvider
 {
     private ChatClient? _client;
-    private readonly string _model = "gpt-4o-mini";
+    private OpenAIClient? _openAIClient;
+    private DateTime? _lastApiCheck;
+    private HealthCheckResult? _cachedHealthResult;
+    private readonly SemaphoreSlim _healthCheckSemaphore = new(1, 1);
 
-    public string Name => "OpenAI";
+    public override string Name => "OpenAI";
 
+    public override string Version => "1.0.0";
+
+    /// <summary>
+    /// Initializes a new instance of the OpenAIProvider
+    /// </summary>
+    /// <param name="logger">Logger for this provider</param>
+    public OpenAIProvider(ILogger<OpenAIProvider> logger) : base(logger)
+    {
+    }
+
+    /// <summary>
+    /// Initializes the OpenAI provider with configuration
+    /// This method is called by the BaseProvider during initialization
+    /// </summary>
+    /// <param name="config">The configuration to initialize with</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result indicating success or failure</returns>
+    protected override async Task<Result<bool>> PerformInitializationAsync(OpenAIConfig config, CancellationToken cancellationToken)
+    {
+        if (config == null)
+            return Result<bool>.Failure(new ValidationError("Configuration is required for OpenAI provider"));
+
+        try
+        {
+            // Initialize OpenAI clients
+            _openAIClient = new OpenAIClient(config.ApiKey);
+            _client = _openAIClient.GetChatClient(config.Model);
+
+            Logger.LogInformation("OpenAI provider initialized successfully with model: {Model}", config.Model);
+            await Task.CompletedTask; // Keep async for interface compatibility
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize OpenAI provider");
+            return Result<bool>.Failure(ex.ToProviderError("Failed to initialize OpenAI provider"));
+        }
+    }
+
+    /// <summary>
+    /// Legacy InitAsync method for ILLMProvider compatibility
+    /// This method creates a temporary config and initializes the provider
+    /// </summary>
+    /// <param name="auth">Authentication information</param>
     public async Task InitAsync(LLMAuth auth)
     {
         if (auth is not LLMAuth.ApiKey apiKeyAuth)
             throw new ArgumentException("OpenAI provider requires API key authentication", nameof(auth));
 
+        // Create a temporary configuration for legacy compatibility
+        var config = OpenAIConfig.CreateDevelopmentConfig(apiKeyAuth.Key);
+        var initResult = await InitializeAsync(config);
+
+        if (initResult.IsFailure)
+            throw new InvalidOperationException($"Failed to initialize OpenAI provider: {initResult.Error?.Message}");
+    }
+
+    /// <summary>
+    /// Performs tiered health checks for the OpenAI provider
+    /// Tier 1: Format validation, Tier 2: Cached results, Tier 3: API validation (rate limited)
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Health check result</returns>
+    protected override async Task<Result<HealthCheckResult>> PerformHealthCheckAsync(CancellationToken cancellationToken)
+    {
+        // Tier 1: Format validation (always)
+        if (Configuration?.ApiKey == null || !Configuration.ApiKey.StartsWith("sk-"))
+        {
+            return Result<HealthCheckResult>.Success(
+                HealthCheckResult.Critical("Invalid API key format"));
+        }
+
+        // Tier 2: Cached result (if recent)
+        if (_cachedHealthResult != null && _lastApiCheck.HasValue &&
+            DateTime.UtcNow - _lastApiCheck.Value < TimeSpan.FromMinutes(Configuration.HealthCheckIntervalMinutes))
+        {
+            Logger.LogDebug("Returning cached OpenAI health check result");
+            return Result<HealthCheckResult>.Success(_cachedHealthResult);
+        }
+
+        // Tier 3: API validation (rate limited)
+        if (!_healthCheckSemaphore.Wait(0)) // Non-blocking
+        {
+            Logger.LogDebug("OpenAI health check already in progress, returning cached result");
+            return Result<HealthCheckResult>.Success(_cachedHealthResult ??
+                HealthCheckResult.Degraded("Health check in progress"));
+        }
+
         try
         {
-            _client = new ChatClient(_model, apiKeyAuth.Key);
+            return await PerformApiHealthCheckAsync(cancellationToken);
+        }
+        finally
+        {
+            _healthCheckSemaphore.Release();
+        }
+    }
 
-            // Test the connection with a simple request
+    /// <summary>
+    /// Performs actual API health check with intelligent error classification
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Health check result</returns>
+    private async Task<Result<HealthCheckResult>> PerformApiHealthCheckAsync(CancellationToken cancellationToken)
+    {
+        // Skip API check if we've checked recently
+        if (_lastApiCheck.HasValue && DateTime.UtcNow - _lastApiCheck.Value < TimeSpan.FromMinutes(Configuration.HealthCheckIntervalMinutes))
+        {
+            return Result<HealthCheckResult>.Success(_cachedHealthResult ??
+                HealthCheckResult.Healthy("API key format valid"));
+        }
+
+        try
+        {
+            if (_openAIClient == null)
+            {
+                return Result<HealthCheckResult>.Success(
+                    HealthCheckResult.Degraded("Provider not initialized"));
+            }
+
+            // Use lightweight chat completion for health check (minimal tokens)
+            Logger.LogDebug("Performing OpenAI API health check");
             var testMessages = new List<ChatMessage>
             {
-                new SystemChatMessage("You are a helpful assistant."),
-                new UserChatMessage("Test connection.")
+                new SystemChatMessage("You are a test."),
+                new UserChatMessage("Hi")
+            };
+            var testResponse = await _client.CompleteChatAsync(testMessages, cancellationToken: cancellationToken);
+
+            _lastApiCheck = DateTime.UtcNow;
+            _cachedHealthResult = HealthCheckResult.Healthy("API connection validated");
+
+            Logger.LogDebug("OpenAI API health check successful");
+            return Result<HealthCheckResult>.Success(_cachedHealthResult);
+        }
+        catch (Exception ex) when (ex.Message.Contains("429") || ex.Message.Contains("insufficient_quota"))
+        {
+            // Rate limited = valid key, temporarily unavailable = HEALTHY
+            _lastApiCheck = DateTime.UtcNow;
+            var healthStatus = Configuration.TreatRateLimitAsHealthy ? HealthStatus.Healthy : HealthStatus.Degraded;
+            _cachedHealthResult = new HealthCheckResult
+            {
+                Status = healthStatus,
+                Description = "API key valid (rate limited)",
+                CheckedAt = DateTime.UtcNow,
+                Duration = TimeSpan.Zero,
+                Diagnostics = new Dictionary<string, object>
+                {
+                    { "error_type", "rate_limit" },
+                    { "api_key_valid", true },
+                    { "message", ex.Message }
+                }
             };
 
-            var testResponse = await _client.CompleteChatAsync(testMessages);
-            if (testResponse.Value == null)
-                throw new InvalidOperationException("Failed to connect to OpenAI API - no response received");
+            Logger.LogDebug("OpenAI API rate limited, treating as {Status}: {Message}", healthStatus, ex.Message);
+            return Result<HealthCheckResult>.Success(_cachedHealthResult);
+        }
+        catch (Exception ex) when (ex.Message.Contains("401") || ex.Message.Contains("invalid") || ex.Message.Contains("Unauthorized"))
+        {
+            // Invalid key = CRITICAL
+            _cachedHealthResult = HealthCheckResult.Critical($"Invalid API key: {ex.Message}");
+            Logger.LogWarning("OpenAI API authentication failed: {Message}", ex.Message);
+            return Result<HealthCheckResult>.Success(_cachedHealthResult);
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to initialize OpenAI provider: {ex.Message}", ex);
+            // Network/other errors = DEGRADED (don't cache these)
+            Logger.LogWarning(ex, "OpenAI API health check failed with unexpected error");
+            return Result<HealthCheckResult>.Success(
+                HealthCheckResult.Degraded($"API check failed: {ex.Message}"));
         }
+    }
+
+    /// <summary>
+    /// Test the API connection with a minimal request to validate the API key.
+    /// This method is provided for legacy compatibility and explicit testing.
+    /// </summary>
+    public async Task<bool> TestConnectionAsync()
+    {
+        var healthResult = await PerformHealthCheckAsync(CancellationToken.None);
+        return healthResult.IsSuccess &&
+               healthResult.Value != null &&
+               (healthResult.Value.Status == HealthStatus.Healthy || healthResult.Value.Status == HealthStatus.Degraded);
     }
 
     public async Task<ClassifyOutput> ClassifyEmailsAsync(ClassifyInput input)
@@ -71,6 +238,16 @@ public class OpenAIProvider : ILLMProvider
         }
         catch (Exception ex)
         {
+            // Provide more specific error messages for common issues
+            if (ex.Message.Contains("429") || ex.Message.Contains("insufficient_quota"))
+            {
+                throw new InvalidOperationException("OpenAI API quota exceeded. Please check your billing details and rate limits.", ex);
+            }
+            if (ex.Message.Contains("401") || ex.Message.Contains("Unauthorized"))
+            {
+                throw new InvalidOperationException("OpenAI API key is invalid or expired. Please check your API key.", ex);
+            }
+
             throw new InvalidOperationException($"OpenAI classification failed: {ex.Message}", ex);
         }
     }
@@ -384,5 +561,43 @@ Confidence: 0.0-1.0 numeric score";
             return email.Substring(atIndex + 1).Trim('>', ' ');
 
         return "unknown";
+    }
+
+    /// <summary>
+    /// Performs provider cleanup when shutting down
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Result indicating success or failure</returns>
+    protected override async Task<Result<bool>> PerformShutdownAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _client = null;
+            _openAIClient = null;
+            _cachedHealthResult = null;
+            _lastApiCheck = null;
+
+            Logger.LogInformation("OpenAI provider shut down successfully");
+            await Task.CompletedTask; // Keep async for interface compatibility
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during OpenAI provider shutdown");
+            return Result<bool>.Failure(ex.ToProviderError("Failed to shutdown OpenAI provider"));
+        }
+    }
+
+    /// <summary>
+    /// Disposes of provider resources
+    /// </summary>
+    /// <param name="disposing">Whether this is being called from Dispose()</param>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _healthCheckSemaphore?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }
