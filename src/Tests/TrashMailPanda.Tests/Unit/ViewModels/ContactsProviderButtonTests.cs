@@ -1,6 +1,7 @@
 using Xunit;
 using TrashMailPanda.ViewModels;
 using TrashMailPanda.Models;
+using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Services;
 
 namespace TrashMailPanda.Tests.Unit.ViewModels;
@@ -37,10 +38,10 @@ public class ContactsProviderButtonTests
     }
 
     [Theory]
-    [InlineData(true, false, false)]  // Healthy and no setup required = no setup button
-    [InlineData(false, true, true)]   // Not healthy and requires setup = show setup button
-    [InlineData(false, false, true)]  // Not healthy = show setup button
-    [InlineData(true, true, true)]    // Healthy but requires setup = show setup button
+    [InlineData(true, false, true)]   // Always shows button - text changes based on state
+    [InlineData(false, true, true)]   // Always shows button - text changes based on state
+    [InlineData(false, false, true)]  // Always shows button - text changes based on state
+    [InlineData(true, true, true)]    // Always shows button - text changes based on state
     public void ContactsProvider_ShowSetupButton_ShouldReturnCorrectValue(bool isHealthy, bool requiresSetup, bool expected)
     {
         // Arrange

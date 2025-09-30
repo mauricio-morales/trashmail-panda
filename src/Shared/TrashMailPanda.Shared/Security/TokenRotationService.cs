@@ -15,7 +15,7 @@ namespace TrashMailPanda.Shared.Security;
 public class TokenRotationService : ITokenRotationService, IDisposable
 {
     private readonly ISecureStorageManager _secureStorageManager;
-    private readonly GoogleOAuthService _googleOAuthService;
+    private readonly IGoogleOAuthService _googleOAuthService;
     private readonly ILogger<TokenRotationService> _logger;
 
     private readonly Timer? _rotationTimer;
@@ -42,7 +42,7 @@ public class TokenRotationService : ITokenRotationService, IDisposable
 
     public TokenRotationService(
         ISecureStorageManager secureStorageManager,
-        GoogleOAuthService googleOAuthService,
+        IGoogleOAuthService googleOAuthService,
         ILogger<TokenRotationService> logger)
     {
         _secureStorageManager = secureStorageManager ?? throw new ArgumentNullException(nameof(secureStorageManager));

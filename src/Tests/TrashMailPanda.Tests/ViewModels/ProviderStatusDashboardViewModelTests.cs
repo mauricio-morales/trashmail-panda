@@ -3,6 +3,7 @@ using Moq;
 using TrashMailPanda.ViewModels;
 using TrashMailPanda.Models;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Services;
 using Xunit;
 

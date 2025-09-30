@@ -1,6 +1,7 @@
 using TrashMailPanda.ViewModels;
 using TrashMailPanda.Models;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Services;
 using Xunit;
 
@@ -52,7 +53,7 @@ public class ProviderStatusCardViewModelTests
         Assert.Equal(displayInfo.Description, viewModel.ProviderDescription);
         Assert.Equal(displayInfo.Icon, viewModel.ProviderIcon);
         Assert.False(viewModel.IsHealthy);
-        Assert.True(viewModel.RequiresSetup);
+        Assert.False(viewModel.RequiresSetup); // Initially false until status is updated
     }
 
     [Fact]
@@ -154,9 +155,9 @@ public class ProviderStatusCardViewModelTests
     }
 
     [Theory]
-    [InlineData(true, true, false)]  // Healthy and initialized = no setup button
-    [InlineData(false, false, true)] // Not healthy = show setup button
-    [InlineData(false, true, true)]  // Requires setup = show setup button
+    [InlineData(true, true, true)]   // Always shows button - text changes based on state
+    [InlineData(false, false, true)] // Always shows button - text changes based on state
+    [InlineData(false, true, true)]  // Always shows button - text changes based on state
     public void ShowSetupButton_ShouldReturnCorrectValue(bool isHealthy, bool requiresSetup, bool expected)
     {
         // Arrange

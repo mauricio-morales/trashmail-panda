@@ -13,14 +13,16 @@ namespace TrashMailPanda.Tests.Security;
 public class TokenRotationServiceTests : IDisposable
 {
     private readonly Mock<ISecureStorageManager> _mockSecureStorageManager;
+    private readonly Mock<IGoogleOAuthService> _mockGoogleOAuthService;
     private readonly Mock<ILogger<TokenRotationService>> _mockLogger;
     private readonly TokenRotationService _tokenRotationService;
 
     public TokenRotationServiceTests()
     {
         _mockSecureStorageManager = new Mock<ISecureStorageManager>();
+        _mockGoogleOAuthService = new Mock<IGoogleOAuthService>();
         _mockLogger = new Mock<ILogger<TokenRotationService>>();
-        _tokenRotationService = new TokenRotationService(_mockSecureStorageManager.Object, _mockLogger.Object);
+        _tokenRotationService = new TokenRotationService(_mockSecureStorageManager.Object, _mockGoogleOAuthService.Object, _mockLogger.Object);
     }
 
     [Fact]
@@ -38,7 +40,15 @@ public class TokenRotationServiceTests : IDisposable
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
-            new TokenRotationService(null!, _mockLogger.Object));
+            new TokenRotationService(null!, _mockGoogleOAuthService.Object, _mockLogger.Object));
+    }
+
+    [Fact]
+    public void Constructor_WithNullGoogleOAuthService_ShouldThrowArgumentNullException()
+    {
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() =>
+            new TokenRotationService(_mockSecureStorageManager.Object, null!, _mockLogger.Object));
     }
 
     [Fact]
@@ -46,7 +56,7 @@ public class TokenRotationServiceTests : IDisposable
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
-            new TokenRotationService(_mockSecureStorageManager.Object, null!));
+            new TokenRotationService(_mockSecureStorageManager.Object, _mockGoogleOAuthService.Object, null!));
     }
 
     [Fact]
@@ -115,10 +125,15 @@ public class TokenRotationServiceTests : IDisposable
     [Fact]
     public async Task RotateTokensAsync_ForGmailWithExistingTokens_ShouldSucceed()
     {
-        // Arrange
+        // Arrange - Mock token expiry check to indicate rotation is needed first
+        _mockGoogleOAuthService
+            .SetupSequence(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(false)) // First call: tokens need rotation
+            .ReturnsAsync(Result<bool>.Success(true)); // Second call: after "rotation", tokens are valid
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddMinutes(-30).ToString())); // Expired token
 
         // Act
         var result = await _tokenRotationService.RotateTokensAsync("gmail");
@@ -133,10 +148,14 @@ public class TokenRotationServiceTests : IDisposable
     [Fact]
     public async Task RotateTokensAsync_ForGmailWithoutTokens_ShouldReturnNotNeeded()
     {
-        // Arrange
+        // Arrange - Mock to indicate tokens are valid and don't need rotation
+        _mockGoogleOAuthService
+            .Setup(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(true)); // Tokens are valid, no rotation needed
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(false));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddHours(2).ToString())); // Future expiry
 
         // Act
         var result = await _tokenRotationService.RotateTokensAsync("gmail");
@@ -193,10 +212,10 @@ public class TokenRotationServiceTests : IDisposable
     [Fact]
     public async Task IsTokenNearExpiryAsync_ForGmailWithTokens_ShouldReturnTrue()
     {
-        // Arrange
-        _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+        // Arrange - Mock tokens are invalid (near expiry)
+        _mockGoogleOAuthService
+            .Setup(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(false)); // Tokens need rotation
 
         // Act
         var result = await _tokenRotationService.IsTokenNearExpiryAsync("gmail");
@@ -209,10 +228,14 @@ public class TokenRotationServiceTests : IDisposable
     [Fact]
     public async Task IsTokenNearExpiryAsync_ForGmailWithoutTokens_ShouldReturnFalse()
     {
-        // Arrange
+        // Arrange - Mock tokens are valid (not near expiry)
+        _mockGoogleOAuthService
+            .Setup(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(true)); // Tokens are valid
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(false));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddHours(25).ToString())); // Future expiry
 
         // Act
         var result = await _tokenRotationService.IsTokenNearExpiryAsync("gmail");
@@ -308,9 +331,15 @@ public class TokenRotationServiceTests : IDisposable
             eventArgs = args;
         };
 
+        // Mock Gmail token validation to simulate successful rotation
+        _mockGoogleOAuthService
+            .SetupSequence(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(false)) // First call: tokens need rotation
+            .ReturnsAsync(Result<bool>.Success(true)); // Second call: tokens are now valid after rotation
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddMinutes(-30).ToString())); // Expired token needs rotation
 
         // Act
         await _tokenRotationService.RotateTokensAsync("gmail");
@@ -338,9 +367,10 @@ public class TokenRotationServiceTests : IDisposable
             eventArgs = args;
         };
 
-        _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ThrowsAsync(new Exception("Storage error"));
+        // Mock Gmail token validation to fail for testing error event
+        _mockGoogleOAuthService
+            .Setup(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Exception("Storage error")); // Simulate failure
 
         // Act
         await _tokenRotationService.RotateTokensAsync("gmail");
@@ -359,9 +389,19 @@ public class TokenRotationServiceTests : IDisposable
     public async Task MultipleRotations_ShouldIncrementTotalRotations()
     {
         // Arrange
+        // Mock Gmail token validation to simulate successful rotation
+        _mockGoogleOAuthService
+            .SetupSequence(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(false)) // 1st call: tokens need rotation
+            .ReturnsAsync(Result<bool>.Success(true))  // 2nd call: tokens are valid after rotation
+            .ReturnsAsync(Result<bool>.Success(false)) // 3rd call: tokens need rotation
+            .ReturnsAsync(Result<bool>.Success(true))  // 4th call: tokens are valid after rotation
+            .ReturnsAsync(Result<bool>.Success(false)) // 5th call: tokens need rotation
+            .ReturnsAsync(Result<bool>.Success(true)); // 6th call: tokens are valid after rotation
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddMinutes(-30).ToString())); // Expired token needs rotation
 
         // Act
         await _tokenRotationService.RotateTokensAsync("gmail");
@@ -380,9 +420,14 @@ public class TokenRotationServiceTests : IDisposable
     public async Task ConcurrentRotations_ShouldBeThreadSafe()
     {
         // Arrange
+        // Mock Gmail token validation to simulate successful rotation for concurrent operations
+        _mockGoogleOAuthService
+            .Setup(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(true)); // Always return tokens are valid (successful rotation)
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddMinutes(-30).ToString())); // Expired token needs rotation
 
         var tasks = new List<Task>();
 
@@ -462,9 +507,14 @@ public class TokenRotationServiceTests : IDisposable
     public async Task RotationStatistics_ShouldTrackProviderSpecificData()
     {
         // Arrange
+        // Mock Gmail token validation to simulate successful rotation
+        _mockGoogleOAuthService
+            .Setup(x => x.HasValidTokensAsync(It.IsAny<string[]>(), "google_", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<bool>.Success(true)); // Tokens are valid
+
         _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync("gmail_access_token"))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+            .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddMinutes(-30).ToString())); // Expired token needs rotation
 
         // Act
         await _tokenRotationService.RotateTokensAsync("gmail");
