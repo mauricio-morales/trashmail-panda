@@ -13,6 +13,7 @@ using TrashMailPanda.Providers.Contacts.Services;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Shared;
+using Xunit;
 
 namespace TrashMailPanda.Tests.Providers.Contacts;
 
@@ -22,17 +23,17 @@ namespace TrashMailPanda.Tests.Providers.Contacts;
 /// </summary>
 public class ContactsCacheManagerTests : IDisposable
 {
-    private readonly Mock<IMemoryCache> _mockMemoryCache;
+    private readonly IMemoryCache _memoryCache;
     private readonly Mock<IStorageProvider> _mockStorageProvider;
     private readonly Mock<IOptions<ContactsProviderConfig>> _mockConfigOptions;
     private readonly Mock<ILogger<ContactsCacheManager>> _mockLogger;
     private readonly ContactsProviderConfig _config;
     private readonly ContactsCacheManager _cacheManager;
-    private readonly Dictionary<string, object> _memoryStorage;
 
     public ContactsCacheManagerTests()
     {
-        _mockMemoryCache = new Mock<IMemoryCache>();
+        // Use real MemoryCache since extension methods can't be mocked
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
         _mockStorageProvider = new Mock<IStorageProvider>();
         _mockConfigOptions = new Mock<IOptions<ContactsProviderConfig>>();
         _mockLogger = new Mock<ILogger<ContactsCacheManager>>();
@@ -41,12 +42,8 @@ public class ContactsCacheManagerTests : IDisposable
         _config.Cache.MemoryTtl = TimeSpan.FromMinutes(15);
         _mockConfigOptions.Setup(x => x.Value).Returns(_config);
 
-        // Setup in-memory storage simulation
-        _memoryStorage = new Dictionary<string, object>();
-        SetupMemoryCacheMocks();
-
         _cacheManager = new ContactsCacheManager(
-            _mockMemoryCache.Object,
+            _memoryCache,
             _mockStorageProvider.Object,
             _mockConfigOptions.Object,
             _mockLogger.Object);
@@ -88,7 +85,7 @@ public class ContactsCacheManagerTests : IDisposable
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
             new ContactsCacheManager(
-                _mockMemoryCache.Object,
+                _memoryCache,
                 null!,
                 _mockConfigOptions.Object,
                 _mockLogger.Object));
@@ -103,7 +100,7 @@ public class ContactsCacheManagerTests : IDisposable
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
             new ContactsCacheManager(
-                _mockMemoryCache.Object,
+                _memoryCache,
                 _mockStorageProvider.Object,
                 null!,
                 _mockLogger.Object));
@@ -124,7 +121,8 @@ public class ContactsCacheManagerTests : IDisposable
         var cachedContact = CreateTestContact(contactId, "test@example.com");
         var cacheKey = $"contact:{contactId}";
 
-        _memoryStorage[cacheKey] = cachedContact;
+        // Pre-populate memory cache
+        _memoryCache.Set(cacheKey, cachedContact, _config.Cache.MemoryTtl);
 
         // Act
         var result = await _cacheManager.GetContactByIdAsync(contactId);
@@ -135,9 +133,7 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.Equal(contactId, result.Value.Id);
         Assert.Equal("test@example.com", result.Value.PrimaryEmail);
 
-        // Verify memory cache was checked
-        _mockMemoryCache.Verify(x => x.TryGetValue(cacheKey, out It.Ref<object>.IsAny), Times.Once);
-        // Verify storage provider was NOT called
+        // Verify storage provider was NOT called (memory cache hit)
         _mockStorageProvider.Verify(x => x.GetContactAsync(It.IsAny<string>()), Times.Never);
     }
 
@@ -154,8 +150,9 @@ public class ContactsCacheManagerTests : IDisposable
         var emailIndexKey = $"email_idx:{email}";
         var contactKey = $"contact:{contactId}";
 
-        _memoryStorage[emailIndexKey] = contactId;
-        _memoryStorage[contactKey] = cachedContact;
+        // Pre-populate memory cache with both email index and contact
+        _memoryCache.Set(emailIndexKey, contactId, _config.Cache.MemoryTtl);
+        _memoryCache.Set(contactKey, cachedContact, _config.Cache.MemoryTtl);
 
         // Act
         var result = await _cacheManager.GetContactByEmailAsync(email);
@@ -166,9 +163,9 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.Equal(contactId, result.Value.Id);
         Assert.Equal(email, result.Value.PrimaryEmail);
 
-        // Verify both cache lookups occurred
-        _mockMemoryCache.Verify(x => x.TryGetValue(emailIndexKey, out It.Ref<object>.IsAny), Times.Once);
-        _mockMemoryCache.Verify(x => x.TryGetValue(contactKey, out It.Ref<object>.IsAny), Times.Once);
+        // Verify storage provider was NOT called (memory cache hit)
+        _mockStorageProvider.Verify(x => x.GetContactIdByEmailAsync(It.IsAny<string>()), Times.Never);
+        _mockStorageProvider.Verify(x => x.GetContactAsync(It.IsAny<string>()), Times.Never);
     }
 
     /// <summary>
@@ -191,9 +188,15 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.True(result.Value);
 
-        // Verify memory cache was used
-        _mockMemoryCache.Verify(x => x.Set(contactKey, contact, _config.Cache.MemoryTtl), Times.Once);
-        _mockMemoryCache.Verify(x => x.Set(emailIndexKey, contact.Id, _config.Cache.MemoryTtl), Times.Once);
+        // Verify memory cache was populated
+        var cachedContact = _memoryCache.Get<Contact>(contactKey);
+        Assert.NotNull(cachedContact);
+        Assert.Equal(contact.Id, cachedContact.Id);
+        Assert.Equal(contact.PrimaryEmail, cachedContact.PrimaryEmail);
+
+        var cachedContactId = _memoryCache.Get<string>(emailIndexKey);
+        Assert.Equal(contact.Id, cachedContactId);
+
         // Verify SQLite cache was also used
         _mockStorageProvider.Verify(x => x.SetContactAsync(It.IsAny<BasicContactInfo>()), Times.Once);
     }
@@ -213,8 +216,8 @@ public class ContactsCacheManagerTests : IDisposable
         var sqliteContact = CreateTestBasicContactInfo(contactId, "test@example.com");
         var contactKey = $"contact:{contactId}";
 
-        // Memory cache miss
-        _memoryStorage.Clear();
+        // Ensure memory cache is empty (miss)
+        _memoryCache.Remove(contactKey);
 
         // SQLite cache hit
         _mockStorageProvider.Setup(x => x.GetContactAsync(contactId))
@@ -229,11 +232,13 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.Equal(contactId, result.Value.Id);
         Assert.Equal("test@example.com", result.Value.PrimaryEmail);
 
-        // Verify memory cache miss and SQLite hit
-        _mockMemoryCache.Verify(x => x.TryGetValue(contactKey, out It.Ref<object>.IsAny), Times.Once);
+        // Verify SQLite hit
         _mockStorageProvider.Verify(x => x.GetContactAsync(contactId), Times.Once);
+
         // Verify contact was cached back to memory
-        _mockMemoryCache.Verify(x => x.Set(contactKey, It.IsAny<Contact>(), _config.Cache.MemoryTtl), Times.Once);
+        var memoryCachedContact = _memoryCache.Get<Contact>(contactKey);
+        Assert.NotNull(memoryCachedContact);
+        Assert.Equal(contactId, memoryCachedContact.Id);
     }
 
     /// <summary>
@@ -247,9 +252,11 @@ public class ContactsCacheManagerTests : IDisposable
         const string contactId = "contact123";
         var sqliteContact = CreateTestBasicContactInfo(contactId, email);
         var emailIndexKey = $"email_idx:{email}";
+        var contactKey = $"contact:{contactId}";
 
-        // Memory cache miss
-        _memoryStorage.Clear();
+        // Ensure memory cache is empty (miss)
+        _memoryCache.Remove(emailIndexKey);
+        _memoryCache.Remove(contactKey);
 
         // SQLite cache hit for email index
         _mockStorageProvider.Setup(x => x.GetContactIdByEmailAsync(email))
@@ -269,8 +276,10 @@ public class ContactsCacheManagerTests : IDisposable
         // Verify email index lookup and contact retrieval
         _mockStorageProvider.Verify(x => x.GetContactIdByEmailAsync(email), Times.Once);
         _mockStorageProvider.Verify(x => x.GetContactAsync(contactId), Times.Once);
+
         // Verify email index was cached back to memory
-        _mockMemoryCache.Verify(x => x.Set(emailIndexKey, contactId, _config.Cache.MemoryTtl), Times.Once);
+        var cachedContactId = _memoryCache.Get<string>(emailIndexKey);
+        Assert.Equal(contactId, cachedContactId);
     }
 
     /// <summary>
@@ -310,8 +319,8 @@ public class ContactsCacheManagerTests : IDisposable
         const string contactId = "nonexistent_contact";
         var contactKey = $"contact:{contactId}";
 
-        // Memory cache miss
-        _memoryStorage.Clear();
+        // Ensure memory cache miss
+        _memoryCache.Remove(contactKey);
 
         // SQLite cache miss
         _mockStorageProvider.Setup(x => x.GetContactAsync(contactId))
@@ -324,8 +333,7 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.Null(result.Value);
 
-        // Verify both cache layers were checked
-        _mockMemoryCache.Verify(x => x.TryGetValue(contactKey, out It.Ref<object>.IsAny), Times.Once);
+        // Verify SQLite was checked
         _mockStorageProvider.Verify(x => x.GetContactAsync(contactId), Times.Once);
     }
 
@@ -339,8 +347,8 @@ public class ContactsCacheManagerTests : IDisposable
         const string email = "nonexistent@example.com";
         var emailIndexKey = $"email_idx:{email}";
 
-        // Memory cache miss
-        _memoryStorage.Clear();
+        // Ensure memory cache miss
+        _memoryCache.Remove(emailIndexKey);
 
         // SQLite cache miss
         _mockStorageProvider.Setup(x => x.GetContactIdByEmailAsync(email))
@@ -353,8 +361,7 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.Null(result.Value);
 
-        // Verify both cache layers were checked
-        _mockMemoryCache.Verify(x => x.TryGetValue(emailIndexKey, out It.Ref<object>.IsAny), Times.Once);
+        // Verify SQLite was checked
         _mockStorageProvider.Verify(x => x.GetContactIdByEmailAsync(email), Times.Once);
     }
 
@@ -373,7 +380,8 @@ public class ContactsCacheManagerTests : IDisposable
         var trustSignal = CreateTestTrustSignal(contactId, RelationshipStrength.Strong);
         var cacheKey = $"trust:{contactId}";
 
-        _memoryStorage[cacheKey] = trustSignal;
+        // Pre-populate memory cache
+        _memoryCache.Set(cacheKey, trustSignal, _config.Cache.MemoryTtl);
 
         // Act
         var result = await _cacheManager.GetTrustSignalAsync(contactId);
@@ -384,8 +392,6 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.Equal(contactId, result.Value.ContactId);
         Assert.Equal(RelationshipStrength.Strong, result.Value.Strength);
 
-        // Verify memory cache was checked
-        _mockMemoryCache.Verify(x => x.TryGetValue(cacheKey, out It.Ref<object>.IsAny), Times.Once);
         // Verify storage provider was NOT called
         _mockStorageProvider.Verify(x => x.GetTrustSignalAsync(It.IsAny<string>()), Times.Never);
     }
@@ -401,8 +407,8 @@ public class ContactsCacheManagerTests : IDisposable
         var trustSignalInfo = CreateTestTrustSignalInfo(contactId, RelationshipStrength.Strong);
         var cacheKey = $"trust:{contactId}";
 
-        // Memory cache miss
-        _memoryStorage.Clear();
+        // Ensure memory cache miss
+        _memoryCache.Remove(cacheKey);
 
         // SQLite cache hit
         _mockStorageProvider.Setup(x => x.GetTrustSignalAsync(contactId))
@@ -417,11 +423,13 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.Equal(contactId, result.Value.ContactId);
         Assert.Equal(RelationshipStrength.Strong, result.Value.Strength);
 
-        // Verify both cache layers were checked
-        _mockMemoryCache.Verify(x => x.TryGetValue(cacheKey, out It.Ref<object>.IsAny), Times.Once);
+        // Verify SQLite hit
         _mockStorageProvider.Verify(x => x.GetTrustSignalAsync(contactId), Times.Once);
+
         // Verify trust signal was cached back to memory
-        _mockMemoryCache.Verify(x => x.Set(cacheKey, It.IsAny<TrustSignal>(), _config.Cache.MemoryTtl), Times.Once);
+        var cachedTrustSignal = _memoryCache.Get<TrustSignal>(cacheKey);
+        Assert.NotNull(cachedTrustSignal);
+        Assert.Equal(contactId, cachedTrustSignal.ContactId);
     }
 
     /// <summary>
@@ -443,8 +451,12 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.True(result.Value);
 
-        // Verify memory cache was used
-        _mockMemoryCache.Verify(x => x.Set(cacheKey, trustSignal, _config.Cache.MemoryTtl), Times.Once);
+        // Verify memory cache was populated
+        var cachedTrustSignal = _memoryCache.Get<TrustSignal>(cacheKey);
+        Assert.NotNull(cachedTrustSignal);
+        Assert.Equal(trustSignal.ContactId, cachedTrustSignal.ContactId);
+        Assert.Equal(trustSignal.Strength, cachedTrustSignal.Strength);
+
         // Verify SQLite cache was used
         _mockStorageProvider.Verify(x => x.SetTrustSignalAsync(It.IsAny<TrustSignalInfo>()), Times.Once);
     }
@@ -478,6 +490,14 @@ public class ContactsCacheManagerTests : IDisposable
 
         // Verify all contacts were cached
         _mockStorageProvider.Verify(x => x.SetContactAsync(It.IsAny<BasicContactInfo>()), Times.Exactly(3));
+
+        // Verify contacts are in memory cache
+        foreach (var contact in contacts)
+        {
+            var cachedContact = _memoryCache.Get<Contact>($"contact:{contact.Id}");
+            Assert.NotNull(cachedContact);
+            Assert.Equal(contact.Id, cachedContact.Id);
+        }
     }
 
     /// <summary>
@@ -552,8 +572,13 @@ public class ContactsCacheManagerTests : IDisposable
     {
         // Arrange
         const string contactId = "contact123";
+        var contact = CreateTestContact(contactId, "test@example.com");
         var contactKey = $"contact:{contactId}";
         var trustKey = $"trust:{contactId}";
+
+        // Pre-populate memory cache
+        _memoryCache.Set(contactKey, contact, _config.Cache.MemoryTtl);
+        _memoryCache.Set(trustKey, CreateTestTrustSignal(contactId, RelationshipStrength.Strong), _config.Cache.MemoryTtl);
 
         SetupSuccessfulSQLiteOperations();
 
@@ -565,8 +590,11 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.Value);
 
         // Verify memory cache removal
-        _mockMemoryCache.Verify(x => x.Remove(contactKey), Times.Once);
-        _mockMemoryCache.Verify(x => x.Remove(trustKey), Times.Once);
+        var cachedContact = _memoryCache.Get<Contact>(contactKey);
+        Assert.Null(cachedContact);
+        var cachedTrustSignal = _memoryCache.Get<TrustSignal>(trustKey);
+        Assert.Null(cachedTrustSignal);
+
         // Verify SQLite removal
         _mockStorageProvider.Verify(x => x.RemoveContactAsync(contactId), Times.Once);
     }
@@ -587,8 +615,7 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.True(result.Value);
 
-        // Verify no cache operations
-        _mockMemoryCache.Verify(x => x.Remove(It.IsAny<object>()), Times.Never);
+        // Verify no SQLite operations
         _mockStorageProvider.Verify(x => x.RemoveContactAsync(It.IsAny<string>()), Times.Never);
     }
 
@@ -600,6 +627,10 @@ public class ContactsCacheManagerTests : IDisposable
     {
         // Arrange
         SetupSuccessfulSQLiteOperations();
+
+        // Pre-populate some cache data
+        var contact = CreateTestContact("contact123", "test@example.com");
+        _memoryCache.Set("contact:contact123", contact, _config.Cache.MemoryTtl);
 
         // Act
         var result = await _cacheManager.ClearCacheAsync();
@@ -628,17 +659,17 @@ public class ContactsCacheManagerTests : IDisposable
         var contactKey = $"contact:{contactId}";
 
         // First lookup - memory miss, SQLite hit
-        _memoryStorage.Clear();
+        _memoryCache.Remove(contactKey);
         var sqliteContact = CreateTestBasicContactInfo(contactId, "test@example.com");
         _mockStorageProvider.Setup(x => x.GetContactAsync(contactId)).ReturnsAsync(sqliteContact);
 
         await _cacheManager.GetContactByIdAsync(contactId);
 
         // Second lookup - memory hit (now cached)
-        _memoryStorage[contactKey] = contact;
         await _cacheManager.GetContactByIdAsync(contactId);
 
         // Third lookup - complete miss
+        _mockStorageProvider.Setup(x => x.GetContactAsync("nonexistent")).ReturnsAsync((BasicContactInfo?)null);
         await _cacheManager.GetContactByIdAsync("nonexistent");
 
         // Act
@@ -735,7 +766,9 @@ public class ContactsCacheManagerTests : IDisposable
         Assert.True(result.Value);
 
         // Verify contact was still cached in memory
-        _mockMemoryCache.Verify(x => x.Set($"contact:{contact.Id}", contact, _config.Cache.MemoryTtl), Times.Once);
+        var cachedContact = _memoryCache.Get<Contact>($"contact:{contact.Id}");
+        Assert.NotNull(cachedContact);
+        Assert.Equal(contact.Id, cachedContact.Id);
     }
 
     /// <summary>
@@ -748,8 +781,8 @@ public class ContactsCacheManagerTests : IDisposable
         const string contactId = "contact123";
         var contactKey = $"contact:{contactId}";
 
-        // Memory cache miss
-        _memoryStorage.Clear();
+        // Ensure memory cache miss
+        _memoryCache.Remove(contactKey);
 
         // SQLite exception
         _mockStorageProvider.Setup(x => x.GetContactAsync(contactId))
@@ -800,27 +833,6 @@ public class ContactsCacheManagerTests : IDisposable
     #endregion
 
     #region Helper Methods
-
-    private void SetupMemoryCacheMocks()
-    {
-        _mockMemoryCache.Setup(x => x.TryGetValue(It.IsAny<object>(), out It.Ref<object>.IsAny))
-            .Returns(new TryGetValueCallback((object key, out object value) =>
-            {
-                return _memoryStorage.TryGetValue(key.ToString()!, out value!);
-            }));
-
-        _mockMemoryCache.Setup(x => x.Set(It.IsAny<object>(), It.IsAny<object>(), It.IsAny<TimeSpan>()))
-            .Callback<object, object, TimeSpan>((key, value, expiry) =>
-            {
-                _memoryStorage[key.ToString()!] = value;
-            });
-
-        _mockMemoryCache.Setup(x => x.Remove(It.IsAny<object>()))
-            .Callback<object>(key =>
-            {
-                _memoryStorage.Remove(key.ToString()!);
-            });
-    }
 
     private void SetupSuccessfulSQLiteOperations()
     {
@@ -922,12 +934,10 @@ public class ContactsCacheManagerTests : IDisposable
         };
     }
 
-    private delegate bool TryGetValueCallback(object key, out object value);
-
     #endregion
 
     public void Dispose()
     {
-        // Cleanup any resources if needed
+        _memoryCache?.Dispose();
     }
 }

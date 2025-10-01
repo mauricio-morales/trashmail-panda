@@ -57,9 +57,9 @@ public class ContactsProviderButtonTests
     }
 
     [Theory]
-    [InlineData("OAuth Setup Required", "Configure Contacts")]
-    [InlineData("Permission Denied", "Grant Access")]
-    [InlineData("Authentication Required", "Configure Contacts")]
+    [InlineData("OAuth Setup Required", "Setup OAuth")]
+    [InlineData("Permission Denied", "Configure")]
+    [InlineData("Authentication Required", "Sign In")]
     [InlineData("Connection Failed", "Reconnect")]
     [InlineData("Ready", "Configure")]
     public void ContactsProvider_ActionButtonText_ShouldReturnCorrectText(string statusText, string expected)

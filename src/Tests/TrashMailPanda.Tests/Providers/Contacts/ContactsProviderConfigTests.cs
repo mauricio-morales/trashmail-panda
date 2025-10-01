@@ -192,15 +192,13 @@ public class ContactsProviderConfigTests
     }
 
     /// <summary>
-    /// Tests range validation for numeric properties
+    /// Tests range validation for MaxRetries property
     /// </summary>
     [Theory]
     [InlineData(3, true)] // Valid max retries
     [InlineData(15, false)] // Max retries too high
     [InlineData(0, false)] // Max retries too low
-    [InlineData(1000, true)] // Valid page size
-    [InlineData(2001, false)] // Page size too high
-    public void DataAnnotationsValidation_RangeValidation(int value, bool shouldBeValid)
+    public void DataAnnotationsValidation_MaxRetriesRangeValidation(int value, bool shouldBeValid)
     {
         // Arrange
         var config = new ContactsProviderConfig
@@ -208,6 +206,47 @@ public class ContactsProviderConfigTests
             ClientId = "valid_client_id_12345",
             ClientSecret = "valid_client_secret_12345",
             MaxRetries = value,
+            DefaultPageSize = 1000, // Valid value
+            TimeoutSeconds = 60,
+            MaxRetryAttempts = 3,
+            RetryDelayMilliseconds = 1000,
+            IsEnabled = true
+        };
+
+        var validationContext = new ValidationContext(config);
+        var results = new List<ValidationResult>();
+
+        // Act
+        var isValid = Validator.TryValidateObject(config, validationContext, results, true);
+
+        // Assert
+        if (shouldBeValid)
+        {
+            // May still have other validation errors, but not from MaxRetries
+            Assert.True(isValid || !results.Any(r => r.MemberNames.Contains("MaxRetries")));
+        }
+        else
+        {
+            Assert.False(isValid);
+            Assert.Contains(results, r => r.MemberNames.Contains("MaxRetries"));
+        }
+    }
+
+    /// <summary>
+    /// Tests range validation for DefaultPageSize property
+    /// </summary>
+    [Theory]
+    [InlineData(1000, true)] // Valid page size
+    [InlineData(2001, false)] // Page size too high
+    [InlineData(0, false)] // Page size too low
+    public void DataAnnotationsValidation_DefaultPageSizeRangeValidation(int value, bool shouldBeValid)
+    {
+        // Arrange
+        var config = new ContactsProviderConfig
+        {
+            ClientId = "valid_client_id_12345",
+            ClientSecret = "valid_client_secret_12345",
+            MaxRetries = 5, // Valid value
             DefaultPageSize = value,
             TimeoutSeconds = 60,
             MaxRetryAttempts = 3,
@@ -224,14 +263,13 @@ public class ContactsProviderConfigTests
         // Assert
         if (shouldBeValid)
         {
-            // May still have other validation errors, but not from our test properties
-            Assert.True(isValid || !results.Any(r =>
-                r.MemberNames.Contains("MaxRetries") ||
-                r.MemberNames.Contains("DefaultPageSize")));
+            // May still have other validation errors, but not from DefaultPageSize
+            Assert.True(isValid || !results.Any(r => r.MemberNames.Contains("DefaultPageSize")));
         }
         else
         {
             Assert.False(isValid);
+            Assert.Contains(results, r => r.MemberNames.Contains("DefaultPageSize"));
         }
     }
 
@@ -634,7 +672,7 @@ public class ContactsProviderConfigTests
         // Assert
         Assert.True(result.IsFailure);
         Assert.IsType<ValidationError>(result.Error);
-        Assert.Contains("Page size cannot exceed", result.Error.Message);
+        Assert.Contains("Page size must be between 1 and 2000", result.Error.Message);
     }
 
     /// <summary>

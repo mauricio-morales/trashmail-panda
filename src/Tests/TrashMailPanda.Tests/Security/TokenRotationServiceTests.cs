@@ -155,7 +155,7 @@ public class TokenRotationServiceTests : IDisposable
 
         _mockSecureStorageManager
             .Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
-            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddHours(2).ToString())); // Future expiry
+            .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddHours(48).ToString())); // Future expiry beyond 24h threshold
 
         // Act
         var result = await _tokenRotationService.RotateTokensAsync("gmail");
@@ -480,11 +480,30 @@ public class TokenRotationServiceTests : IDisposable
     {
         // Arrange
         var expectedExists = providerName == "gmail";
-        var credentialKey = providerName == "gmail" ? "gmail_access_token" : "openai_api_key";
 
-        _mockSecureStorageManager
-            .Setup(x => x.CredentialExistsAsync(credentialKey))
-            .ReturnsAsync(SecureStorageResult<bool>.Success(expectedExists));
+        if (providerName == "gmail")
+        {
+            // Mock token expiry check to return expired token (needs rotation)
+            _mockSecureStorageManager.Setup(x => x.RetrieveCredentialAsync("google_token_expiry"))
+                .ReturnsAsync(SecureStorageResult<string>.Success(DateTime.UtcNow.AddMinutes(-30).ToString())); // Expired token
+
+            // Mock successful OAuth service calls for the rotation process
+            // First call indicates tokens are invalid (need rotation), second call indicates successful validation after rotation
+            _mockGoogleOAuthService.SetupSequence(x => x.HasValidTokensAsync(It.IsAny<string[]>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Result<bool>.Success(false)) // First call: tokens need rotation
+                .ReturnsAsync(Result<bool>.Success(true)); // Second call: tokens are valid after rotation
+
+            // Mock successful token retrieval during rotation
+            _mockGoogleOAuthService.Setup(x => x.GetAccessTokenAsync(It.IsAny<string[]>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Result<string>.Success("valid_access_token"));
+        }
+        else if (providerName == "openai")
+        {
+            // OpenAI tokens don't expire, so rotation should be skipped
+            // Mock that the API key exists
+            _mockSecureStorageManager.Setup(x => x.CredentialExistsAsync("openai_api_key"))
+                .ReturnsAsync(SecureStorageResult<bool>.Success(true));
+        }
 
         // Act
         var result = await _tokenRotationService.RotateTokensAsync(providerName);
@@ -493,12 +512,14 @@ public class TokenRotationServiceTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.Equal(providerName, result.Value!.ProviderName);
 
-        if (providerName == "gmail" && expectedExists)
+        if (providerName == "gmail")
         {
+            // Gmail tokens should be rotated when invalid
             Assert.True(result.Value.WasRotated);
         }
         else
         {
+            // OpenAI tokens don't expire, so no rotation needed
             Assert.False(result.Value.WasRotated);
         }
     }
