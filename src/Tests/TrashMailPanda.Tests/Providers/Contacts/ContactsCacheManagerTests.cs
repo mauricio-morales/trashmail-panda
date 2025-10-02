@@ -533,7 +533,7 @@ public class ContactsCacheManagerTests : IDisposable
     }
 
     /// <summary>
-    /// Tests CacheContactsBatchAsync handles partial failures gracefully
+    /// Tests CacheContactsBatchAsync handles SQLite partial failures gracefully (continues caching to memory)
     /// </summary>
     [Fact]
     public async Task CacheContactsBatchAsync_WithPartialFailures_HandlesGracefully()
@@ -545,7 +545,7 @@ public class ContactsCacheManagerTests : IDisposable
             CreateTestContact("contact2", "test2@example.com")
         };
 
-        // Setup first contact to succeed, second to fail
+        // Setup first contact SQLite to succeed, second to fail
         _mockStorageProvider.SetupSequence(x => x.SetContactAsync(It.IsAny<BasicContactInfo>()))
             .Returns(Task.CompletedTask)
             .ThrowsAsync(new InvalidOperationException("Storage failed"));
@@ -555,9 +555,16 @@ public class ContactsCacheManagerTests : IDisposable
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(1, result.Value); // Only one succeeded
+        // Both succeed because memory cache works even if SQLite fails for one
+        Assert.Equal(2, result.Value);
 
         _mockStorageProvider.Verify(x => x.SetContactAsync(It.IsAny<BasicContactInfo>()), Times.Exactly(2));
+
+        // Verify both contacts are in memory cache despite SQLite failure on second
+        var contact1 = _memoryCache.Get<Contact>("contact:contact1");
+        var contact2 = _memoryCache.Get<Contact>("contact:contact2");
+        Assert.NotNull(contact1);
+        Assert.NotNull(contact2);
     }
 
     #endregion
@@ -793,7 +800,7 @@ public class ContactsCacheManagerTests : IDisposable
 
         // Assert
         Assert.True(result.IsFailure);
-        Assert.Contains("Cache lookup failed", result.Error.Message);
+        Assert.Contains("SQLite cache retrieval failed", result.Error.Message);
     }
 
     #endregion

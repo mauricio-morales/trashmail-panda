@@ -75,7 +75,13 @@ public class ContactsCacheManager
 
             // Layer 2: SQLite cache lookup (would integrate with storage provider)
             var sqliteResult = await GetContactFromSqliteCacheAsync(contactId, cancellationToken);
-            if (sqliteResult.IsSuccess && sqliteResult.Value != null)
+            if (sqliteResult.IsFailure)
+            {
+                // Propagate SQLite errors as failures (different from cache miss)
+                return Result<Contact?>.Failure(sqliteResult.Error);
+            }
+
+            if (sqliteResult.Value != null)
             {
                 Interlocked.Increment(ref _sqliteHits);
                 _logger.LogDebug("Contact found in SQLite cache: {ContactId}", contactId);
@@ -147,22 +153,7 @@ public class ContactsCacheManager
         try
         {
             await _cacheLock.WaitAsync(cancellationToken);
-
-            // Cache in memory
-            await CacheContactInMemoryAsync(contact);
-
-            // Cache in SQLite
-            var sqliteResult = await CacheContactInSqliteAsync(contact, cancellationToken);
-            if (sqliteResult.IsFailure)
-            {
-                _logger.LogWarning("Failed to cache contact in SQLite: {ContactId}, Error: {Error}",
-                    contact.Id, sqliteResult.Error.Message);
-            }
-
-            _logger.LogDebug("Cached contact: {ContactId} with {EmailCount} emails",
-                contact.Id, contact.AllEmails?.Count ?? 0);
-
-            return Result<bool>.Success(true);
+            return await CacheContactInternalAsync(contact, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -173,6 +164,31 @@ public class ContactsCacheManager
         {
             _cacheLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Internal cache method without locking - for use within batch operations that already hold the lock
+    /// </summary>
+    private async Task<Result<bool>> CacheContactInternalAsync(Contact contact, CancellationToken cancellationToken = default)
+    {
+        if (contact == null)
+            return Result<bool>.Failure(new ValidationError("Contact cannot be null"));
+
+        // Cache in memory
+        await CacheContactInMemoryAsync(contact);
+
+        // Cache in SQLite
+        var sqliteResult = await CacheContactInSqliteAsync(contact, cancellationToken);
+        if (sqliteResult.IsFailure)
+        {
+            _logger.LogWarning("Failed to cache contact in SQLite: {ContactId}, Error: {Error}",
+                contact.Id, sqliteResult.Error.Message);
+        }
+
+        _logger.LogDebug("Cached contact: {ContactId} with {EmailCount} emails",
+            contact.Id, contact.AllEmails?.Count ?? 0);
+
+        return Result<bool>.Success(true);
     }
 
     /// <summary>
@@ -194,7 +210,8 @@ public class ContactsCacheManager
 
             foreach (var contact in contactList)
             {
-                var result = await CacheContactAsync(contact, cancellationToken);
+                // Use internal method to avoid double-locking deadlock
+                var result = await CacheContactInternalAsync(contact, cancellationToken);
                 if (result.IsSuccess)
                     cachedCount++;
             }

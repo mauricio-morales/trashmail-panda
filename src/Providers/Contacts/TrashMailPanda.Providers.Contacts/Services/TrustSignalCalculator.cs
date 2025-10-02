@@ -112,12 +112,13 @@ public class TrustSignalCalculator
         if (!contactList.Any())
             return Result<Dictionary<string, TrustSignal>>.Success(new Dictionary<string, TrustSignal>());
 
+        // Thread-safe collections for parallel processing - declared outside try block for catch block access
+        var results = new System.Collections.Concurrent.ConcurrentDictionary<string, TrustSignal>();
+        var successCount = 0;
+        var totalCount = contactList.Count;
+
         try
         {
-            // Thread-safe collections for parallel processing
-            var results = new System.Collections.Concurrent.ConcurrentDictionary<string, TrustSignal>();
-            var successCount = 0;
-            var totalCount = contactList.Count;
 
             _logger.LogInformation("Starting parallel batch trust signal calculation for {TotalCount} contacts with max concurrency of 10", totalCount);
 
@@ -170,9 +171,10 @@ public class TrustSignalCalculator
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogInformation("Batch trust signal calculation was cancelled");
-            return Result<Dictionary<string, TrustSignal>>.Failure(
-                new ValidationError("Batch trust signal calculation was cancelled"));
+            _logger.LogInformation("Batch trust signal calculation was cancelled after processing {Count} contacts", results.Count);
+            // Return partial results as success - graceful degradation for batch operations
+            return Result<Dictionary<string, TrustSignal>>.Success(
+                new Dictionary<string, TrustSignal>(results));
         }
         catch (Exception ex)
         {

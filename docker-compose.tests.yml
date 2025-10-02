@@ -29,6 +29,7 @@ services:
     command: >
       dotnet test --configuration Release --no-build
       --filter "Platform!=Windows&Platform!=macOS"
+      --blame-hang --blame-hang-timeout 30s
       --verbosity normal
       --logger "console;verbosity=detailed"
       --collect:"XPlat Code Coverage"
