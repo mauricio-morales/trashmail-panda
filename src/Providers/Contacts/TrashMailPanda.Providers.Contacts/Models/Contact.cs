@@ -22,50 +22,50 @@ public record Contact
     /// </summary>
     [Required]
     [EmailAddress]
-    public string PrimaryEmail { get; set; } = string.Empty;
+    public string PrimaryEmail { get; init; } = string.Empty;
 
     /// <summary>
     /// All known email addresses for this contact (normalized to lowercase)
     /// Enables comprehensive email classification coverage
     /// </summary>
-    public List<string> AllEmails { get; set; } = new();
+    public List<string> AllEmails { get; init; } = new();
 
     /// <summary>
     /// Full display name combining given and family names
     /// </summary>
-    public string DisplayName { get; set; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
 
     /// <summary>
     /// First/given name
     /// </summary>
-    public string? GivenName { get; set; }
+    public string? GivenName { get; init; }
 
     /// <summary>
     /// Last/family name
     /// </summary>
-    public string? FamilyName { get; set; }
+    public string? FamilyName { get; init; }
 
     /// <summary>
     /// Phone numbers in normalized E.164 format
     /// Provides additional trust signals for relationship strength
     /// </summary>
-    public List<string> PhoneNumbers { get; set; } = new();
+    public List<string> PhoneNumbers { get; init; } = new();
 
     /// <summary>
     /// Organization/company name
     /// Contributes to trust signal computation
     /// </summary>
-    public string? OrganizationName { get; set; }
+    public string? OrganizationName { get; init; }
 
     /// <summary>
     /// Job title within the organization
     /// </summary>
-    public string? OrganizationTitle { get; set; }
+    public string? OrganizationTitle { get; init; }
 
     /// <summary>
     /// URL to the contact's profile photo
     /// </summary>
-    public string? PhotoUrl { get; set; }
+    public string? PhotoUrl { get; init; }
 
     /// <summary>
     /// Identities from multiple source platforms

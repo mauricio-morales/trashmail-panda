@@ -399,9 +399,48 @@ public class GoogleContactsAdapter : IContactSourceAdapter
                 return null;
             }
 
+            // Map email addresses
+            var emailAddresses = person.EmailAddresses
+                .Where(e => !string.IsNullOrWhiteSpace(e.Value))
+                .Select(e => e.Value.ToLowerInvariant())
+                .Distinct()
+                .ToList();
+
+            // Extract names
+            var name = person.Names?.FirstOrDefault();
+            var displayName = name?.DisplayName ?? string.Empty;
+            var givenName = name?.GivenName;
+            var familyName = name?.FamilyName;
+
+            // Map phone numbers with normalization
+            var phoneNumbers = person.PhoneNumbers?.Any() == true
+                ? person.PhoneNumbers
+                    .Select(p => NormalizePhoneNumber(p.Value))
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .ToList()
+                : new List<string>();
+
+            // Extract organization
+            var org = person.Organizations?.FirstOrDefault();
+            var organizationName = org?.Name;
+            var organizationTitle = org?.Title;
+
+            // Extract photo
+            var photoUrl = person.Photos?.FirstOrDefault()?.Url;
+
+            // Create contact with all properties initialized at construction
             var contact = new Contact
             {
                 Id = GenerateContactId(person),
+                PrimaryEmail = emailAddresses.FirstOrDefault() ?? string.Empty,
+                AllEmails = emailAddresses,
+                DisplayName = displayName,
+                GivenName = givenName,
+                FamilyName = familyName,
+                PhoneNumbers = phoneNumbers,
+                OrganizationName = organizationName,
+                OrganizationTitle = organizationTitle,
+                PhotoUrl = photoUrl,
                 SourceIdentities = new List<SourceIdentity>
                 {
                     new()
@@ -415,49 +454,6 @@ public class GoogleContactsAdapter : IContactSourceAdapter
                 LastModifiedUtc = DateTime.UtcNow,
                 LastSyncedUtc = DateTime.UtcNow
             };
-
-            // Map email addresses
-            var emailAddresses = person.EmailAddresses
-                .Where(e => !string.IsNullOrWhiteSpace(e.Value))
-                .Select(e => e.Value.ToLowerInvariant())
-                .Distinct()
-                .ToList();
-
-            if (emailAddresses.Any())
-            {
-                contact.PrimaryEmail = emailAddresses.First();
-                contact.AllEmails = emailAddresses;
-            }
-
-            // Map names
-            if (person.Names?.FirstOrDefault() is var name && name != null)
-            {
-                contact.DisplayName = name.DisplayName ?? string.Empty;
-                contact.GivenName = name.GivenName;
-                contact.FamilyName = name.FamilyName;
-            }
-
-            // Map phone numbers with normalization
-            if (person.PhoneNumbers?.Any() == true)
-            {
-                contact.PhoneNumbers = person.PhoneNumbers
-                    .Select(p => NormalizePhoneNumber(p.Value))
-                    .Where(p => !string.IsNullOrEmpty(p))
-                    .ToList();
-            }
-
-            // Map organization
-            if (person.Organizations?.FirstOrDefault() is var org && org != null)
-            {
-                contact.OrganizationName = org.Name;
-                contact.OrganizationTitle = org.Title;
-            }
-
-            // Map photo
-            if (person.Photos?.FirstOrDefault()?.Url is var photoUrl && !string.IsNullOrEmpty(photoUrl))
-            {
-                contact.PhotoUrl = photoUrl;
-            }
 
             return contact;
         }
