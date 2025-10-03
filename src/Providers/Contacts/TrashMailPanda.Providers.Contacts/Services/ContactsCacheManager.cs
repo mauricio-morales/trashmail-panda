@@ -10,6 +10,7 @@ using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Providers.Contacts.Models;
+using TrashMailPanda.Providers.Contacts.Utils;
 
 namespace TrashMailPanda.Providers.Contacts.Services;
 
@@ -106,13 +107,21 @@ public class ContactsCacheManager
 
     /// <summary>
     /// Get contact by email address with indexed lookup
+    /// Uses Gmail-aware normalization for accurate matching
     /// </summary>
     public async Task<Result<Contact?>> GetContactByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(email))
             return Result<Contact?>.Success(null);
 
-        var normalizedEmail = email.ToLowerInvariant();
+        // Use Gmail-aware normalization instead of simple ToLowerInvariant
+        var normalizedEmail = GmailEmailNormalizer.Normalize(email);
+        if (normalizedEmail == null)
+        {
+            _logger.LogWarning("Invalid email format: {Email}", email);
+            return Result<Contact?>.Success(null);
+        }
+
         Interlocked.Increment(ref _totalLookups);
         var indexKey = $"{EMAIL_INDEX_PREFIX}{normalizedEmail}";
 
@@ -403,12 +412,14 @@ public class ContactsCacheManager
         var contactKey = $"{CONTACT_KEY_PREFIX}{contact.Id}";
         _memoryCache.Set(contactKey, contact, _config.Cache.MemoryTtl);
 
-        // Cache email indexes
+        // Cache email indexes with Gmail-aware normalization
         if (contact.AllEmails?.Any() == true)
         {
-            foreach (var email in contact.AllEmails)
+            // Normalize all emails and cache each unique normalized form
+            var normalizedEmails = GmailEmailNormalizer.NormalizeMany(contact.AllEmails);
+            foreach (var normalizedEmail in normalizedEmails)
             {
-                var emailKey = $"{EMAIL_INDEX_PREFIX}{email.ToLowerInvariant()}";
+                var emailKey = $"{EMAIL_INDEX_PREFIX}{normalizedEmail}";
                 _memoryCache.Set(emailKey, contact.Id, _config.Cache.MemoryTtl);
             }
         }
@@ -455,7 +466,9 @@ public class ContactsCacheManager
     {
         try
         {
-            var contactId = await _storageProvider.GetContactIdByEmailAsync(email.ToLowerInvariant());
+            // Use Gmail-aware normalization for SQLite lookups as well
+            var normalizedEmail = GmailEmailNormalizer.Normalize(email) ?? email.ToLowerInvariant();
+            var contactId = await _storageProvider.GetContactIdByEmailAsync(normalizedEmail);
             return Result<string?>.Success(contactId);
         }
         catch (Exception ex)
