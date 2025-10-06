@@ -30,15 +30,31 @@ docker-compose -f docker-compose.tests.yml build linux-tests
 echo -e "${YELLOW}🧪 Running Linux-specific integration tests...${NC}"
 if docker-compose -f docker-compose.tests.yml run --rm linux-tests; then
     echo -e "${GREEN}✅ Linux platform tests passed!${NC}"
-    
+
     # Show test results if available
     if [ -d "TestResults/Linux" ] && [ "$(ls -A TestResults/Linux)" ]; then
         echo -e "${BLUE}📊 Test Results Summary:${NC}"
         find TestResults/Linux -name "*.trx" -exec echo "  📄 {}" \;
     fi
-    
+
     exit 0
 else
     echo -e "${RED}❌ Linux platform tests failed${NC}"
+
+    # Check for hang dumps
+    echo -e "${YELLOW}🔍 Checking for hang dumps...${NC}"
+    if find TestResults/Linux -name "Sequence_*.xml" -o -name "*hangdump*" 2>/dev/null | grep -q .; then
+        echo -e "${BLUE}📋 Hang dump files found:${NC}"
+        find TestResults/Linux -name "Sequence_*.xml" -o -name "*hangdump*" 2>/dev/null | while read -r dumpfile; do
+            echo -e "${BLUE}  📄 ${dumpfile}${NC}"
+            if [[ "$dumpfile" == *.xml ]]; then
+                echo -e "${YELLOW}  Content preview:${NC}"
+                head -50 "$dumpfile" | grep -E "(TestName|MethodName|ClassName|StackTrace)" || cat "$dumpfile" | head -50
+            fi
+        done
+    else
+        echo -e "${YELLOW}No hang dumps found. Test may have failed for other reasons.${NC}"
+    fi
+
     exit 1
 fi

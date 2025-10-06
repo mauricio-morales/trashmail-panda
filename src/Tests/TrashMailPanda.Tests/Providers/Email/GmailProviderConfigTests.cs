@@ -6,6 +6,7 @@ using Google.Apis.Gmail.v1;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
+using TrashMailPanda.Shared.Security;
 
 namespace TrashMailPanda.Tests.Providers.Email;
 
@@ -314,7 +315,7 @@ public class GmailProviderConfigTests
         {
             ClientId = "valid_client_id",
             ClientSecret = "valid_secret",
-            Scopes = new[] { "https://www.googleapis.com/auth/gmail.readonly" },
+            Scopes = new[] { GoogleOAuthScopes.GmailReadonly },
             TimeoutSeconds = 60,
             MaxRetryAttempts = 3,
             RetryDelayMilliseconds = 1000,
@@ -339,7 +340,7 @@ public class GmailProviderConfigTests
         {
             ClientId = "valid_client_id",
             ClientSecret = "valid_secret",
-            Scopes = new[] { "https://www.googleapis.com/auth/gmail.modify" },
+            Scopes = new[] { GoogleOAuthScopes.GmailModify },
             RequestTimeout = TimeSpan.FromSeconds(30), // Less than TimeoutSeconds
             TimeoutSeconds = 60,
             MaxRetryAttempts = 3,
@@ -474,7 +475,7 @@ public class GmailProviderConfigTests
         {
             ClientId = "valid_client_id",
             ClientSecret = "valid_secret",
-            Scopes = new[] { "https://www.googleapis.com/auth/gmail.modify" },
+            Scopes = new[] { GoogleOAuthScopes.GmailModify },
             RequestTimeout = TimeSpan.FromSeconds(30), // Less than TimeoutSeconds
             TimeoutSeconds = 60,
             MaxRetryAttempts = 3,

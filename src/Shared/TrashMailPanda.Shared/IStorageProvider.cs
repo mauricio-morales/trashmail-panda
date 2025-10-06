@@ -42,4 +42,13 @@ public interface IStorageProvider
     // Configuration
     Task<AppConfig> GetConfigAsync();
     Task UpdateConfigAsync(AppConfig config);
+
+    // Contacts cache (for fast contact lookups and trust signals)
+    Task<BasicContactInfo?> GetContactAsync(string contactId);
+    Task SetContactAsync(BasicContactInfo contact);
+    Task<string?> GetContactIdByEmailAsync(string normalizedEmail);
+    Task<TrustSignalInfo?> GetTrustSignalAsync(string contactId);
+    Task SetTrustSignalAsync(TrustSignalInfo trustSignal);
+    Task RemoveContactAsync(string contactId);
+    Task ClearContactsCacheAsync();
 }

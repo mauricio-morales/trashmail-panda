@@ -4,9 +4,9 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
-        x:Class="TrashMailPanda.Views.GmailSetupDialog"
-        x:DataType="vm:GmailSetupViewModel"
-        Title="Gmail OAuth Setup"
+        x:Class="TrashMailPanda.Views.GoogleOAuthSetupDialog"
+        x:DataType="vm:GoogleOAuthSetupViewModel"
+        Title="Google Services Setup"
         Width="1200" Height="700"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
@@ -25,13 +25,13 @@
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="0,0,0,20">
-            <Border Background="{DynamicResource StatusError}" Width="40" Height="40" CornerRadius="20">
-                <Image Source="/Assets/Logos/gmail-logo.png" Width="20" Height="20"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <Border Background="{DynamicResource AccentBlue}" Width="40" Height="40" CornerRadius="20">
+                <TextBlock Text="🔗" FontSize="18" Foreground="White"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="Gmail OAuth Setup" FontSize="18" FontWeight="Bold"/>
-                <TextBlock Text="Configure secure Gmail API access for email processing" FontSize="12" Foreground="Gray"/>
+                <TextBlock Text="Google Services Setup" FontSize="18" FontWeight="Bold"/>
+                <TextBlock Text="Configure unified Google account access for Gmail email processing and Contacts integration" FontSize="12" Foreground="Gray"/>
             </StackPanel>
         </StackPanel>
 
@@ -49,16 +49,17 @@
             <ScrollViewer Grid.Column="0">
                 <StackPanel Spacing="20">
                     <StackPanel Spacing="15">
-                        <TextBlock Text="Step 1: Create OAuth Credentials" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Step 1: Setup Google Cloud Project" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         <Border Background="{DynamicResource BackgroundPrimary}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource BorderLight}" BorderThickness="1">
                             <StackPanel Spacing="6">
                                 <TextBlock Text="1. Go to Google Cloud Console" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="2. Create or select a project" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="3. Enable the Gmail API" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="4. Go to Credentials page" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="5. Create OAuth 2.0 Client ID" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="6. Choose 'Desktop application'" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="7. Copy Client ID and Secret" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="3. Enable APIs: Gmail API &amp; People API" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="4. Configure OAuth consent screen (see Step 2)" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="5. Go to Credentials page" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="6. Create OAuth 2.0 Client ID" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="7. Choose 'Desktop application'" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="8. Copy Client ID and Secret" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </Border>
                         
@@ -79,10 +80,11 @@
                         <TextBlock Text="Important Notes:" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         <Border Background="{DynamicResource StatusWarningBackground}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource StatusWarning}" BorderThickness="1">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="• Select 'Desktop application' as application type" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="• Enable both Gmail API and People API" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="• Configure OAuth consent screen with all 3 scopes" FontSize="13" Foreground="{DynamicResource TextSecondary}" FontWeight="Medium"/>
+                                <TextBlock Text="• Select 'Desktop application' as application type" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="• No need to configure redirect URIs in Console" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="• Keep your Client Secret secure" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Gmail API must be enabled for your project" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -93,7 +95,28 @@
             <ScrollViewer Grid.Column="2">
                 <StackPanel Spacing="20">
                     <StackPanel Spacing="15">
-                        <TextBlock Text="Step 2: Enter OAuth Credentials" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Step 2: Configure OAuth Consent Screen" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+
+                        <!-- OAuth Consent Screen Instructions -->
+                        <Border Background="{DynamicResource StatusWarningBackground}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource StatusWarning}" BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="⚠️ CRITICAL: Configure OAuth consent screen with required scopes:" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource StatusWarning}"/>
+                                <TextBlock Text="1. Go to 'OAuth consent screen' in Google Cloud Console" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="2. Click 'Edit App'" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="3. In 'Scopes' section, add these scopes:" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <Border Background="{DynamicResource BackgroundPrimary}" Padding="8" CornerRadius="4" Margin="8,4,8,4">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="• https://www.googleapis.com/auth/gmail.modify" FontSize="11" FontFamily="Consolas, Monaco, 'Courier New', monospace" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="• https://www.googleapis.com/auth/contacts.readonly" FontSize="11" FontFamily="Consolas, Monaco, 'Courier New', monospace" Foreground="{DynamicResource TextSecondary}"/>
+                                        <TextBlock Text="• https://www.googleapis.com/auth/userinfo.profile" FontSize="11" FontFamily="Consolas, Monaco, 'Courier New', monospace" Foreground="{DynamicResource TextSecondary}"/>
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="4. Save changes" FontSize="12" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="Without these scopes, OAuth authentication will fail!" FontSize="12" FontWeight="Medium" Foreground="{DynamicResource StatusWarning}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Step 3: Enter OAuth Credentials" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         
                         <!-- Status Display -->
                         <Border Background="{DynamicResource BackgroundPrimary}" 
@@ -162,15 +185,15 @@
             <ScrollViewer Grid.Column="4">
                 <StackPanel Spacing="20">
                     <StackPanel Spacing="15">
-                        <TextBlock Text="Step 3: Authentication" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
+                        <TextBlock Text="Step 4: Authentication" FontWeight="SemiBold" FontSize="16" Foreground="{DynamicResource TextPrimary}"/>
                         
                         <Border Background="{DynamicResource BackgroundPrimary}" Padding="12" CornerRadius="6" BorderBrush="{DynamicResource BorderLight}" BorderThickness="1">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="After saving OAuth credentials:" FontSize="13" FontWeight="Medium" Foreground="{DynamicResource TextSecondary}"/>
                                 <TextBlock Text="• Browser window will open" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Sign in to your Gmail account" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Grant TrashMail Panda access" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
-                                <TextBlock Text="• Access tokens will be saved securely" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="• Sign in to your Google account" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="• Grant TrashMail Panda unified access" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
+                                <TextBlock Text="• Gmail and Contacts access tokens saved" FontSize="13" Foreground="{DynamicResource TextSecondary}"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -199,8 +222,8 @@
                             BorderThickness="1">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock Text="✅" FontSize="16"/>
-                            <TextBlock Text="OAuth credentials saved! Gmail authentication will begin..." 
-                                      FontSize="13" 
+                            <TextBlock Text="OAuth credentials saved! Google Services authentication will begin..."
+                                      FontSize="13"
                                       Foreground="{DynamicResource StatusSuccess}"
                                       TextWrapping="Wrap"
                                       VerticalAlignment="Center"/>

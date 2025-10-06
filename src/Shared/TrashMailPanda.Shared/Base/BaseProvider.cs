@@ -330,6 +330,7 @@ public abstract class BaseProvider<TConfig> : IProvider<TConfig>, IDisposable
     /// <returns>A result containing the health check results</returns>
     public async Task<Result<HealthCheckResult>> HealthCheckAsync(CancellationToken cancellationToken = default)
     {
+        Logger.LogInformation("[BASE PROVIDER] HealthCheckAsync called for provider type: {ProviderType}", GetType().Name);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         try
@@ -354,6 +355,7 @@ public abstract class BaseProvider<TConfig> : IProvider<TConfig>, IDisposable
             }
 
             // Perform provider-specific health checks
+            Logger.LogInformation("[BASE PROVIDER] About to call PerformHealthCheckAsync for {ProviderType}", GetType().Name);
             var customHealthResult = await PerformHealthCheckAsync(cancellationToken);
             stopwatch.Stop();
 

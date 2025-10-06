@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\TrashMailPanda\TrashMailPanda\TrashMailPanda.csproj" />
     <ProjectReference Include="..\..\Shared\TrashMailPanda.Shared\TrashMailPanda.Shared.csproj" />
     <ProjectReference Include="..\..\Providers\Email\TrashMailPanda.Providers.Email\TrashMailPanda.Providers.Email.csproj" />
+    <ProjectReference Include="..\..\Providers\Contacts\TrashMailPanda.Providers.Contacts\TrashMailPanda.Providers.Contacts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

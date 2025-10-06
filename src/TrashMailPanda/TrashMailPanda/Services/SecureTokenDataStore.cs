@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Models;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Services;
 
@@ -12,11 +13,11 @@ namespace TrashMailPanda.Services;
 public class SecureTokenDataStore : IDataStore, IDisposable
 {
     private readonly ISecureStorageManager _secureStorageManager;
-    private readonly ILogger _logger;
+    private readonly ILogger<SecureTokenDataStore> _logger;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _disposed;
 
-    public SecureTokenDataStore(ISecureStorageManager secureStorageManager, ILogger logger)
+    public SecureTokenDataStore(ISecureStorageManager secureStorageManager, ILogger<SecureTokenDataStore> logger)
     {
         _secureStorageManager = secureStorageManager;
         _logger = logger;

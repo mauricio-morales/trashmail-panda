@@ -23,6 +23,11 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.8" />
     <!-- Health checks support -->
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.8" />
+    <!-- Google OAuth dependencies - required for shared OAuth service -->
+    <PackageReference Include="Google.Apis.Auth" Version="1.70.0" />
+    <PackageReference Include="Google.Apis.Core" Version="1.70.0" />
+    <!-- Phone number parsing and formatting -->
+    <PackageReference Include="libphonenumber-csharp" Version="9.0.0" />
     <!-- For cross-platform keychain access, we'll implement platform-specific solutions -->
   </ItemGroup>
 

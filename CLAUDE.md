@@ -398,6 +398,82 @@ The application implements a comprehensive multi-layer security system:
 - **Secure Token Storage**: OS keychain storage with automatic cleanup
 - **Configuration Validation**: DataAnnotations validation for OAuth settings
 
+### Automatic Token Renewal Architecture
+
+The application implements comprehensive automatic token renewal to ensure seamless user experience without manual re-authentication:
+
+#### Core Implementation (`src/Shared/TrashMailPanda.Shared/Security/GoogleOAuthService.cs`)
+
+- **Transparent Refresh**: Tokens are automatically refreshed when expired during any operation
+- **Concurrency Protection**: SemaphoreSlim prevents multiple simultaneous refresh attempts
+- **Error Classification**: Intelligent failure handling with appropriate recovery strategies
+- **Atomic Storage**: Refreshed tokens are stored atomically to prevent corruption
+- **Audit Logging**: All token operations logged for security compliance
+- **Retry Prevention**: Prevents rapid retry loops with timestamp tracking
+
+#### Integration Points
+
+```csharp
+// Automatic refresh triggered during access token retrieval
+var tokenResult = await googleOAuthService.GetAccessTokenAsync(scopes, "google_");
+// If expired, automatically refreshes and returns new token
+
+// Health checks detect expiry and trigger refresh
+var hasValidTokens = await googleOAuthService.HasValidTokensAsync(scopes, "google_");
+// Returns true if tokens are valid OR successfully refreshed
+
+// Provider initialization benefits from automatic refresh
+var initResult = await googleServicesProvider.InitializeAsync(config);
+// No longer fails on startup due to expired tokens
+```
+
+#### Token Refresh Strategy
+
+**Hybrid Approach**:
+- **Proactive**: Tokens refresh 5 minutes before expiry (built-in buffer)
+- **Reactive**: Automatic refresh on API 401/403 errors or expiry detection
+- **Leverages Google APIs**: Uses Google's tested refresh logic when possible
+
+#### Error Recovery
+
+**Smart Error Classification**:
+- `InvalidRefreshToken` / `RevokedToken` → Clear tokens, force re-authentication
+- `NetworkError` / `ServerError` → Temporary failure, allow retries
+- `QuotaExceeded` → Backoff and retry
+- `Unknown` → Log and fallback to re-authentication
+
+#### Service Architecture
+
+```
+GoogleOAuthService (Primary Implementation)
+├── RefreshTokenAsync() → Core refresh logic with concurrency protection
+├── GetAccessTokenAsync() → Auto-refresh on expiry detection
+├── HasValidTokensAsync() → Validation with refresh trigger
+└── Atomic token storage and audit logging
+
+TokenRotationService (Scheduling Coordinator)
+├── Delegates to GoogleOAuthService for actual refresh operations
+├── Manages background refresh scheduling
+└── Cross-provider coordination and statistics
+
+Provider Health Checks (Startup)
+├── Fast fail if tokens invalid → UI handles re-authentication
+├── No automatic refresh during health checks for predictable startup
+└── Transparent refresh during normal operations
+```
+
+#### Key Benefits
+
+- **Zero User Friction**: Users never see "token expired" errors during normal use
+- **Startup Reliability**: Application starts consistently without token refresh delays
+- **Thread Safety**: Multiple operations can safely request tokens simultaneously
+- **Security Compliance**: All token operations audited and logged
+- **Scalable Pattern**: Extends to other OAuth providers (future: Microsoft, etc.)
+
+#### Configuration
+
+No additional configuration required - automatic refresh is enabled by default for all Google OAuth operations. Uses existing client credentials and refresh tokens stored securely in OS keychain.
+
 ## Provider Initialization System
 
 Robust provider initialization with dependency injection:

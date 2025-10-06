@@ -53,5 +53,6 @@ ENTRYPOINT ["/usr/local/bin/init-headless.sh"]
 # Default command runs Linux-specific tests
 CMD ["dotnet", "test", "--configuration", "Release", "--no-build", \
      "--filter", "Category=Integration&Platform=Linux", \
+     "--blame-hang", "--blame-hang-timeout", "30s", \
      "--verbosity", "normal", \
      "--logger", "console;verbosity=detailed"]

@@ -128,7 +128,10 @@ public partial class ProviderStatusDashboardViewModel : ViewModelBase
 
             foreach (var providerInfo in providerDisplayInfo.Values.OrderBy(p => p.Type))
             {
-                var cardViewModel = new ProviderStatusCardViewModel(providerInfo);
+                var cardViewModel = new ProviderStatusCardViewModel(providerInfo, _logger as ILogger<ProviderStatusCardViewModel>);
+
+                // Enhanced card for GoogleServices with sub-service indicators
+                // Note: Enhanced sub-service functionality can be added when ProviderStatusCardViewModel supports metadata
 
                 // Subscribe to card events
                 cardViewModel.SetupRequested += OnProviderSetupRequested;
@@ -158,14 +161,25 @@ public partial class ProviderStatusDashboardViewModel : ViewModelBase
     {
         try
         {
-            _logger.LogDebug("Received status change for provider {Provider}: {Status}",
-                e.ProviderName, e.Status?.Status);
+            _logger.LogInformation("[UI EVENT] Received status change for provider {Provider}: {Status} (Healthy: {IsHealthy}, RequiresSetup: {RequiresSetup}, Initialized: {IsInitialized})",
+                e.ProviderName, e.Status?.Status, e.Status?.IsHealthy, e.Status?.RequiresSetup, e.Status?.IsInitialized);
 
             // Find the corresponding card and update it
             var card = ProviderCards.FirstOrDefault(c => c.ProviderName == e.ProviderName);
             if (card != null && e.Status != null)
             {
+                _logger.LogInformation("[UI UPDATE] Updating card for provider {Provider} - before: Status={OldStatus}, Healthy={OldHealthy}",
+                    e.ProviderName, card.CurrentStatus, card.IsHealthy);
+
                 card.UpdateFromProviderStatus(e.Status);
+
+                _logger.LogInformation("[UI UPDATE] Updated card for provider {Provider} - after: Status={NewStatus}, Healthy={NewHealthy}",
+                    e.ProviderName, card.CurrentStatus, card.IsHealthy);
+            }
+            else
+            {
+                _logger.LogWarning("[UI ERROR] No card found for provider {Provider} or status is null. Total cards: {CardCount}",
+                    e.ProviderName, ProviderCards.Count);
             }
 
             // Update overall dashboard state

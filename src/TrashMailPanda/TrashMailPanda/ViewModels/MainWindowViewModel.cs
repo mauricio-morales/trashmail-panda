@@ -6,6 +6,9 @@ using System;
 using System.Threading.Tasks;
 using TrashMailPanda.Views;
 using TrashMailPanda.Services;
+using TrashMailPanda.Models;
+using TrashMailPanda.Shared.Security;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.ViewModels;
 
@@ -18,7 +21,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ProviderStatusDashboardViewModel _providerDashboardViewModel;
     private readonly EmailDashboardViewModel _emailDashboardViewModel;
     private readonly IServiceProvider _serviceProvider;
-    private readonly IGmailOAuthService _gmailOAuthService;
+    private readonly IGoogleOAuthService _googleOAuthService;
+    private readonly IDialogService _dialogService;
     private readonly ILogger<MainWindowViewModel> _logger;
 
     // Navigation State
@@ -45,13 +49,15 @@ public partial class MainWindowViewModel : ViewModelBase
         ProviderStatusDashboardViewModel providerDashboardViewModel,
         EmailDashboardViewModel emailDashboardViewModel,
         IServiceProvider serviceProvider,
-        IGmailOAuthService gmailOAuthService,
+        IGoogleOAuthService googleOAuthService,
+        IDialogService dialogService,
         ILogger<MainWindowViewModel> logger)
     {
         _providerDashboardViewModel = providerDashboardViewModel ?? throw new ArgumentNullException(nameof(providerDashboardViewModel));
         _emailDashboardViewModel = emailDashboardViewModel ?? throw new ArgumentNullException(nameof(emailDashboardViewModel));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-        _gmailOAuthService = gmailOAuthService ?? throw new ArgumentNullException(nameof(gmailOAuthService));
+        _googleOAuthService = googleOAuthService ?? throw new ArgumentNullException(nameof(googleOAuthService));
+        _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // Subscribe to provider dashboard events
@@ -226,13 +232,17 @@ public partial class MainWindowViewModel : ViewModelBase
             switch (providerName?.ToLowerInvariant())
             {
                 case "gmail":
-                    _logger.LogInformation("Opening Gmail OAuth setup dialog");
-                    await OpenGmailSetupDialogAsync();
+                case "contacts":
+                case "googleservices":
+                    _logger.LogInformation("Opening Google OAuth setup dialog for {Provider}", providerName);
+                    var googleResult = await _dialogService.ShowGoogleOAuthSetupAsync();
+                    NavigationStatus = googleResult ? "Google OAuth setup completed" : "Google OAuth setup cancelled";
                     break;
 
                 case "openai":
                     _logger.LogInformation("Opening OpenAI API key setup dialog");
-                    await OpenOpenAISetupDialogAsync();
+                    var openAIResult = await _dialogService.ShowOpenAISetupAsync();
+                    NavigationStatus = openAIResult ? "OpenAI setup completed" : "OpenAI setup cancelled";
                     break;
 
                 default:
@@ -265,25 +275,45 @@ public partial class MainWindowViewModel : ViewModelBase
 
             NavigationStatus = $"Opening {providerName} configuration...";
 
-            // TODO: Implement actual configuration dialog navigation based on provider type
+            // Open appropriate setup dialog based on provider type
             switch (providerName?.ToLowerInvariant())
             {
                 case "gmail":
-                    _logger.LogInformation("Would open Gmail configuration dialog");
-                    NavigationStatus = "Gmail configuration would open here";
+                case "contacts":
+                case "googleservices":
+                    _logger.LogInformation("Opening Google OAuth setup dialog for {Provider} configuration", providerName);
+                    var googleSetupResult = await _dialogService.ShowGoogleOAuthSetupAsync();
+                    if (googleSetupResult)
+                    {
+                        NavigationStatus = "Google OAuth setup completed successfully";
+                    }
+                    else
+                    {
+                        NavigationStatus = "Google OAuth setup was cancelled";
+                    }
                     break;
+
                 case "openai":
-                    _logger.LogInformation("Would open OpenAI configuration dialog");
-                    NavigationStatus = "OpenAI configuration would open here";
+                    _logger.LogInformation("Opening OpenAI API key setup dialog for configuration");
+                    var openAISetupResult = await _dialogService.ShowOpenAISetupAsync();
+                    if (openAISetupResult)
+                    {
+                        NavigationStatus = "OpenAI setup completed successfully";
+                    }
+                    else
+                    {
+                        NavigationStatus = "OpenAI setup was cancelled";
+                    }
                     break;
+
                 default:
-                    _logger.LogInformation("Would open generic configuration dialog for {Provider}", providerName);
-                    NavigationStatus = $"{providerName} configuration would open here";
+                    _logger.LogInformation("Generic configuration for {Provider} not yet implemented", providerName);
+                    NavigationStatus = $"{providerName} configuration not yet implemented";
+                    await Task.Delay(2000);
                     break;
             }
 
-            // Reset navigation status after delay
-            await Task.Delay(3000);
+            // Reset navigation status
             NavigationStatus = IsOnProviderDashboard
                 ? "Provider Status Dashboard"
                 : "Email Processing Dashboard";
@@ -309,25 +339,63 @@ public partial class MainWindowViewModel : ViewModelBase
             switch (providerName?.ToLowerInvariant())
             {
                 case "gmail":
-                    _logger.LogInformation("Initiating Gmail OAuth authentication in browser");
-                    NavigationStatus = "Opening browser for Gmail sign-in...";
+                case "contacts":
+                case "googleservices":
+                    _logger.LogInformation("Initiating unified Google Services OAuth authentication in browser");
+                    NavigationStatus = "Opening browser for Google sign-in (Gmail + Contacts)...";
 
-                    var authResult = await _gmailOAuthService.AuthenticateAsync();
+                    // Retrieve Google OAuth client credentials from secure storage
+                    var googleCredentials = await GetGoogleOAuthCredentialsAsync();
+                    if (googleCredentials == null)
+                    {
+                        _logger.LogWarning("Google OAuth client credentials not available - redirecting to setup");
+                        NavigationStatus = "Google OAuth setup required - opening setup dialog...";
+                        await _dialogService.ShowGoogleOAuthSetupAsync();
+                        return;
+                    }
+
+                    // Use expanded scopes that include both Gmail and People API access
+                    var unifiedScopes = new[] {
+                        "https://www.googleapis.com/auth/gmail.modify",
+                        "https://www.googleapis.com/auth/contacts.readonly",
+                        "https://www.googleapis.com/auth/userinfo.profile"
+                    };
+
+                    var authResult = await _googleOAuthService.AuthenticateWithBrowserAsync(
+                        unifiedScopes, // Use expanded scopes for both Gmail and Contacts
+                        "google_", // Use shared prefix - unified Google OAuth tokens
+                        googleCredentials.Value.clientId,
+                        googleCredentials.Value.clientSecret);
 
                     if (authResult.IsSuccess)
                     {
-                        _logger.LogInformation("Gmail OAuth authentication completed successfully");
-                        NavigationStatus = "Gmail authentication successful - refreshing status...";
+                        _logger.LogInformation("Google Services OAuth authentication completed successfully with unified scopes");
+                        NavigationStatus = "Google authentication successful - reinitializing services...";
 
-                        // Refresh provider status to reflect the change
-                        await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+                        // Re-initialize unified Google Services provider to pick up new OAuth tokens
+                        var startupOrchestrator = _serviceProvider.GetRequiredService<IStartupOrchestrator>();
+                        var reinitResult = await startupOrchestrator.ReinitializeGoogleServicesProviderAsync();
 
-                        NavigationStatus = "Gmail authentication completed";
+                        if (reinitResult.IsSuccess)
+                        {
+                            _logger.LogInformation("Google Services provider re-initialized successfully after OAuth");
+                            NavigationStatus = "Google Services connected successfully";
+
+                            // Now refresh status to reflect the healthy state
+                            await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Google Services provider re-initialization failed: {Error}", reinitResult.Error?.Message);
+                            NavigationStatus = "Google authentication completed but provider initialization failed";
+                        }
+
+                        NavigationStatus = "Google Services authentication completed";
                     }
                     else
                     {
-                        _logger.LogWarning("Gmail OAuth authentication failed: {Error}", authResult.Error?.Message);
-                        NavigationStatus = $"Gmail authentication failed: {authResult.Error?.Message}";
+                        _logger.LogWarning("Google Services OAuth authentication failed: {Error}", authResult.Error?.Message);
+                        NavigationStatus = $"Google Services authentication failed: {authResult.Error?.Message}";
                     }
                     break;
 
@@ -354,119 +422,84 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Open the OpenAI API key setup dialog
+    /// Check if Google OAuth client credentials (client_id, client_secret) already exist in secure storage
     /// </summary>
-    private async Task OpenOpenAISetupDialogAsync()
+    private async Task<bool> CheckForExistingGoogleCredentialsAsync()
     {
         try
         {
-            var viewModel = _serviceProvider.GetRequiredService<OpenAISetupViewModel>();
-            await viewModel.LoadExistingApiKeyAsync();
-
-            var dialog = new OpenAISetupDialog(viewModel);
-
-            // Subscribe to close event
-            viewModel.RequestClose += (sender, args) => dialog.Close();
-
-            // Show dialog (modal)
-            var mainWindow = GetMainWindow();
-            if (mainWindow != null)
+            var secureStorage = _serviceProvider.GetService<ISecureStorageManager>();
+            if (secureStorage == null)
             {
-                await dialog.ShowDialog(mainWindow);
-            }
-            else
-            {
-                // Fallback to show dialog without parent (will be modal by default)
-                dialog.Show();
+                _logger.LogWarning("SecureStorageManager not available for credential check");
+                return false;
             }
 
-            if (viewModel.DialogResult)
-            {
-                _logger.LogInformation("OpenAI setup completed successfully");
-                NavigationStatus = "OpenAI API key saved successfully";
+            // Check for new Google shared credentials
+            var clientIdResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
-                // Refresh provider status to reflect the change
-                await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
-            }
-            else
+            // Also check for old Gmail-specific credentials for debugging
+            var oldGmailClientIdResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GmailClientId);
+            var oldGmailClientSecretResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GmailClientSecret);
+
+            var hasNewCredentials = clientIdResult.IsSuccess && !string.IsNullOrWhiteSpace(clientIdResult.Value) &&
+                                   clientSecretResult.IsSuccess && !string.IsNullOrWhiteSpace(clientSecretResult.Value);
+
+            var hasOldCredentials = oldGmailClientIdResult.IsSuccess && !string.IsNullOrWhiteSpace(oldGmailClientIdResult.Value) &&
+                                   oldGmailClientSecretResult.IsSuccess && !string.IsNullOrWhiteSpace(oldGmailClientSecretResult.Value);
+
+            _logger.LogInformation("Credential check - New Google credentials: {HasNew}, Old Gmail credentials: {HasOld}",
+                hasNewCredentials, hasOldCredentials);
+
+            if (hasOldCredentials && !hasNewCredentials)
             {
-                _logger.LogInformation("OpenAI setup was cancelled");
-                NavigationStatus = "OpenAI setup cancelled";
+                _logger.LogInformation("Found old Gmail-specific credentials but no new Google shared credentials - user needs to migrate");
             }
+
+            return hasNewCredentials;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception opening OpenAI setup dialog");
-            NavigationStatus = "Failed to open OpenAI setup";
+            _logger.LogError(ex, "Exception checking for existing Google OAuth client credentials");
+            return false;
         }
     }
 
     /// <summary>
-    /// Get the main window for dialog parent
+    /// Retrieve Google OAuth client credentials from secure storage
     /// </summary>
-    private Avalonia.Controls.Window? GetMainWindow()
-    {
-        // Get the main window from the application's main window
-        var app = Avalonia.Application.Current;
-        if (app?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            return desktop.MainWindow;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Open Gmail OAuth setup dialog
-    /// </summary>
-    private async Task OpenGmailSetupDialogAsync()
+    private async Task<(string clientId, string clientSecret)?> GetGoogleOAuthCredentialsAsync()
     {
         try
         {
-            var viewModel = _serviceProvider.GetRequiredService<GmailSetupViewModel>();
-
-            var dialog = new Views.GmailSetupDialog(viewModel);
-
-            // Subscribe to Gmail sign-in event
-            viewModel.RequestGmailSignIn += async (sender, args) =>
+            var secureStorage = _serviceProvider.GetService<ISecureStorageManager>();
+            if (secureStorage == null)
             {
-                _logger.LogInformation("Gmail OAuth setup completed - triggering Gmail authentication");
-                await Task.Delay(500); // Brief delay to let dialog close
-                // Trigger additional refresh to ensure Gmail authentication is attempted
-                await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
-            };
-
-            // Show dialog (modal)
-            var mainWindow = GetMainWindow();
-            if (mainWindow != null)
-            {
-                await dialog.ShowDialog(mainWindow);
-            }
-            else
-            {
-                // Fallback to show dialog without parent (will be modal by default)
-                dialog.Show();
+                _logger.LogWarning("SecureStorageManager not available for credential retrieval");
+                return null;
             }
 
-            if (viewModel.DialogResult)
-            {
-                _logger.LogInformation("Gmail OAuth setup completed successfully");
-                NavigationStatus = "Gmail OAuth credentials saved successfully";
+            var clientIdResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+            var clientSecretResult = await secureStorage.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
 
-                // Refresh provider status to reflect the change
-                await _providerDashboardViewModel.RefreshAllProvidersCommand.ExecuteAsync(null);
-            }
-            else
+            if (!clientIdResult.IsSuccess || !clientSecretResult.IsSuccess ||
+                string.IsNullOrWhiteSpace(clientIdResult.Value) || string.IsNullOrWhiteSpace(clientSecretResult.Value))
             {
-                _logger.LogInformation("Gmail OAuth setup was cancelled");
-                NavigationStatus = "Gmail setup cancelled";
+                _logger.LogWarning("Google OAuth client credentials not available or empty");
+                return null;
             }
+
+            _logger.LogDebug("Successfully retrieved Google OAuth client credentials");
+            return (clientIdResult.Value, clientSecretResult.Value);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception opening Gmail setup dialog");
-            NavigationStatus = "Failed to open Gmail setup";
+            _logger.LogError(ex, "Exception retrieving Google OAuth client credentials");
+            return null;
         }
     }
+
 
     /// <summary>
     /// Monitor CanAccessMainDashboard changes from provider dashboard

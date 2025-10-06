@@ -17,4 +17,4 @@ RUN dotnet restore
 RUN dotnet build --configuration Release --no-restore
 
 # Default command runs Windows-specific tests
-CMD ["dotnet", "test", "--configuration", "Release", "--no-build", "--filter", "Category=Integration&Platform=Windows", "--verbosity", "normal", "--logger", "console;verbosity=detailed"]
+CMD ["dotnet", "test", "--configuration", "Release", "--no-build", "--filter", "Category=Integration&Platform=Windows", "--blame-hang", "--blame-hang-timeout", "30s", "--verbosity", "normal", "--logger", "console;verbosity=detailed"]

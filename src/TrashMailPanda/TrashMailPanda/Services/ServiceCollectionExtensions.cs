@@ -2,12 +2,22 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TrashMailPanda.Providers.Email;
+using TrashMailPanda.Providers.Email.Models;
 using TrashMailPanda.Providers.LLM;
 using TrashMailPanda.Providers.Storage;
+using TrashMailPanda.Providers.Contacts;
+using TrashMailPanda.Providers.Contacts.Models;
+using TrashMailPanda.Providers.Contacts.Services;
+using TrashMailPanda.Providers.Contacts.Adapters;
+using TrashMailPanda.Providers.Email.Services;
+using TrashMailPanda.Providers.GoogleServices;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
+using TrashMailPanda.Shared.Services;
 using TrashMailPanda.ViewModels;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace TrashMailPanda.Services;
 
@@ -34,6 +44,8 @@ public static class ServiceCollectionExtensions
         services.Configure<EmailProviderConfig>(configuration.GetSection("EmailProvider"));
         services.Configure<LLMProviderConfig>(configuration.GetSection("LLMProvider"));
         services.Configure<StorageProviderConfig>(configuration.GetSection("StorageProvider"));
+        services.Configure<ContactsProviderConfig>(configuration.GetSection("ContactsProvider"));
+        services.Configure<GoogleServicesProviderConfig>(configuration.GetSection("GoogleServicesProvider"));
 
         // Add security services
         services.AddSecurityServices();
@@ -60,9 +72,20 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISecureStorageManager, SecureStorageManager>();
         services.AddSingleton<ISecurityAuditLogger, SecurityAuditLogger>();
         services.AddSingleton<ITokenRotationService, TokenRotationService>();
+        services.AddSingleton<IGoogleTokenMigrationService, GoogleTokenMigrationService>();
+        services.AddSingleton<IConfigurationMigrationService, ConfigurationMigrationService>();
+
+        // Register unified Google OAuth service for all Google APIs (Gmail, Contacts, etc.)
+        services.AddSingleton<IGoogleOAuthService, GoogleOAuthService>();
 
         // Register SecureTokenDataStore for OAuth token storage
-        services.AddSingleton<Google.Apis.Util.Store.IDataStore, SecureTokenDataStore>();
+        services.AddSingleton<Google.Apis.Util.Store.IDataStore>(provider =>
+            new SecureTokenDataStore(
+                provider.GetRequiredService<ISecureStorageManager>(),
+                provider.GetRequiredService<ILogger<SecureTokenDataStore>>()));
+
+        // Register phone number service for optimal performance
+        services.AddSingleton<IPhoneNumberService, PhoneNumberService>();
 
         return services;
     }
@@ -82,8 +105,74 @@ public static class ServiceCollectionExtensions
             return new SqliteStorageProvider(databasePath, password);
         });
 
-        // Email and LLM providers are NOT registered here
-        // They will be created by application services after secrets are captured through UI
+        // Register providers as singletons - they exist immediately but operational state
+        // depends on credential availability at runtime (runtime credential-dependent pattern)
+
+        // Gmail provider dependencies
+        services.AddSingleton<IGmailRateLimitHandler, GmailRateLimitHandler>();
+
+        // Contacts provider dependencies
+        services.AddSingleton<ContactsCacheManager>();
+        services.AddSingleton<TrustSignalCalculator>();
+        services.AddSingleton<IMemoryCache, MemoryCache>();
+
+        // Register GoogleContactsAdapter with config resolution
+        services.AddSingleton<GoogleContactsAdapter>(provider =>
+        {
+            var config = provider.GetRequiredService<IOptions<ContactsProviderConfig>>().Value;
+            var googleOAuthService = provider.GetRequiredService<IGoogleOAuthService>();
+            var secureStorageManager = provider.GetRequiredService<ISecureStorageManager>();
+            var securityAuditLogger = provider.GetRequiredService<ISecurityAuditLogger>();
+            var phoneNumberService = provider.GetRequiredService<IPhoneNumberService>();
+            var logger = provider.GetRequiredService<ILogger<GoogleContactsAdapter>>();
+
+            return new GoogleContactsAdapter(
+                googleOAuthService,
+                secureStorageManager,
+                securityAuditLogger,
+                config,
+                phoneNumberService,
+                logger);
+        });
+
+        // Create GoogleServicesProvider with DIRECT dependency creation (no interface resolution)
+        services.AddSingleton<GoogleServicesProvider>(provider =>
+        {
+            // Create sub-providers DIRECTLY with their own dependencies
+            var gmailRateLimitHandler = provider.GetRequiredService<IGmailRateLimitHandler>();
+            var googleOAuthService = provider.GetRequiredService<IGoogleOAuthService>();
+            var secureStorageManager = provider.GetRequiredService<ISecureStorageManager>();
+            var securityAuditLogger = provider.GetRequiredService<ISecurityAuditLogger>();
+            var dataStore = provider.GetRequiredService<Google.Apis.Util.Store.IDataStore>();
+            var memoryCache = provider.GetRequiredService<IMemoryCache>();
+            var gmailLogger = provider.GetRequiredService<ILogger<GmailEmailProvider>>();
+            var contactsLogger = provider.GetRequiredService<ILogger<ContactsProvider>>();
+            var unifiedLogger = provider.GetRequiredService<ILogger<GoogleServicesProvider>>();
+            var googleContactsAdapter = provider.GetRequiredService<GoogleContactsAdapter>();
+            var contactsCacheManager = provider.GetRequiredService<ContactsCacheManager>();
+            var trustSignalCalculator = provider.GetRequiredService<TrustSignalCalculator>();
+            var contactsConfigOptions = provider.GetRequiredService<IOptionsMonitor<ContactsProviderConfig>>();
+
+            // Create sub-providers directly (CRITICAL: not through interface resolution)
+            var gmailProvider = new GmailEmailProvider(
+                secureStorageManager, gmailRateLimitHandler, dataStore, securityAuditLogger, googleOAuthService, gmailLogger);
+            var contactsProvider = new ContactsProvider(
+                contactsCacheManager, trustSignalCalculator, googleContactsAdapter, memoryCache,
+                secureStorageManager, securityAuditLogger, contactsConfigOptions, contactsLogger);
+
+            return new GoogleServicesProvider(
+                gmailProvider, contactsProvider, googleOAuthService,
+                secureStorageManager, unifiedLogger);
+        });
+
+        // Forward interface registrations to shared unified instance
+        services.AddSingleton<IEmailProvider>(provider =>
+            provider.GetRequiredService<GoogleServicesProvider>());
+        services.AddSingleton<IContactsProvider>(provider =>
+            provider.GetRequiredService<GoogleServicesProvider>());
+
+        // LLM provider registration
+        services.AddSingleton<ILLMProvider, OpenAIProvider>();
 
         return services;
     }
@@ -93,15 +182,27 @@ public static class ServiceCollectionExtensions
     /// </summary>
     private static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        services.AddSingleton<IStartupOrchestrator, StartupOrchestrator>();
+        // Register StartupOrchestrator with explicit provider injection
+        services.AddSingleton<IStartupOrchestrator>(provider =>
+            new StartupOrchestrator(
+                provider.GetRequiredService<ILogger<StartupOrchestrator>>(),
+                provider.GetRequiredService<IStorageProvider>(),
+                provider.GetRequiredService<ISecureStorageManager>(),
+                provider.GetRequiredService<IProviderStatusService>(),
+                provider.GetRequiredService<IProviderBridgeService>(),
+                provider,
+                provider.GetRequiredService<IEmailProvider>(), // Explicit injection of Gmail provider
+                provider.GetRequiredService<ILLMProvider>(), // Explicit injection of OpenAI provider
+                provider.GetRequiredService<IContactsProvider>() // Explicit injection of Contacts provider
+            ));
         services.AddSingleton<IProviderStatusService, ProviderStatusService>();
         services.AddSingleton<IApplicationService, ApplicationService>();
 
+        // Add dialog service for proper MVVM dialog management
+        services.AddSingleton<IDialogService, DialogService>();
+
         // Add provider bridge service for connecting legacy providers to new architecture
         services.AddSingleton<IProviderBridgeService, ProviderBridgeService>();
-
-        // Add Gmail OAuth authentication service
-        services.AddSingleton<IGmailOAuthService, GmailOAuthService>();
 
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
@@ -127,14 +228,15 @@ public static class ServiceCollectionExtensions
 
         // Add setup dialog ViewModels
         services.AddTransient<OpenAISetupViewModel>();
-        services.AddTransient<GmailSetupViewModel>();
+        services.AddTransient<GoogleOAuthSetupViewModel>();
 
         // Register MainWindowViewModel with navigation dependencies
         services.AddTransient<MainWindowViewModel>(provider => new MainWindowViewModel(
             provider.GetRequiredService<ProviderStatusDashboardViewModel>(),
             provider.GetRequiredService<EmailDashboardViewModel>(),
             provider,
-            provider.GetRequiredService<IGmailOAuthService>(),
+            provider.GetRequiredService<IGoogleOAuthService>(),
+            provider.GetRequiredService<IDialogService>(),
             provider.GetRequiredService<ILogger<MainWindowViewModel>>()
         ));
 

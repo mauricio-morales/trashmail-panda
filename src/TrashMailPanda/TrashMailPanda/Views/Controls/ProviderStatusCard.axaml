@@ -62,13 +62,19 @@
                                Width="20" Height="20"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                IsVisible="{Binding ProviderName, Converter={StaticResource StringEqualsConverter}, ConverterParameter=Gmail}"/>
-                        
+
+                        <!-- Google Services Logo (unified Gmail + Contacts) -->
+                        <Image Source="/Assets/Logos/google-services-logo.png"
+                               Width="20" Height="20"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               IsVisible="{Binding ProviderName, Converter={StaticResource StringEqualsConverter}, ConverterParameter=GoogleServices}"/>
+
                         <!-- OpenAI Logo -->
                         <Image Source="/Assets/Logos/openai-logo.png"
                                Width="20" Height="20"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                IsVisible="{Binding ProviderName, Converter={StaticResource StringEqualsConverter}, ConverterParameter=OpenAI}"/>
-                        
+
                         <!-- SQLite Logo -->
                         <Image Source="/Assets/Logos/sqlite-logo.png"
                                Width="20" Height="20"
@@ -148,12 +154,55 @@
                                       FontWeight="Medium"
                                       Foreground="{DynamicResource StatusSuccessText}"/>
                         </StackPanel>
-                        
+
                         <TextBlock Text="{Binding AuthenticatedUserEmail}"
                                   FontSize="13"
                                   FontWeight="SemiBold"
                                   Foreground="{DynamicResource StatusSuccessTextStrong}"
                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Google Services Sub-Service Status (when GoogleServices provider) -->
+                <Border IsVisible="{Binding ProviderName, Converter={StaticResource StringEqualsConverter}, ConverterParameter=GoogleServices}"
+                        Classes="InfoCard"
+                        Padding="10"
+                        CornerRadius="4">
+                    <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="🔗" FontSize="12" Foreground="{DynamicResource AccentBlue}"/>
+                            <TextBlock Text="Unified Google Services"
+                                      FontSize="12"
+                                      FontWeight="Medium"
+                                      Foreground="{DynamicResource TextPrimary}"/>
+                        </StackPanel>
+
+                        <!-- Sub-service indicators -->
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto" Margin="4,0">
+                            <!-- Gmail sub-service -->
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="📧" FontSize="10"/>
+                                <TextBlock Text="Gmail" FontSize="11" Foreground="{DynamicResource TextPrimary}"/>
+                                <TextBlock Text="✅" FontSize="10"
+                                          IsVisible="{Binding IsHealthy}"
+                                          Foreground="{DynamicResource StatusSuccessText}"/>
+                                <TextBlock Text="⚠️" FontSize="10"
+                                          IsVisible="{Binding !IsHealthy}"
+                                          Foreground="{DynamicResource StatusWarningText}"/>
+                            </StackPanel>
+
+                            <!-- Contacts sub-service -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="👥" FontSize="10"/>
+                                <TextBlock Text="Contacts" FontSize="11" Foreground="{DynamicResource TextPrimary}"/>
+                                <TextBlock Text="✅" FontSize="10"
+                                          IsVisible="{Binding IsHealthy}"
+                                          Foreground="{DynamicResource StatusSuccessText}"/>
+                                <TextBlock Text="⚠️" FontSize="10"
+                                          IsVisible="{Binding !IsHealthy}"
+                                          Foreground="{DynamicResource StatusWarningText}"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
 

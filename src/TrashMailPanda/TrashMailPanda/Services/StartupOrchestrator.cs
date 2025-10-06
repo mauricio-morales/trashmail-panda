@@ -4,9 +4,17 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Shared.Security;
+using TrashMailPanda.Providers.Email;
+using TrashMailPanda.Providers.Contacts;
+using TrashMailPanda.Providers.Contacts.Models;
+using TrashMailPanda.Providers.GoogleServices;
 
 namespace TrashMailPanda.Services;
 
@@ -20,8 +28,10 @@ public class StartupOrchestrator : IStartupOrchestrator
     private readonly ISecureStorageManager _secureStorageManager;
     private readonly IEmailProvider? _emailProvider;
     private readonly ILLMProvider? _llmProvider;
+    private readonly IContactsProvider? _contactsProvider;
     private readonly IProviderStatusService _providerStatusService;
     private readonly IProviderBridgeService _providerBridgeService;
+    private readonly IServiceProvider _serviceProvider;
 
     private StartupProgress _currentProgress = new() { CurrentStep = StartupStep.Initializing };
     private readonly object _progressLock = new();
@@ -37,16 +47,20 @@ public class StartupOrchestrator : IStartupOrchestrator
         ISecureStorageManager secureStorageManager,
         IProviderStatusService providerStatusService,
         IProviderBridgeService providerBridgeService,
+        IServiceProvider serviceProvider,
         IEmailProvider? emailProvider = null,
-        ILLMProvider? llmProvider = null)
+        ILLMProvider? llmProvider = null,
+        IContactsProvider? contactsProvider = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
         _secureStorageManager = secureStorageManager ?? throw new ArgumentNullException(nameof(secureStorageManager));
         _emailProvider = emailProvider; // Can be null - will be created after secrets are available
         _llmProvider = llmProvider; // Can be null - will be created after secrets are available
+        _contactsProvider = contactsProvider; // Can be null - will be created after secrets are available
         _providerStatusService = providerStatusService ?? throw new ArgumentNullException(nameof(providerStatusService));
         _providerBridgeService = providerBridgeService ?? throw new ArgumentNullException(nameof(providerBridgeService));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
     }
 
     public async Task<StartupResult> ExecuteStartupAsync(CancellationToken cancellationToken = default)
@@ -104,6 +118,88 @@ public class StartupOrchestrator : IStartupOrchestrator
         }
     }
 
+    /// <summary>
+    /// Re-initializes the Gmail provider with stored OAuth credentials
+    /// Used after successful OAuth authentication to pick up new tokens
+    /// </summary>
+    public async Task<Result<bool>> ReinitializeGmailProviderAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Re-initializing Gmail provider with stored credentials");
+            await InitializeEmailProviderAsync(cancellationToken);
+            _logger.LogInformation("Gmail provider re-initialization completed successfully");
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to re-initialize Gmail provider");
+            return Result<bool>.Failure(new InitializationError($"Gmail re-initialization failed: {ex.Message}", ex.ToString(), ex));
+        }
+    }
+
+    /// <summary>
+    /// Re-initializes the Contacts provider with stored OAuth credentials
+    /// Used after successful OAuth authentication to pick up new tokens
+    /// </summary>
+    public async Task<Result<bool>> ReinitializeContactsProviderAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Re-initializing Contacts provider with stored credentials");
+            await InitializeContactsProviderAsync(cancellationToken);
+            _logger.LogInformation("Contacts provider re-initialization completed successfully");
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to re-initialize Contacts provider");
+            return Result<bool>.Failure(new InitializationError($"Contacts re-initialization failed: {ex.Message}", ex.ToString(), ex));
+        }
+    }
+
+    /// <summary>
+    /// Re-initializes the unified Google Services provider with stored OAuth credentials
+    /// Used after successful OAuth authentication to pick up new tokens for both Gmail and Contacts
+    /// </summary>
+    public async Task<Result<bool>> ReinitializeGoogleServicesProviderAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Re-initializing unified Google Services provider with stored credentials");
+
+            // Attempt token migration first
+            var migrationService = _serviceProvider.GetService<IGoogleTokenMigrationService>();
+            if (migrationService != null)
+            {
+                var migrationNeededResult = await migrationService.IsMigrationNeededAsync(cancellationToken);
+                if (migrationNeededResult.IsSuccess && migrationNeededResult.Value)
+                {
+                    _logger.LogInformation("Token migration needed, performing migration from gmail_ to google_ prefix");
+                    var migrationResult = await migrationService.MigrateTokensAsync(preserveLegacyTokens: false, cancellationToken);
+                    if (migrationResult.IsSuccess)
+                    {
+                        _logger.LogInformation("Token migration completed successfully: {TokensMigrated} migrated, {TokensSkipped} skipped",
+                            migrationResult.Value.TokensMigrated, migrationResult.Value.TokensSkipped);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Token migration failed: {Error}", migrationResult.Error?.Message);
+                    }
+                }
+            }
+
+            await InitializeGoogleServicesProviderAsync(cancellationToken);
+            _logger.LogInformation("Google Services provider re-initialization completed successfully");
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to re-initialize Google Services provider");
+            return Result<bool>.Failure(new InitializationError($"Google Services re-initialization failed: {ex.Message}", ex.ToString(), ex));
+        }
+    }
+
     private async Task ExecuteStartupSequenceAsync(CancellationToken cancellationToken)
     {
         // Check cancellation before starting
@@ -119,9 +215,9 @@ public class StartupOrchestrator : IStartupOrchestrator
         await InitializeSecurityAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Step 3: Initialize Email Provider
-        UpdateProgress(StartupStep.InitializingEmailProvider, "Initializing email provider", 3);
-        await InitializeEmailProviderAsync(cancellationToken);
+        // Step 3: Initialize Google Services Provider (unified Gmail and Contacts)
+        UpdateProgress(StartupStep.InitializingGoogleServices, "Initializing Google Services provider", 3);
+        await InitializeGoogleServicesProviderAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
         // Step 4: Initialize LLM Provider
@@ -180,33 +276,184 @@ public class StartupOrchestrator : IStartupOrchestrator
     {
         try
         {
-            _logger.LogDebug("Initializing email provider");
+            _logger.LogInformation("[GMAIL INIT] Starting Gmail provider initialization");
 
-            // Check email provider status through bridge service
-            var emailStatusResult = await _providerBridgeService.GetEmailProviderStatusAsync();
-
-            if (emailStatusResult.IsSuccess)
+            if (_emailProvider != null)
             {
-                var status = emailStatusResult.Value!;
-                _logger.LogDebug("Email provider status: {Status} (Healthy: {IsHealthy})",
-                    status.Status, status.IsHealthy);
+                _logger.LogInformation("[GMAIL INIT] Gmail provider instance found, attempting to initialize with stored credentials");
 
-                // Email provider initialization is considered successful if status can be retrieved
-                // The actual health status will be handled by the provider status service
-                _logger.LogDebug("Email provider initialized successfully");
+                // Cast to IProvider to access the proper initialization method
+                if (_emailProvider is IProvider<GmailProviderConfig> gmailProvider)
+                {
+                    _logger.LogInformation("[GMAIL INIT] Gmail provider cast successful, creating configuration");
+
+                    // Get Gmail configuration from DI - this loads from appsettings.json
+                    var configOptions = _serviceProvider.GetRequiredService<IOptions<GmailProviderConfig>>();
+                    var config = configOptions.Value;
+
+                    _logger.LogInformation("[GMAIL INIT] DEBUG - Config timeout values: RequestTimeout={RequestTimeout}s, TimeoutSeconds={TimeoutSeconds}s",
+                        config.RequestTimeout.TotalSeconds, config.TimeoutSeconds);
+
+                    // TEMPORARY FIX: Manually set TimeoutSeconds to be larger than RequestTimeout to pass validation
+                    config.TimeoutSeconds = 180;  // Set to match appsettings.json value
+                    _logger.LogInformation("[GMAIL INIT] DEBUG - Fixed timeout values: RequestTimeout={RequestTimeout}s, TimeoutSeconds={TimeoutSeconds}s",
+                        config.RequestTimeout.TotalSeconds, config.TimeoutSeconds);
+
+                    // Load Google OAuth client credentials from secure storage
+                    _logger.LogInformation("[GMAIL INIT] Loading Google OAuth client credentials from storage");
+                    var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+                    var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+                    _logger.LogInformation("[GMAIL INIT] Client ID result: {ClientIdSuccess}, Client Secret result: {ClientSecretSuccess}",
+                        clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+
+                    if (clientIdResult.IsSuccess && clientSecretResult.IsSuccess)
+                    {
+                        config.ClientId = clientIdResult.Value;
+                        config.ClientSecret = clientSecretResult.Value;
+
+                        _logger.LogInformation("[GMAIL INIT] Config loaded with OAuth credentials (ID length: {IdLength}), calling InitializeAsync",
+                            config.ClientId?.Length ?? 0);
+
+                        // Actually initialize the provider with stored OAuth tokens
+                        var initResult = await gmailProvider.InitializeAsync(config, cancellationToken);
+
+                        _logger.LogInformation("[GMAIL INIT] InitializeAsync completed - Success: {Success}, Error: {Error}",
+                            initResult.IsSuccess,
+                            initResult.IsFailure ? initResult.Error?.Message : "None");
+
+                        if (initResult.IsSuccess)
+                        {
+                            _logger.LogInformation("[GMAIL INIT] ✅ Gmail provider initialized successfully with stored credentials");
+
+                            // Check provider health immediately after initialization
+                            var healthResult = await gmailProvider.HealthCheckAsync(cancellationToken);
+                            _logger.LogInformation("[GMAIL INIT] Health check after init - Healthy: {IsHealthy}, Status: {Status}",
+                                healthResult.IsSuccess && healthResult.Value.IsHealthy,
+                                healthResult.IsSuccess ? healthResult.Value.Status : "Failed");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[GMAIL INIT] ❌ Gmail provider initialization failed: {Error}", initResult.Error?.Message);
+                            _logger.LogWarning("[GMAIL INIT] Error details: {ErrorDetails}", initResult.Error?.ToString());
+                            // Don't throw - this means provider needs authentication but that's handled by UI
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[GMAIL INIT] ❌ Gmail OAuth client credentials not available - provider needs setup");
+                        _logger.LogWarning("[GMAIL INIT] Client ID error: {ClientIdError}, Client Secret error: {ClientSecretError}",
+                            clientIdResult.ErrorMessage, clientSecretResult.ErrorMessage);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("[GMAIL INIT] ❌ Email provider is not a Gmail provider - cannot initialize");
+                    _logger.LogWarning("[GMAIL INIT] Provider type: {ProviderType}", _emailProvider.GetType().FullName);
+                }
             }
             else
             {
-                _logger.LogWarning("Email provider status check failed: {Error}", emailStatusResult.Error?.Message);
-                // Don't throw - let the provider status service handle unhealthy providers
-                _logger.LogDebug("Email provider initialization completed with warnings");
+                _logger.LogWarning("[GMAIL INIT] ❌ No email provider instance registered - skipping initialization");
             }
+
+            _logger.LogInformation("[GMAIL INIT] Gmail provider initialization process completed");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to initialize email provider");
+            _logger.LogError(ex, "[GMAIL INIT] ❌ Exception during Gmail provider initialization");
             UpdateProgressWithError(StartupStep.InitializingEmailProvider, "Email provider initialization failed", ex.Message);
             throw new InvalidOperationException("Email provider initialization failed", ex);
+        }
+    }
+
+    private async Task InitializeContactsProviderAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("[CONTACTS INIT] Starting contacts provider initialization");
+
+            if (_contactsProvider != null)
+            {
+                _logger.LogInformation("[CONTACTS INIT] Contacts provider instance found, attempting to initialize with stored credentials");
+
+                // Cast to IProvider to access the proper initialization method
+                if (_contactsProvider is IProvider<ContactsProviderConfig> contactsProviderTyped)
+                {
+                    _logger.LogInformation("[CONTACTS INIT] Contacts provider cast successful, creating configuration");
+
+                    // Get Contacts configuration from DI - this loads from appsettings.json
+                    var configOptions = _serviceProvider.GetRequiredService<IOptions<ContactsProviderConfig>>();
+                    var config = configOptions.Value;
+
+                    // TEMPORARY FIX: Manually set TimeoutSeconds to pass validation
+                    config.TimeoutSeconds = 120;  // Set to match appsettings.json value
+
+                    // Load Google OAuth client credentials from secure storage
+                    _logger.LogInformation("[CONTACTS INIT] Loading Google OAuth client credentials from storage");
+                    var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+                    var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+                    _logger.LogInformation("[CONTACTS INIT] Client ID result: {ClientIdSuccess}, Client Secret result: {ClientSecretSuccess}",
+                        clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+
+                    if (clientIdResult.IsSuccess && clientSecretResult.IsSuccess)
+                    {
+                        config.ClientId = clientIdResult.Value;
+                        config.ClientSecret = clientSecretResult.Value;
+
+                        _logger.LogInformation("[CONTACTS INIT] Config loaded with OAuth credentials (ID length: {IdLength}), calling InitializeAsync",
+                            config.ClientId?.Length ?? 0);
+
+                        // Actually initialize the provider with stored OAuth tokens
+                        var initResult = await contactsProviderTyped.InitializeAsync(config, cancellationToken);
+
+                        _logger.LogInformation("[CONTACTS INIT] InitializeAsync completed - Success: {Success}, Error: {Error}",
+                            initResult.IsSuccess,
+                            initResult.IsFailure ? initResult.Error?.Message : "None");
+
+                        if (initResult.IsSuccess)
+                        {
+                            _logger.LogInformation("[CONTACTS INIT] ✅ Contacts provider initialized successfully with stored credentials");
+
+                            // Check provider health immediately after initialization
+                            var healthResult = await contactsProviderTyped.HealthCheckAsync(cancellationToken);
+                            _logger.LogInformation("[CONTACTS INIT] Health check after init - Healthy: {IsHealthy}, Status: {Status}",
+                                healthResult.IsSuccess && healthResult.Value.IsHealthy,
+                                healthResult.IsSuccess ? healthResult.Value.Status : "Failed");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[CONTACTS INIT] ❌ Contacts provider initialization failed: {Error}", initResult.Error?.Message);
+                            _logger.LogWarning("[CONTACTS INIT] Error details: {ErrorDetails}", initResult.Error?.ToString());
+                            // Don't throw - this means provider needs authentication but that's handled by UI
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[CONTACTS INIT] ❌ Contacts OAuth client credentials not available - provider needs setup");
+                        _logger.LogWarning("[CONTACTS INIT] Client ID error: {ClientIdError}, Client Secret error: {ClientSecretError}",
+                            clientIdResult.ErrorMessage, clientSecretResult.ErrorMessage);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("[CONTACTS INIT] ❌ Contacts provider is not a typed provider - cannot initialize");
+                    _logger.LogWarning("[CONTACTS INIT] Provider type: {ProviderType}", _contactsProvider.GetType().FullName);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("[CONTACTS INIT] ❌ No contacts provider instance registered - skipping initialization");
+            }
+
+            _logger.LogInformation("[CONTACTS INIT] Contacts provider initialization process completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CONTACTS INIT] ❌ Exception during contacts provider initialization");
+            UpdateProgressWithError(StartupStep.InitializingContactsProvider, "Contacts provider initialization failed", ex.Message);
+            throw new InvalidOperationException("Contacts provider initialization failed", ex);
         }
     }
 
@@ -241,6 +488,96 @@ public class StartupOrchestrator : IStartupOrchestrator
             _logger.LogError(ex, "Failed to initialize LLM provider");
             UpdateProgressWithError(StartupStep.InitializingLLMProvider, "LLM provider initialization failed", ex.Message);
             throw new InvalidOperationException("LLM provider initialization failed", ex);
+        }
+    }
+
+    private async Task InitializeGoogleServicesProviderAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("[GOOGLE SERVICES INIT] Starting unified Google Services provider initialization");
+
+            // Get the unified GoogleServicesProvider from DI
+            var googleServicesProvider = _serviceProvider.GetService<GoogleServicesProvider>();
+
+            if (googleServicesProvider != null)
+            {
+                _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider instance found, attempting to initialize with stored credentials");
+
+                // Cast to IProvider to access the proper initialization method
+                if (googleServicesProvider is IProvider<GoogleServicesProviderConfig> unifiedProvider)
+                {
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider cast successful, creating configuration");
+
+                    // Get GoogleServices configuration from DI - this loads from appsettings.json
+                    var configOptions = _serviceProvider.GetRequiredService<IOptions<GoogleServicesProviderConfig>>();
+                    var config = configOptions.Value;
+
+                    // Load Google OAuth client credentials from secure storage
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Loading Google OAuth client credentials from storage");
+                    var clientIdResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientId);
+                    var clientSecretResult = await _secureStorageManager.RetrieveCredentialAsync(ProviderCredentialTypes.GoogleClientSecret);
+
+                    _logger.LogInformation("[GOOGLE SERVICES INIT] Client ID result: {ClientIdSuccess}, Client Secret result: {ClientSecretSuccess}",
+                        clientIdResult.IsSuccess, clientSecretResult.IsSuccess);
+
+                    if (clientIdResult.IsSuccess && clientSecretResult.IsSuccess)
+                    {
+                        config.ClientId = clientIdResult.Value;
+                        config.ClientSecret = clientSecretResult.Value;
+
+                        _logger.LogInformation("[GOOGLE SERVICES INIT] Config loaded with OAuth credentials (ID length: {IdLength}), calling InitializeAsync",
+                            config.ClientId?.Length ?? 0);
+
+                        // Actually initialize the unified provider with stored OAuth tokens
+                        var initResult = await unifiedProvider.InitializeAsync(config, cancellationToken);
+
+                        _logger.LogInformation("[GOOGLE SERVICES INIT] InitializeAsync completed - Success: {Success}, Error: {Error}",
+                            initResult.IsSuccess,
+                            initResult.IsFailure ? initResult.Error?.Message : "None");
+
+                        if (initResult.IsSuccess)
+                        {
+                            _logger.LogInformation("[GOOGLE SERVICES INIT] ✅ Google Services provider initialized successfully with stored credentials");
+
+                            // Check provider health immediately after initialization
+                            var healthResult = await unifiedProvider.HealthCheckAsync(cancellationToken);
+                            _logger.LogInformation("[GOOGLE SERVICES INIT] Health check after init - Healthy: {IsHealthy}, Status: {Status}",
+                                healthResult.IsSuccess && healthResult.Value.Status == HealthStatus.Healthy,
+                                healthResult.IsSuccess ? healthResult.Value.Status : "Failed");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ Google Services provider initialization failed: {Error}", initResult.Error?.Message);
+                            _logger.LogWarning("[GOOGLE SERVICES INIT] Error details: {ErrorDetails}", initResult.Error?.ToString());
+                            // Don't throw - this means provider needs authentication but that's handled by UI
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ Google OAuth client credentials not available - provider needs setup");
+                        _logger.LogWarning("[GOOGLE SERVICES INIT] Client ID error: {ClientIdError}, Client Secret error: {ClientSecretError}",
+                            clientIdResult.ErrorMessage, clientSecretResult.ErrorMessage);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ Google Services provider is not a typed provider - cannot initialize");
+                    _logger.LogWarning("[GOOGLE SERVICES INIT] Provider type: {ProviderType}", googleServicesProvider.GetType().FullName);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("[GOOGLE SERVICES INIT] ❌ No unified Google Services provider instance registered - startup configuration issue");
+            }
+
+            _logger.LogInformation("[GOOGLE SERVICES INIT] Google Services provider initialization process completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[GOOGLE SERVICES INIT] ❌ Exception during Google Services provider initialization");
+            UpdateProgressWithError(StartupStep.InitializingGoogleServices, "Google Services provider initialization failed", ex.Message);
+            throw new InvalidOperationException("Google Services provider initialization failed", ex);
         }
     }
 

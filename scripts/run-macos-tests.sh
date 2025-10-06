@@ -41,6 +41,7 @@ echo "Testing Keychain Services integration..."
 # Run macOS-specific tests
 if dotnet test --configuration Release \
     --filter "Category=Integration&Platform=macOS" \
+    --blame-hang --blame-hang-timeout 30s \
     --verbosity normal \
     --logger "console;verbosity=detailed" \
     --collect:"XPlat Code Coverage" \
@@ -63,5 +64,21 @@ if dotnet test --configuration Release \
     exit 0
 else
     echo -e "${RED}❌ macOS platform tests failed${NC}"
+
+    # Check for hang dumps
+    echo -e "${YELLOW}🔍 Checking for hang dumps...${NC}"
+    if find TestResults/macOS -name "Sequence_*.xml" -o -name "*hangdump*" 2>/dev/null | grep -q .; then
+        echo -e "${BLUE}📋 Hang dump files found:${NC}"
+        find TestResults/macOS -name "Sequence_*.xml" -o -name "*hangdump*" 2>/dev/null | while read -r dumpfile; do
+            echo -e "${BLUE}  📄 ${dumpfile}${NC}"
+            if [[ "$dumpfile" == *.xml ]]; then
+                echo -e "${YELLOW}  Content preview:${NC}"
+                head -50 "$dumpfile" | grep -E "(TestName|MethodName|ClassName|StackTrace)" || cat "$dumpfile" | head -50
+            fi
+        done
+    else
+        echo -e "${YELLOW}No hang dumps found. Test may have failed for other reasons.${NC}"
+    fi
+
     exit 1
 fi

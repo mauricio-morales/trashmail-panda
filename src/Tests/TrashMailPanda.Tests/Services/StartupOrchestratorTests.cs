@@ -17,6 +17,7 @@ public class StartupOrchestratorTests
     private readonly Mock<ILLMProvider> _mockLlmProvider;
     private readonly Mock<IProviderStatusService> _mockProviderStatusService;
     private readonly Mock<IProviderBridgeService> _mockProviderBridgeService;
+    private readonly Mock<IServiceProvider> _mockServiceProvider;
 
     public StartupOrchestratorTests()
     {
@@ -27,6 +28,7 @@ public class StartupOrchestratorTests
         _mockLlmProvider = new Mock<ILLMProvider>();
         _mockProviderStatusService = new Mock<IProviderStatusService>();
         _mockProviderBridgeService = new Mock<IProviderBridgeService>();
+        _mockServiceProvider = new Mock<IServiceProvider>();
     }
 
     private StartupOrchestrator CreateOrchestrator()
@@ -37,6 +39,7 @@ public class StartupOrchestratorTests
             _mockSecureStorageManager.Object,
             _mockProviderStatusService.Object,
             _mockProviderBridgeService.Object,
+            _mockServiceProvider.Object,
             _mockEmailProvider.Object,
             _mockLlmProvider.Object);
     }
@@ -95,6 +98,7 @@ public class StartupOrchestratorTests
                 _mockSecureStorageManager.Object,
                 _mockProviderStatusService.Object,
                 _mockProviderBridgeService.Object,
+                _mockServiceProvider.Object,
                 _mockEmailProvider.Object,
                 _mockLlmProvider.Object));
     }
@@ -110,6 +114,7 @@ public class StartupOrchestratorTests
                 _mockSecureStorageManager.Object,
                 _mockProviderStatusService.Object,
                 _mockProviderBridgeService.Object,
+                _mockServiceProvider.Object,
                 _mockEmailProvider.Object,
                 _mockLlmProvider.Object));
     }

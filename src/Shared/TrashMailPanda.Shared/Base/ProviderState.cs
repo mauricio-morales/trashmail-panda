@@ -206,7 +206,7 @@ public static class ProviderStateTransitions
         [ProviderState.Uninitialized] = new() { ProviderState.Initializing, ProviderState.Shutdown },
         [ProviderState.Initializing] = new() { ProviderState.Ready, ProviderState.Error, ProviderState.Shutdown },
         [ProviderState.Ready] = new() { ProviderState.Busy, ProviderState.Error, ProviderState.ShuttingDown, ProviderState.Suspended },
-        [ProviderState.Busy] = new() { ProviderState.Ready, ProviderState.Error, ProviderState.ShuttingDown, ProviderState.Suspended },
+        [ProviderState.Busy] = new() { ProviderState.Busy, ProviderState.Ready, ProviderState.Error, ProviderState.ShuttingDown, ProviderState.Suspended },
         [ProviderState.Error] = new() { ProviderState.Initializing, ProviderState.Shutdown },
         [ProviderState.ShuttingDown] = new() { ProviderState.Shutdown },
         [ProviderState.Shutdown] = new() { ProviderState.Initializing },

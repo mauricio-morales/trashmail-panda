@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Providers.Storage;
 
@@ -622,7 +623,56 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
                 encrypted_value TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 expires_at TEXT
-            )"
+            )",
+
+            // Contacts cache tables
+            @"CREATE TABLE IF NOT EXISTS contacts (
+                contact_id TEXT PRIMARY KEY,
+                primary_email TEXT NOT NULL,
+                display_name TEXT,
+                given_name TEXT,
+                family_name TEXT,
+                organization_name TEXT,
+                organization_title TEXT,
+                relationship_strength REAL NOT NULL DEFAULT 0.0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+
+            @"CREATE INDEX IF NOT EXISTS idx_contacts_primary_email ON contacts(primary_email)",
+            @"CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)",
+
+            @"CREATE TABLE IF NOT EXISTS contact_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contact_id TEXT NOT NULL,
+                email TEXT NOT NULL,
+                is_primary INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (contact_id) REFERENCES contacts (contact_id) ON DELETE CASCADE
+            )",
+
+            @"CREATE INDEX IF NOT EXISTS idx_contact_emails_email ON contact_emails(email)",
+            @"CREATE INDEX IF NOT EXISTS idx_contact_emails_contact_id ON contact_emails(contact_id)",
+            @"CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_emails_unique ON contact_emails(contact_id, email)",
+
+            @"CREATE TABLE IF NOT EXISTS trust_signals (
+                contact_id TEXT PRIMARY KEY,
+                strength TEXT NOT NULL,
+                score REAL NOT NULL,
+                last_interaction_date TEXT,
+                justification TEXT NOT NULL DEFAULT '[]',
+                computed_at TEXT NOT NULL,
+                interaction_count INTEGER NOT NULL DEFAULT 0,
+                email_address TEXT,
+                source_type TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (contact_id) REFERENCES contacts (contact_id) ON DELETE CASCADE
+            )",
+
+            @"CREATE INDEX IF NOT EXISTS idx_trust_signals_score ON trust_signals(score)",
+            @"CREATE INDEX IF NOT EXISTS idx_trust_signals_strength ON trust_signals(strength)",
+            @"CREATE INDEX IF NOT EXISTS idx_trust_signals_computed_at ON trust_signals(computed_at)"
         };
 
         foreach (var sql in schemaCommands)
@@ -664,6 +714,314 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     private void ReleaseConnection()
     {
         _connectionLock.Release();
+    }
+
+    // Contacts cache implementation
+    public async Task<BasicContactInfo?> GetContactAsync(string contactId)
+    {
+        if (string.IsNullOrWhiteSpace(contactId))
+            return null;
+
+        const string sql = @"
+            SELECT contact_id, primary_email, display_name, given_name, family_name, 
+                   organization_name, organization_title, relationship_strength
+            FROM contacts 
+            WHERE contact_id = @contactId";
+
+        var command = await CreateCommandAsync();
+        try
+        {
+            command.CommandText = sql;
+            command.Parameters.AddWithValue("@contactId", contactId);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return null;
+
+            // Get all emails for this contact
+            var emails = await GetContactEmailsAsync(contactId);
+
+            // Get trust score for this contact
+            var trustSignal = await GetTrustSignalAsync(contactId);
+
+            return new BasicContactInfo
+            {
+                Id = reader.GetString(0),
+                PrimaryEmail = reader.GetString(1),
+                AllEmails = emails,
+                DisplayName = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+                GivenName = reader.IsDBNull(3) ? null : reader.GetString(3),
+                FamilyName = reader.IsDBNull(4) ? null : reader.GetString(4),
+                OrganizationName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                OrganizationTitle = reader.IsDBNull(6) ? null : reader.GetString(6),
+                Strength = trustSignal?.Strength ?? RelationshipStrength.None,
+                TrustScore = trustSignal?.Score ?? 0.0
+            };
+        }
+        finally
+        {
+            command.Dispose();
+            ReleaseConnection();
+        }
+    }
+
+    public async Task SetContactAsync(BasicContactInfo contact)
+    {
+        if (contact == null) return;
+
+        using var transaction = _connection!.BeginTransaction();
+        try
+        {
+            // Insert or update contact
+            const string contactSql = @"
+                INSERT OR REPLACE INTO contacts 
+                (contact_id, primary_email, display_name, given_name, family_name, 
+                 organization_name, organization_title, relationship_strength, 
+                 created_at, updated_at)
+                VALUES (@contactId, @primaryEmail, @displayName, @givenName, @familyName,
+                        @organizationName, @organizationTitle, @relationshipStrength, @now, @now)";
+
+            using (var command = _connection.CreateCommand())
+            {
+                var now = DateTime.UtcNow.ToString("O");
+                command.CommandText = contactSql;
+                command.Parameters.AddWithValue("@contactId", contact.Id);
+                command.Parameters.AddWithValue("@primaryEmail", contact.PrimaryEmail);
+                command.Parameters.AddWithValue("@displayName", contact.DisplayName ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("@givenName", contact.GivenName ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("@familyName", contact.FamilyName ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("@organizationName", contact.OrganizationName ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("@organizationTitle", contact.OrganizationTitle ?? (object)DBNull.Value);
+                command.Parameters.AddWithValue("@relationshipStrength", (double)contact.Strength);
+                command.Parameters.AddWithValue("@now", now);
+
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Delete existing emails for this contact
+            using (var deleteCommand = _connection.CreateCommand())
+            {
+                deleteCommand.CommandText = "DELETE FROM contact_emails WHERE contact_id = @contactId";
+                deleteCommand.Parameters.AddWithValue("@contactId", contact.Id);
+                await deleteCommand.ExecuteNonQueryAsync();
+            }
+
+            // Insert contact emails
+            const string emailSql = @"
+                INSERT INTO contact_emails (contact_id, email, is_primary, created_at)
+                VALUES (@contactId, @email, @isPrimary, @now)";
+
+            foreach (var email in contact.AllEmails)
+            {
+                using var command = _connection.CreateCommand();
+                var now = DateTime.UtcNow.ToString("O");
+                command.CommandText = emailSql;
+                command.Parameters.AddWithValue("@contactId", contact.Id);
+                command.Parameters.AddWithValue("@email", email.ToLowerInvariant());
+                command.Parameters.AddWithValue("@isPrimary", email.Equals(contact.PrimaryEmail, StringComparison.OrdinalIgnoreCase) ? 1 : 0);
+                command.Parameters.AddWithValue("@now", now);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task<string?> GetContactIdByEmailAsync(string normalizedEmail)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedEmail))
+            return null;
+
+        const string sql = "SELECT contact_id FROM contact_emails WHERE email = @email LIMIT 1";
+
+        var command = await CreateCommandAsync();
+        try
+        {
+            command.CommandText = sql;
+            command.Parameters.AddWithValue("@email", normalizedEmail.ToLowerInvariant());
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return reader.GetString(0);
+            }
+
+            return null;
+        }
+        finally
+        {
+            command.Dispose();
+            ReleaseConnection();
+        }
+    }
+
+    public async Task<TrustSignalInfo?> GetTrustSignalAsync(string contactId)
+    {
+        if (string.IsNullOrWhiteSpace(contactId))
+            return null;
+
+        const string sql = @"
+            SELECT contact_id, strength, score, last_interaction_date, justification,
+                   computed_at, interaction_count, email_address, source_type
+            FROM trust_signals 
+            WHERE contact_id = @contactId";
+
+        var command = await CreateCommandAsync();
+        try
+        {
+            command.CommandText = sql;
+            command.Parameters.AddWithValue("@contactId", contactId);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return null;
+
+            var justificationJson = reader.IsDBNull(4) ? "[]" : reader.GetString(4);
+            var justification = JsonSerializer.Deserialize<List<string>>(justificationJson) ?? new List<string>();
+
+            var lastInteractionDate = reader.IsDBNull(3) ? (DateTime?)null : DateTime.Parse(reader.GetString(3));
+
+            return new TrustSignalInfo
+            {
+                ContactId = reader.GetString(0),
+                Strength = Enum.Parse<RelationshipStrength>(reader.GetString(1)),
+                Score = reader.GetDouble(2),
+                LastInteractionDate = lastInteractionDate,
+                Justification = justification,
+                ComputedAt = DateTime.Parse(reader.GetString(5)),
+                InteractionCount = reader.GetInt32(6),
+                EmailAddress = reader.IsDBNull(7) ? string.Empty : reader.GetString(7),
+                Known = true, // If it's in the database, it's known
+                SourceType = reader.IsDBNull(8) ? null : reader.GetString(8)
+            };
+        }
+        finally
+        {
+            command.Dispose();
+            ReleaseConnection();
+        }
+    }
+
+    public async Task SetTrustSignalAsync(TrustSignalInfo trustSignal)
+    {
+        if (trustSignal == null) return;
+
+        const string sql = @"
+            INSERT OR REPLACE INTO trust_signals 
+            (contact_id, strength, score, last_interaction_date, justification,
+             computed_at, interaction_count, email_address, source_type, created_at, updated_at)
+            VALUES (@contactId, @strength, @score, @lastInteractionDate, @justification,
+                    @computedAt, @interactionCount, @emailAddress, @sourceType, @now, @now)";
+
+        var command = await CreateCommandAsync();
+        try
+        {
+            var now = DateTime.UtcNow.ToString("O");
+            command.CommandText = sql;
+            command.Parameters.AddWithValue("@contactId", trustSignal.ContactId);
+            command.Parameters.AddWithValue("@strength", trustSignal.Strength.ToString());
+            command.Parameters.AddWithValue("@score", trustSignal.Score);
+            command.Parameters.AddWithValue("@lastInteractionDate", trustSignal.LastInteractionDate?.ToString("O") ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("@justification", JsonSerializer.Serialize(trustSignal.Justification));
+            command.Parameters.AddWithValue("@computedAt", trustSignal.ComputedAt.ToString("O"));
+            command.Parameters.AddWithValue("@interactionCount", trustSignal.InteractionCount);
+            command.Parameters.AddWithValue("@emailAddress", trustSignal.EmailAddress ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("@sourceType", trustSignal.SourceType ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("@now", now);
+
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            command.Dispose();
+            ReleaseConnection();
+        }
+    }
+
+    public async Task RemoveContactAsync(string contactId)
+    {
+        if (string.IsNullOrWhiteSpace(contactId)) return;
+
+        using var transaction = _connection!.BeginTransaction();
+        try
+        {
+            // Remove trust signals
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = "DELETE FROM trust_signals WHERE contact_id = @contactId";
+                command.Parameters.AddWithValue("@contactId", contactId);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Remove emails
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = "DELETE FROM contact_emails WHERE contact_id = @contactId";
+                command.Parameters.AddWithValue("@contactId", contactId);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            // Remove contact
+            using (var command = _connection.CreateCommand())
+            {
+                command.CommandText = "DELETE FROM contacts WHERE contact_id = @contactId";
+                command.Parameters.AddWithValue("@contactId", contactId);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task ClearContactsCacheAsync()
+    {
+        using var transaction = _connection!.BeginTransaction();
+        try
+        {
+            var tables = new[] { "trust_signals", "contact_emails", "contacts" };
+
+            foreach (var table in tables)
+            {
+                using var command = _connection.CreateCommand();
+                command.CommandText = $"DELETE FROM {table}";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    private async Task<List<string>> GetContactEmailsAsync(string contactId)
+    {
+        const string sql = "SELECT email FROM contact_emails WHERE contact_id = @contactId";
+
+        using var command = _connection!.CreateCommand();
+        command.CommandText = sql;
+        command.Parameters.AddWithValue("@contactId", contactId);
+
+        var emails = new List<string>();
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            emails.Add(reader.GetString(0));
+        }
+
+        return emails;
     }
 
     public void Dispose()

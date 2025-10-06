@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using TrashMailPanda.Shared.Platform;
 using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Providers.Storage;
+using TrashMailPanda.Services;
 using Xunit;
 
 namespace TrashMailPanda.Tests.Integration;
@@ -20,14 +21,21 @@ public class SecureStorageIntegrationTests : IDisposable
     private readonly ILogger<SecureStorageManager> _secureStorageManagerLogger;
     private readonly ILogger<TokenRotationService> _tokenRotationServiceLogger;
     private readonly ILogger<MasterKeyManager> _masterKeyManagerLogger;
+    private readonly ILogger<SecurityAuditLoggerImpl> _securityAuditLogger;
+    private readonly ILogger<SecureTokenDataStore> _dataStoreLogger;
+    private readonly ILogger<GoogleOAuthService> _googleOAuthLogger;
+    private readonly ILoggerFactory _loggerFactory;
 
     public SecureStorageIntegrationTests()
     {
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        _credentialEncryptionLogger = loggerFactory.CreateLogger<CredentialEncryption>();
-        _secureStorageManagerLogger = loggerFactory.CreateLogger<SecureStorageManager>();
-        _tokenRotationServiceLogger = loggerFactory.CreateLogger<TokenRotationService>();
-        _masterKeyManagerLogger = loggerFactory.CreateLogger<MasterKeyManager>();
+        _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        _credentialEncryptionLogger = _loggerFactory.CreateLogger<CredentialEncryption>();
+        _secureStorageManagerLogger = _loggerFactory.CreateLogger<SecureStorageManager>();
+        _tokenRotationServiceLogger = _loggerFactory.CreateLogger<TokenRotationService>();
+        _masterKeyManagerLogger = _loggerFactory.CreateLogger<MasterKeyManager>();
+        _securityAuditLogger = _loggerFactory.CreateLogger<SecurityAuditLoggerImpl>();
+        _dataStoreLogger = _loggerFactory.CreateLogger<SecureTokenDataStore>();
+        _googleOAuthLogger = _loggerFactory.CreateLogger<GoogleOAuthService>();
     }
 
     [Fact(Timeout = 60000)]  // 60 second timeout for keychain operations
@@ -41,7 +49,10 @@ public class SecureStorageIntegrationTests : IDisposable
         // Initialize the storage provider first
         await storageProvider.InitAsync();
         var secureStorageManager = new SecureStorageManager(credentialEncryption, _secureStorageManagerLogger);
-        var tokenRotationService = new TokenRotationService(secureStorageManager, _tokenRotationServiceLogger);
+        var securityAuditLogger = new SecurityAuditLoggerImpl(_securityAuditLogger);
+        var dataStore = new SecureTokenDataStore(secureStorageManager, _dataStoreLogger);
+        var googleOAuthService = new GoogleOAuthService(secureStorageManager, securityAuditLogger, dataStore, _googleOAuthLogger, _loggerFactory);
+        var tokenRotationService = new TokenRotationService(secureStorageManager, googleOAuthService, _tokenRotationServiceLogger);
 
         const string testCredential = "integration-test-credential-123";
         const string testKey = "integration-test-key";
@@ -275,7 +286,10 @@ public class SecureStorageIntegrationTests : IDisposable
         // Initialize the storage provider first
         await storageProvider.InitAsync();
         var secureStorageManager = new SecureStorageManager(credentialEncryption, _secureStorageManagerLogger);
-        var tokenRotationService = new TokenRotationService(secureStorageManager, _tokenRotationServiceLogger);
+        var securityAuditLogger = new SecurityAuditLoggerImpl(_securityAuditLogger);
+        var dataStore = new SecureTokenDataStore(secureStorageManager, _dataStoreLogger);
+        var googleOAuthService = new GoogleOAuthService(secureStorageManager, securityAuditLogger, dataStore, _googleOAuthLogger, _loggerFactory);
+        var tokenRotationService = new TokenRotationService(secureStorageManager, googleOAuthService, _tokenRotationServiceLogger);
 
         await secureStorageManager.InitializeAsync();
 
