@@ -7,11 +7,21 @@
 
 Three architecture documents in `/docs/`:
 
-| Document | Purpose |
-|----------|---------|
-| `ML_ARCHITECTURE.md` | System architecture — layers, components, data flow, provider integration |
-| `FEATURE_ENGINEERING.md` | Feature extraction pipeline — what signals are extracted and how |
-| `MODEL_TRAINING_PIPELINE.md` | Training workflow — cold start, full training, incremental updates, versioning |
+| Document | Purpose | Status |
+|----------|---------|--------|
+| [`ML_ARCHITECTURE.md`](../../../docs/ML_ARCHITECTURE.md) | System architecture — layers, components, data flow, provider integration | ✅ Complete |
+| [`FEATURE_ENGINEERING.md`](../../../docs/FEATURE_ENGINEERING.md) | Feature extraction pipeline — what signals are extracted and how | ✅ Complete |
+| [`MODEL_TRAINING_PIPELINE.md`](../../../docs/MODEL_TRAINING_PIPELINE.md) | Training workflow — cold start, full training, incremental updates, versioning | ✅ Complete |
+
+## Key Takeaways
+
+1. **Archive reclamation is the primary use case** — scan mailbox folders → bootstrap from Trash/Spam/Starred signals → train model → classify archived emails → recommend bulk deletions with confidence scores
+2. **Provider-agnostic design** — canonical folder abstraction (Inbox, Archive, Trash, Spam, Flagged) maps uniformly across Gmail labels, IMAP folders, Outlook folders+categories, enabling multi-provider support
+3. **Three-phase training** — Cold Start (<100 labels, rules only) → Hybrid (100-500, ML + rules) → ML Primary (500+, ML-first)
+4. **44 feature fields** — Tier 1 structured (23), Archive-specific (9), Tier 2 text (6), Phase 2+ topic signals (6 reserved)
+5. **ML.NET native classification** — no external API calls, local processing, SQLCipher encryption for all email data
+6. **Complete model lifecycle** — versioning (`model_v{N}_{timestamp}.zip`), rollback, automatic retraining (50+ corrections, 7-day schedule), 5-version retention
+7. **Performance targets** — <10ms classification, <50ms feature extraction with text, <5min training for 100K emails
 
 ## Primary Use Case: Archive Reclamation
 
@@ -119,12 +129,19 @@ See R9 in `research.md` for full mapping table.
 
 ## Files to Reference
 
-| Artifact | Path |
-|----------|------|
-| Plan | `specs/054-ml-architecture-design/plan.md` |
-| Research | `specs/054-ml-architecture-design/research.md` |
-| Data Model | `specs/054-ml-architecture-design/data-model.md` |
-| IClassificationProvider | `specs/054-ml-architecture-design/contracts/IClassificationProvider.md` |
-| IFeatureExtractor | `specs/054-ml-architecture-design/contracts/IFeatureExtractor.md` |
-| IModelTrainer | `specs/054-ml-architecture-design/contracts/IModelTrainer.md` |
-| Parent Architecture | `docs/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md` |
+| Artifact | Path | Description |
+|----------|------|-------------|
+| **Architecture Documents** | | |
+| ML Architecture | [`docs/ML_ARCHITECTURE.md`](../../../docs/ML_ARCHITECTURE.md) | System architecture, component interactions, archive reclamation workflow, canonical folder abstraction |
+| Feature Engineering | [`docs/FEATURE_ENGINEERING.md`](../../../docs/FEATURE_ENGINEERING.md) | 44 feature fields, extraction logic, provider compatibility, schema versioning |
+| Training Pipeline | [`docs/MODEL_TRAINING_PIPELINE.md`](../../../docs/MODEL_TRAINING_PIPELINE.md) | Three-phase training, bootstrapping, retraining triggers, model versioning |
+| **Planning Artifacts** | | |
+| Plan | `specs/054-ml-architecture-design/plan.md` | Tech stack, architecture layers, file structure plan |
+| Research | `specs/054-ml-architecture-design/research.md` | R1-R10 architecture decisions, performance targets |
+| Data Model | `specs/054-ml-architecture-design/data-model.md` | Complete SQL schema for email_features, ml_models, archive_triage_results |
+| **Contracts** | | |
+| IClassificationProvider | `specs/054-ml-architecture-design/contracts/IClassificationProvider.md` | Classification provider interface, ClassifyAsync, TriageArchiveAsync |
+| IFeatureExtractor | `specs/054-ml-architecture-design/contracts/IFeatureExtractor.md` | Feature extraction service interface |
+| IModelTrainer | `specs/054-ml-architecture-design/contracts/IModelTrainer.md` | Model training lifecycle interface |
+| **Supporting Docs** | | |
+| Parent Architecture | [`docs/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md`](../../../docs/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md) | High-level shift from OpenAI to ML.NET |
