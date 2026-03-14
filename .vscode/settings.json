@@ -1,87 +1,13 @@
 {
-  // Tell the Jest extension exactly which Node to use:
-  "jest.pathToNode": "/opt/homebrew/opt/node@20/bin/node",
-
-  // Tell it how to run tests in this repo:
-  "jest.jestCommandLine": "npm test --",
-
-  // TypeScript settings
-  "typescript.preferences.includePackageJsonAutoImports": "on",
-  "typescript.suggest.autoImports": true,
-  "typescript.format.enable": true,
-  "typescript.validate.enable": true,
-
-  // ESLint settings
-  "eslint.enable": true,
-  "eslint.format.enable": true,
-  "eslint.lintTask.enable": true,
-  "eslint.workingDirectories": ["."],
-
-  // Prettier settings
-  "editor.formatOnSave": true,
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
-  "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
-  },
-
-  // File associations
-  "files.associations": {
-    "*.json": "jsonc"
-  },
-
-  // Search exclusions
-  "search.exclude": {
-    "**/node_modules": true,
-    "**/dist": true,
-    "**/dist-electron": true,
-    "**/out": true,
-    "**/coverage": true,
-    "**/.git": true
-  },
-
-  // File explorer exclusions
-  "files.exclude": {
-    "**/dist": true,
-    "**/dist-electron": true,
-    "**/out": true,
-    "**/coverage": true
-  },
-
-  // Terminal settings
-  "terminal.integrated.defaultProfile.osx": "zsh",
-
-  // Task settings
-  "task.autoDetect": "on",
-  "task.showDecorations": true,
-
-  // Git settings
-  "git.enableSmartCommit": true,
-  "git.confirmSync": false,
-
-  // Extension recommendations
-  "extensions.showRecommendationsOnlyOnDemand": false,
-
-  // Emmet settings
-  "emmet.includeLanguages": {
-    "typescript": "typescriptreact",
-    "javascript": "javascriptreact"
-  },
-
-  // Auto-save
-  "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 1000,
-
-  // Problem matcher
-  "problems.showCurrentInStatus": true,
-
-  // Notification settings
-  "notifications.showErrors": true,
-  "notifications.showWarnings": true,
-
-  // Workspace trust
-  "security.workspace.trust.untrustedFiles": "open",
-  "kiroAgent.configureMCP": "Disabled",
-  "[jsonc]": {
-    "editor.defaultFormatter": "vscode.json-language-features"
-  }
+    "chat.promptFilesRecommendations": {
+        "speckit.constitution": true,
+        "speckit.specify": true,
+        "speckit.plan": true,
+        "speckit.tasks": true,
+        "speckit.implement": true
+    },
+    "chat.tools.terminal.autoApprove": {
+        ".specify/scripts/bash/": true,
+        ".specify/scripts/powershell/": true
+    }
 }
