@@ -21,12 +21,16 @@ public interface IFeatureExtractor
 {
     /// <summary>
     /// Extract feature vector from a full email with optional signals.
+    /// Includes archive-specific features (email age, folder placement, sender frequency).
+    /// The sourceFolder parameter uses canonical folder names (inbox, archive, trash, spam, sent)
+    /// regardless of the underlying email provider.
     /// </summary>
     Result<EmailFeatureVector> Extract(
         EmailFull email,
         ContactSignal? contactSignal,
         ProviderSignals? providerSignals,
-        UserRules userRules);
+        UserRules userRules,
+        string sourceFolder = "archive");
 
     /// <summary>
     /// Extract feature vectors from a batch of emails.
@@ -48,11 +52,17 @@ public interface IFeatureExtractor
 
 | Scenario | Expected Behavior |
 |----------|-------------------|
-| Email with all fields populated | Returns complete feature vector |
+| Email with all fields populated | Returns complete feature vector including archive-specific features |
 | Email with null BodyText and BodyHtml | SubjectText/BodyTextShort set to null; numeric features still computed |
 | Email with missing headers | SenderDomain defaults to "unknown"; auth results default to "none" |
 | Email with empty subject | SubjectLength = 0, IsReply = false, SubjectText = null |
 | Batch with mixed valid/invalid emails | Returns partial success — valid vectors returned, invalid logged |
+| Email from Trash source | WasInTrash = true, IsArchived = false (strong delete training signal) |
+| Email from Spam/Junk source | WasInSpam = true, IsArchived = false (strong delete training signal) |
+| Email in Inbox folder | IsInInbox = true, IsArchived = false (strong keep training signal) |
+| Email flagged/starred | IsStarred = true (strong keep signal, mapped from provider-specific flag) |
+| Archived email (no special labels) | IsArchived = true — primary triage target |
+| SenderFrequency computation | Requires corpus-wide sender count; caller must provide or 1 assumed |
 
 ## Feature Schema Versioning
 

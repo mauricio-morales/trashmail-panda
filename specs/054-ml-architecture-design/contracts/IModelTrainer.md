@@ -20,6 +20,9 @@ public interface IModelTrainer
 {
     /// <summary>
     /// Train a new model using available labeled data.
+    /// For initial training, bootstraps from mailbox folder placement:
+    /// Trash/Spam → "delete" labels, Starred/Flagged/Inbox → "keep" labels.
+    /// Works identically across Gmail, IMAP, Outlook, and other providers.
     /// Stores model file and records metadata in ml_models table.
     /// </summary>
     Task<Result<TrainingResult>> TrainAsync(

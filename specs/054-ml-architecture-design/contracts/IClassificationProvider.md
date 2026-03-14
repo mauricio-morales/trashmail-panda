@@ -8,6 +8,8 @@
 
 `IClassificationProvider` replaces `ILLMProvider.ClassifyEmailsAsync()` for email classification. It follows the existing `IProvider<TConfig>` pattern and returns `Result<T>` for all operations.
 
+The **primary use case** is archive reclamation: classifying existing archived emails and recommending which to delete to reclaim storage. Incoming email classification is a secondary, steady-state workflow.
+
 ## Interface Definition
 
 ```csharp
@@ -16,7 +18,11 @@ namespace TrashMailPanda.Shared;
 /// <summary>
 /// Provider interface for ML-based email classification.
 /// Supports both action classification (keep/archive/delete/spam)
-/// and label prediction (Gmail labels).
+/// and folder/tag prediction.
+///
+/// PRIMARY USE CASE: Archive reclamation — classify archived emails
+/// and recommend bulk deletions to reclaim storage.
+/// Works with any email provider (Gmail, IMAP, Outlook, etc.).
 /// </summary>
 public interface IClassificationProvider : IProvider<ClassificationProviderConfig>
 {
@@ -26,6 +32,15 @@ public interface IClassificationProvider : IProvider<ClassificationProviderConfi
     /// </summary>
     Task<Result<ClassifyOutput>> ClassifyAsync(
         ClassifyInput input,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Triage archived emails for deletion recommendations.
+    /// Returns grouped recommendations with confidence scores and storage reclaim estimates.
+    /// This is the primary workflow for archive reclamation.
+    /// </summary>
+    Task<Result<ArchiveTriageOutput>> TriageArchiveAsync(
+        ArchiveTriageInput input,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -109,6 +124,80 @@ public enum ClassificationMode
 }
 ```
 
+## Archive Triage Types
+
+```csharp
+namespace TrashMailPanda.Shared;
+
+/// <summary>
+/// Input for archive triage — a batch of archived emails to classify for deletion.
+/// </summary>
+public class ArchiveTriageInput
+{
+    /// <summary>Archived emails to triage (emails not in Inbox/Trash/Spam).</summary>
+    public IReadOnlyList<EmailClassificationInput> ArchivedEmails { get; init; } = Array.Empty<EmailClassificationInput>();
+
+    /// <summary>Current user rules for whitelist/blacklist override.</summary>
+    public UserRules UserRulesSnapshot { get; init; } = new();
+
+    /// <summary>Minimum deletion confidence to include in recommendations. Default: 0.6</summary>
+    [Range(0.0, 1.0)]
+    public double MinDeletionConfidence { get; init; } = 0.6;
+}
+
+/// <summary>
+/// Output of archive triage — grouped deletion recommendations.
+/// </summary>
+public class ArchiveTriageOutput
+{
+    /// <summary>Grouped recommendations for bulk deletion decisions.</summary>
+    public IReadOnlyList<TriageBulkGroup> Groups { get; init; } = Array.Empty<TriageBulkGroup>();
+
+    /// <summary>Total emails triaged in this batch.</summary>
+    public int TotalTriaged { get; init; }
+
+    /// <summary>Total emails recommended for deletion.</summary>
+    public int TotalRecommendedForDeletion { get; init; }
+
+    /// <summary>Total storage reclaimable if all recommendations accepted.</summary>
+    public long TotalReclaimableBytes { get; init; }
+}
+
+/// <summary>
+/// A group of similar emails recommended for the same action.
+/// Presented to the user as a single bulk decision.
+/// </summary>
+public class TriageBulkGroup
+{
+    /// <summary>Group identifier for batch operations.</summary>
+    public string GroupKey { get; init; } = string.Empty;
+
+    /// <summary>Human-readable group label (e.g., "Newsletters from marketing.example.com — 47 emails").</summary>
+    public string Label { get; init; } = string.Empty;
+
+    /// <summary>Human-readable reason for the recommendation.</summary>
+    public string Reason { get; init; } = string.Empty;
+
+    /// <summary>Recommended action for this group.</summary>
+    public string RecommendedAction { get; init; } = "review";
+
+    /// <summary>Average deletion confidence across emails in this group.</summary>
+    public double AverageConfidence { get; init; }
+
+    /// <summary>Number of emails in this group.</summary>
+    public int EmailCount { get; init; }
+
+    /// <summary>Total storage that would be freed by deleting this group.</summary>
+    public long StorageReclaimBytes { get; init; }
+
+    /// <summary>Human-readable storage string (e.g., "142 MB").</summary>
+    public string StorageReclaimDisplay { get; init; } = string.Empty;
+
+    /// <summary>Email IDs in this group.</summary>
+    public IReadOnlyList<string> EmailIds { get; init; } = Array.Empty<string>();
+}
+```
+
 ## Behavior Contract
 
 | Scenario | Expected Behavior |
@@ -119,6 +208,9 @@ public enum ClassificationMode
 | Confidence below threshold | Classification set to `Unknown`, confidence preserved |
 | Model file missing/corrupted | Returns `Result.Failure(InitializationError)`, attempts rollback to previous version |
 | Empty input batch | Returns `Result.Success` with empty items list |
+| TriageArchive with archived emails | Returns grouped deletion recommendations sorted by confidence |
+| TriageArchive with whitelisted emails | Whitelisted emails excluded from deletion recommendations |
+| TriageArchive with confidence below MinDeletionConfidence | Emails below threshold excluded from recommendations |
 
 ## Error Types
 

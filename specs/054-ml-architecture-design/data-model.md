@@ -16,7 +16,7 @@ Stores the extracted feature vector for each processed email. Used as both train
 
 | Field | Type | Nullable | Description |
 |-------|------|----------|-------------|
-| EmailId | string (PK) | No | Gmail message ID |
+| EmailId | string (PK) | No | Provider-assigned message ID (opaque, unique per provider) |
 | SenderDomain | string | No | Extracted domain from sender address |
 | SenderKnown | bool | No | Whether sender is in contacts |
 | ContactStrength | int | No | 0=None, 1=Weak, 2=Strong |
@@ -33,13 +33,26 @@ Stores the extracted feature vector for each processed email. Used as both train
 | IsReply | bool | No | Subject starts with "Re:" |
 | InUserWhitelist | bool | No | Matches AlwaysKeep rules |
 | InUserBlacklist | bool | No | Matches AutoTrash rules |
-| LabelCount | int | No | Number of Gmail labels |
+| LabelCount | int | No | Number of folders/tags assigned to this email |
 | LinkCount | int | No | Count of links in body HTML |
 | ImageCount | int | No | Count of images in body HTML |
 | HasTrackingPixel | bool | No | 1x1 pixel image detected |
 | UnsubscribeLinkInBody | bool | No | Unsubscribe link pattern found |
+| EmailAgeDays | int | No | Days since email was received (relative to extraction time) |
+| IsInInbox | bool | No | In Inbox folder — strong keep signal |
+| IsStarred | bool | No | Flagged/starred — strong keep signal |
+| IsImportant | bool | No | Marked important/high-priority — keep signal |
+| WasInTrash | bool | No | Source folder is Trash/Deleted Items — strong delete signal |
+| WasInSpam | bool | No | Source folder is Spam/Junk — strong delete signal |
+| IsArchived | bool | No | Not in Inbox/Trash/Spam — primary triage target |
+| ThreadMessageCount | int | No | Number of messages in the email thread |
+| SenderFrequency | int | No | Total emails from this sender domain in corpus |
 | SubjectText | string | Yes | Raw subject for TF-IDF (nullable for headerless emails) |
 | BodyTextShort | string | Yes | First 500 chars of body text for TF-IDF |
+| TopicClusterId | int | Yes | LDA topic cluster ID (null until Phase 2 — see R10) |
+| TopicDistributionJson | string | Yes | JSON topic probability distribution (null until Phase 2) |
+| SenderCategory | string | Yes | Sender domain category, e.g. "Development", "E-commerce" (null until Phase 2) |
+| SemanticEmbeddingJson | string | Yes | Dense embedding vector from local ONNX model (null until Phase 3) |
 | FeatureSchemaVersion | int | No | Schema version for compatibility checks |
 | ExtractedAt | DateTime | No | When features were extracted |
 
@@ -57,23 +70,55 @@ Stores complete email data for feature regeneration when extraction logic change
 
 | Field | Type | Nullable | Description |
 |-------|------|----------|-------------|
-| EmailId | string (PK) | No | Gmail message ID |
-| ThreadId | string | No | Gmail thread ID |
+| EmailId | string (PK) | No | Provider-assigned message ID (opaque, unique per provider) |
+| ThreadId | string | Yes | Conversation/thread ID (null if provider lacks threading) |
+| ProviderType | string | No | Email provider type: "gmail", "imap", "outlook", etc. |
 | HeadersJson | string | No | JSON-serialized headers dictionary |
 | BodyText | string | Yes | Plain text email body |
 | BodyHtml | string | Yes | Sanitized HTML email body |
-| LabelIdsJson | string | No | JSON array of Gmail label IDs |
+| FolderTagsJson | string | No | JSON array of canonical folder/tag names |
 | SizeEstimate | long | No | Email size in bytes |
 | ReceivedDate | DateTime | No | Original received date |
 | ArchivedAt | DateTime | No | When archived locally |
-| Snippet | string | Yes | Gmail snippet text |
+| Snippet | string | Yes | Email preview/snippet text |
+| SourceFolder | string | No | Canonical source folder: "inbox", "archive", "trash", "spam", "sent" |
 
 **Relationships**:
 - 1:1 with `EmailFeatureVector` via `EmailId`
+- 1:0..1 with `ArchiveTriageResult` via `EmailId`
 - Referenced by training pipeline for feature regeneration
 
 **Validation**:
 - At least one of `BodyText` or `BodyHtml` should be non-null (warning, not error)
+- `SourceFolder` must be one of the canonical values: "inbox", "archive", "trash", "spam", "sent", "drafts"
+- `ProviderType` must be a recognized provider identifier
+
+### 2b. ArchiveTriageResult
+
+Stores the outcome of archive reclamation classification. One entry per archived email that has been triaged.
+
+| Field | Type | Nullable | Description |
+|-------|------|----------|-------------|
+| EmailId | string (PK) | No | Provider-assigned message ID |
+| DeletionConfidence | float | No | 0.0 (definitely keep) to 1.0 (definitely delete) |
+| RecommendedAction | string | No | "keep", "delete", "review" |
+| BulkGroupKey | string | Yes | Grouping key for batch decisions (e.g., sender domain or topic cluster) |
+| Reason | string | No | Human-readable explanation for the recommendation |
+| StorageReclaimBytes | long | No | Bytes that would be freed if deleted |
+| TriagedAt | DateTime | No | When classification was performed |
+| UserDecision | string | Yes | "accepted", "rejected", null (pending) |
+| UserDecisionAt | DateTime | Yes | When user made decision |
+| UsedInTraining | bool | No | Whether this decision has fed back into training |
+
+**Relationships**:
+- 1:1 with `EmailArchiveEntry` via `EmailId`
+- 1:1 with `EmailFeatureVector` via `EmailId`
+- Consumed by training pipeline when `UserDecision` is set
+
+**Validation**:
+- `DeletionConfidence` must be in range [0.0, 1.0]
+- `RecommendedAction` must be one of "keep", "delete", "review"
+- `UserDecision` must be one of "accepted", "rejected", or null
 
 ### 3. MlModel
 
@@ -82,7 +127,7 @@ Metadata for each trained model version. The actual model file is stored on the 
 | Field | Type | Nullable | Description |
 |-------|------|----------|-------------|
 | Id | string (PK) | No | Model version identifier (e.g., "v1_20260314_143022") |
-| ModelType | string | No | "action" (keep/archive/delete/spam) or "label" (Gmail labels) |
+| ModelType | string | No | "action" (keep/archive/delete/spam) or "folder" (folder/tag prediction) |
 | TrainerName | string | No | ML.NET trainer used (e.g., "SdcaMaximumEntropy") |
 | FeatureSchemaVersion | int | No | Feature schema this model was trained on |
 | TrainingSampleCount | int | No | Number of training samples |
@@ -136,7 +181,7 @@ Explicit user corrections to classification results — highest-signal training 
 | Field | Type | Nullable | Description |
 |-------|------|----------|-------------|
 | Id | int (PK, auto) | No | Correction ID |
-| EmailId | string | No | Gmail message ID |
+| EmailId | string | No | Provider-assigned message ID |
 | OriginalClassification | string | No | What the model predicted |
 | CorrectedClassification | string | No | What the user said it should be |
 | Confidence | float | No | Model confidence when prediction was made |
@@ -177,8 +222,21 @@ CREATE TABLE IF NOT EXISTS email_features (
     image_count INTEGER NOT NULL DEFAULT 0,
     has_tracking_pixel INTEGER NOT NULL DEFAULT 0,
     unsubscribe_link_in_body INTEGER NOT NULL DEFAULT 0,
+    email_age_days INTEGER NOT NULL DEFAULT 0,
+    is_in_inbox INTEGER NOT NULL DEFAULT 0,
+    is_starred INTEGER NOT NULL DEFAULT 0,
+    is_important INTEGER NOT NULL DEFAULT 0,
+    was_in_trash INTEGER NOT NULL DEFAULT 0,
+    was_in_spam INTEGER NOT NULL DEFAULT 0,
+    is_archived INTEGER NOT NULL DEFAULT 0,
+    thread_message_count INTEGER NOT NULL DEFAULT 1,
+    sender_frequency INTEGER NOT NULL DEFAULT 1,
     subject_text TEXT,
     body_text_short TEXT,
+    topic_cluster_id INTEGER,           -- Phase 2: LDA topic cluster (see R10)
+    topic_distribution_json TEXT,        -- Phase 2: topic probability vector
+    sender_category TEXT,                -- Phase 2: sender domain category
+    semantic_embedding_json TEXT,         -- Phase 3: local ONNX embedding vector
     feature_schema_version INTEGER NOT NULL DEFAULT 1,
     extracted_at TEXT NOT NULL
 );
@@ -191,19 +249,25 @@ CREATE INDEX IF NOT EXISTS idx_email_features_extracted_at
 -- Full email archive for feature regeneration
 CREATE TABLE IF NOT EXISTS email_archive (
     email_id TEXT PRIMARY KEY,
-    thread_id TEXT NOT NULL,
+    thread_id TEXT,  -- Nullable: not all providers support threading
     headers_json TEXT NOT NULL,
     body_text TEXT,
     body_html TEXT,
-    label_ids_json TEXT NOT NULL DEFAULT '[]',
+    provider_type TEXT NOT NULL DEFAULT 'gmail',
+    folder_tags_json TEXT NOT NULL DEFAULT '[]',
     size_estimate INTEGER NOT NULL DEFAULT 0,
     received_date TEXT NOT NULL,
     archived_at TEXT NOT NULL,
-    snippet TEXT
+    snippet TEXT,
+    source_folder TEXT NOT NULL DEFAULT 'archive'
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_archive_received_date
     ON email_archive(received_date);
+CREATE INDEX IF NOT EXISTS idx_email_archive_source_folder
+    ON email_archive(source_folder);
+CREATE INDEX IF NOT EXISTS idx_email_archive_provider_type
+    ON email_archive(provider_type);
 CREATE INDEX IF NOT EXISTS idx_email_archive_archived_at
     ON email_archive(archived_at);
 
@@ -263,6 +327,29 @@ CREATE INDEX IF NOT EXISTS idx_user_corrections_unused
     ON user_corrections(used_in_training) WHERE used_in_training = 0;
 CREATE INDEX IF NOT EXISTS idx_user_corrections_email_id
     ON user_corrections(email_id);
+
+-- Archive triage results (primary use case: reclaim storage from archived emails)
+CREATE TABLE IF NOT EXISTS archive_triage_results (
+    email_id TEXT PRIMARY KEY,
+    deletion_confidence REAL NOT NULL,
+    recommended_action TEXT NOT NULL DEFAULT 'review',
+    bulk_group_key TEXT,
+    reason TEXT NOT NULL,
+    storage_reclaim_bytes INTEGER NOT NULL DEFAULT 0,
+    triaged_at TEXT NOT NULL,
+    user_decision TEXT,
+    user_decision_at TEXT,
+    used_in_training INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_archive_triage_action
+    ON archive_triage_results(recommended_action);
+CREATE INDEX IF NOT EXISTS idx_archive_triage_pending
+    ON archive_triage_results(user_decision) WHERE user_decision IS NULL;
+CREATE INDEX IF NOT EXISTS idx_archive_triage_bulk_group
+    ON archive_triage_results(bulk_group_key);
+CREATE INDEX IF NOT EXISTS idx_archive_triage_unused_training
+    ON archive_triage_results(used_in_training) WHERE used_in_training = 0;
 ```
 
 ## State Transitions
@@ -292,4 +379,38 @@ pending → running → completed
 [Cold Start] → (< 100 labels) → Rule-based only
 [Hybrid]     → (100-500 labels) → ML + rule fallback
 [ML Primary] → (500+ labels) → ML model with rule override
+```
+
+### Archive Triage Workflow (Primary Use Case)
+
+```
+[Scan Mailbox] → Fetch all folders (Inbox, Archive, Trash, Spam, Sent, user folders/labels)
+       ↓
+[Bootstrap Training Data] → Trash/Spam emails → "delete" labels
+                          → Starred/Important → "keep" labels
+                          → Inbox emails → "keep" labels
+                          → Sent emails → context only (not classified)
+       ↓
+[Train Model] → Build classifier from bootstrapped labels
+       ↓
+[Classify Archive] → Run model on all archived emails (not in Inbox/Trash/Spam)
+       ↓
+[Generate Recommendations] → Group by sender/topic → deletion confidence scores
+                           → Calculate storage reclaim per group
+       ↓
+[Present to User] → Bulk groups with accept/reject per group
+                  → User reviews and decides
+       ↓
+[Execute Decisions] → Delete accepted emails via email provider API
+                    → Feed decisions back as training data
+       ↓
+[Retrain] → Model improves from user decisions → repeat
+```
+
+### Archive Triage Result Lifecycle
+
+```
+[Classified]  → user_decision = null   (pending review)
+[Accepted]    → user_decision = "accepted"  (email will be deleted)
+[Rejected]    → user_decision = "rejected"  (email preserved, feeds training)
 ```
