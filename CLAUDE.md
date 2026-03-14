@@ -1,5 +1,16 @@
 # CLAUDE.md
 
+> **📌 Note**: This is **legacy documentation** from the Claude Code workflow.  
+> **Current workflow**: GitHub Copilot + [spec-kit](.specify/)  
+> **See instead**:
+> - [`.github/copilot-instructions.md`](.github/copilot-instructions.md) - Quick reference for GitHub Copilot
+> - [`.specify/memory/constitution.md`](.specify/memory/constitution.md) - Core engineering principles
+> - [`docs/*.md`](docs/) - Technical implementation guides
+>
+> **This file is kept** as comprehensive technical documentation and architectural reference.
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
