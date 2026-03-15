@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TrashMailPanda.Shared;
+using TrashMailPanda.Providers.Storage.Migrations;
 
 namespace TrashMailPanda.Providers.Storage;
 
@@ -559,6 +560,9 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
 
     private async Task CreateSchemaAsync()
     {
+        // Apply ML storage migration first
+        await Migration_001_MLStorage.ApplyAsync(_connection!);
+
         var schemaCommands = new[]
         {
             @"CREATE TABLE IF NOT EXISTS user_rules (
