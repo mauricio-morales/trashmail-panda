@@ -455,36 +455,261 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         EmailArchiveEntry archive,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 4 (User Story 2)
-        await Task.CompletedTask;
-        return Result<bool>.Failure(new UnsupportedOperationError("Archive storage not yet implemented"));
+        if (archive == null)
+            return Result<bool>.Failure(new ValidationError("Archive entry cannot be null"));
+
+        if (string.IsNullOrWhiteSpace(archive.EmailId))
+            return Result<bool>.Failure(new ValidationError("EmailId is required"));
+
+        // Validate at least one body field is provided
+        if (string.IsNullOrWhiteSpace(archive.BodyText) && string.IsNullOrWhiteSpace(archive.BodyHtml))
+            return Result<bool>.Failure(new ValidationError("At least one of BodyText or BodyHtml must be provided"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                const string sql = @"
+                    INSERT OR REPLACE INTO email_archive (
+                        EmailId, ThreadId, ProviderType, HeadersJson, BodyText, BodyHtml,
+                        FolderTagsJson, SizeEstimate, ReceivedDate, ArchivedAt, Snippet, SourceFolder, UserCorrected
+                    ) VALUES (
+                        @EmailId, @ThreadId, @ProviderType, @HeadersJson, @BodyText, @BodyHtml,
+                        @FolderTagsJson, @SizeEstimate, @ReceivedDate, @ArchivedAt, @Snippet, @SourceFolder, @UserCorrected
+                    )";
+
+                using var command = _connection.CreateCommand();
+                command.CommandText = sql;
+
+                command.Parameters.AddWithValue("@EmailId", archive.EmailId);
+                command.Parameters.AddWithValue("@ThreadId", (object?)archive.ThreadId ?? DBNull.Value);
+                command.Parameters.AddWithValue("@ProviderType", archive.ProviderType);
+                command.Parameters.AddWithValue("@HeadersJson", archive.HeadersJson);
+                command.Parameters.AddWithValue("@BodyText", (object?)archive.BodyText ?? DBNull.Value);
+                command.Parameters.AddWithValue("@BodyHtml", (object?)archive.BodyHtml ?? DBNull.Value);
+                command.Parameters.AddWithValue("@FolderTagsJson", archive.FolderTagsJson);
+                command.Parameters.AddWithValue("@SizeEstimate", archive.SizeEstimate);
+                command.Parameters.AddWithValue("@ReceivedDate", archive.ReceivedDate.ToString("O"));
+                command.Parameters.AddWithValue("@ArchivedAt", archive.ArchivedAt.ToString("O"));
+                command.Parameters.AddWithValue("@Snippet", (object?)archive.Snippet ?? DBNull.Value);
+                command.Parameters.AddWithValue("@SourceFolder", archive.SourceFolder);
+                command.Parameters.AddWithValue("@UserCorrected", archive.UserCorrected);
+
+                await command.ExecuteNonQueryAsync(cancellationToken);
+                return Result<bool>.Success(true);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError($"Failed to store archive for {archive.EmailId}", ex.Message, ex));
+        }
     }
 
     public async Task<Result<int>> StoreArchivesBatchAsync(
         IEnumerable<EmailArchiveEntry> archives,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 4 (User Story 2)
-        await Task.CompletedTask;
-        return Result<int>.Failure(new UnsupportedOperationError("Batch archive storage not yet implemented"));
+        if (archives == null)
+            return Result<int>.Failure(new ValidationError("Archives collection cannot be null"));
+
+        var archiveList = archives.ToList();
+        if (archiveList.Count == 0)
+            return Result<int>.Success(0);
+
+        // Validate all archives before starting transaction
+        foreach (var archive in archiveList)
+        {
+            if (string.IsNullOrWhiteSpace(archive.EmailId))
+                return Result<int>.Failure(new ValidationError("All archives must have valid EmailId"));
+
+            if (string.IsNullOrWhiteSpace(archive.BodyText) && string.IsNullOrWhiteSpace(archive.BodyHtml))
+                return Result<int>.Failure(new ValidationError($"Archive {archive.EmailId} must have at least one of BodyText or BodyHtml"));
+        }
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                var totalStored = 0;
+                const int batchSize = 500; // Per research.md R5
+
+                // Process in batches
+                for (int i = 0; i < archiveList.Count; i += batchSize)
+                {
+                    var batch = archiveList.Skip(i).Take(batchSize);
+
+                    using var transaction = _connection.BeginTransaction();
+                    try
+                    {
+                        foreach (var archive in batch)
+                        {
+                            var result = await StoreArchiveSingleAsync(archive, cancellationToken);
+                            if (!result.IsSuccess)
+                            {
+                                transaction.Rollback();
+                                return Result<int>.Failure(result.Error);
+                            }
+                            totalStored++;
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        transaction.Rollback();
+                        return Result<int>.Failure(new StorageError("Batch archive storage failed", ex.Message, ex));
+                    }
+                }
+
+                return Result<int>.Success(totalStored);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure(new StorageError("Failed to acquire lock for batch archive storage", ex.Message, ex));
+        }
+    }
+
+    /// <summary>
+    /// Helper method to store a single archive within a transaction.
+    /// </summary>
+    private async Task<Result<bool>> StoreArchiveSingleAsync(
+        EmailArchiveEntry archive,
+        CancellationToken cancellationToken)
+    {
+        const string sql = @"
+            INSERT OR REPLACE INTO email_archive (
+                EmailId, ThreadId, ProviderType, HeadersJson, BodyText, BodyHtml,
+                FolderTagsJson, SizeEstimate, ReceivedDate, ArchivedAt, Snippet, SourceFolder, UserCorrected
+            ) VALUES (
+                @EmailId, @ThreadId, @ProviderType, @HeadersJson, @BodyText, @BodyHtml,
+                @FolderTagsJson, @SizeEstimate, @ReceivedDate, @ArchivedAt, @Snippet, @SourceFolder, @UserCorrected
+            )";
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = sql;
+
+        command.Parameters.AddWithValue("@EmailId", archive.EmailId);
+        command.Parameters.AddWithValue("@ThreadId", (object?)archive.ThreadId ?? DBNull.Value);
+        command.Parameters.AddWithValue("@ProviderType", archive.ProviderType);
+        command.Parameters.AddWithValue("@HeadersJson", archive.HeadersJson);
+        command.Parameters.AddWithValue("@BodyText", (object?)archive.BodyText ?? DBNull.Value);
+        command.Parameters.AddWithValue("@BodyHtml", (object?)archive.BodyHtml ?? DBNull.Value);
+        command.Parameters.AddWithValue("@FolderTagsJson", archive.FolderTagsJson);
+        command.Parameters.AddWithValue("@SizeEstimate", archive.SizeEstimate);
+        command.Parameters.AddWithValue("@ReceivedDate", archive.ReceivedDate.ToString("O"));
+        command.Parameters.AddWithValue("@ArchivedAt", archive.ArchivedAt.ToString("O"));
+        command.Parameters.AddWithValue("@Snippet", (object?)archive.Snippet ?? DBNull.Value);
+        command.Parameters.AddWithValue("@SourceFolder", archive.SourceFolder);
+        command.Parameters.AddWithValue("@UserCorrected", archive.UserCorrected);
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        return Result<bool>.Success(true);
     }
 
     public async Task<Result<EmailArchiveEntry?>> GetArchiveAsync(
         string emailId,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 4 (User Story 2)
-        await Task.CompletedTask;
-        return Result<EmailArchiveEntry?>.Failure(new UnsupportedOperationError("Archive retrieval not yet implemented"));
+        if (string.IsNullOrWhiteSpace(emailId))
+            return Result<EmailArchiveEntry?>.Failure(new ValidationError("EmailId is required"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                const string sql = @"
+                    SELECT EmailId, ThreadId, ProviderType, HeadersJson, BodyText, BodyHtml,
+                           FolderTagsJson, SizeEstimate, ReceivedDate, ArchivedAt, Snippet, SourceFolder, UserCorrected
+                    FROM email_archive
+                    WHERE EmailId = @EmailId";
+
+                using var command = _connection.CreateCommand();
+                command.CommandText = sql;
+                command.Parameters.AddWithValue("@EmailId", emailId);
+
+                using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                if (!await reader.ReadAsync(cancellationToken))
+                    return Result<EmailArchiveEntry?>.Success(null);
+
+                var archive = ReadArchiveFromReader(reader);
+                return Result<EmailArchiveEntry?>.Success(archive);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<EmailArchiveEntry?>.Failure(new StorageError($"Failed to retrieve archive for {emailId}", ex.Message, ex));
+        }
     }
 
     public async Task<Result<bool>> DeleteArchiveAsync(
         string emailId,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 4 (User Story 2)
-        await Task.CompletedTask;
-        return Result<bool>.Failure(new UnsupportedOperationError("Archive deletion not yet implemented"));
+        if (string.IsNullOrWhiteSpace(emailId))
+            return Result<bool>.Failure(new ValidationError("EmailId is required"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                const string sql = "DELETE FROM email_archive WHERE EmailId = @EmailId";
+
+                using var command = _connection.CreateCommand();
+                command.CommandText = sql;
+                command.Parameters.AddWithValue("@EmailId", emailId);
+
+                var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+                return Result<bool>.Success(rowsAffected > 0);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError($"Failed to delete archive for {emailId}", ex.Message, ex));
+        }
+    }
+
+    /// <summary>
+    /// Reads an EmailArchiveEntry from a data reader.
+    /// </summary>
+    private EmailArchiveEntry ReadArchiveFromReader(SqliteDataReader reader)
+    {
+        return new EmailArchiveEntry
+        {
+            EmailId = reader.GetString(0),
+            ThreadId = reader.IsDBNull(1) ? null : reader.GetString(1),
+            ProviderType = reader.GetString(2),
+            HeadersJson = reader.GetString(3),
+            BodyText = reader.IsDBNull(4) ? null : reader.GetString(4),
+            BodyHtml = reader.IsDBNull(5) ? null : reader.GetString(5),
+            FolderTagsJson = reader.GetString(6),
+            SizeEstimate = reader.GetInt64(7),
+            ReceivedDate = DateTime.Parse(reader.GetString(8)),
+            ArchivedAt = DateTime.Parse(reader.GetString(9)),
+            Snippet = reader.IsDBNull(10) ? null : reader.GetString(10),
+            SourceFolder = reader.GetString(11),
+            UserCorrected = reader.GetInt32(12)
+        };
     }
 
     // ============================================================

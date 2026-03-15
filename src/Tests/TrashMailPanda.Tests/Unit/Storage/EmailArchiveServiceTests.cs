@@ -77,7 +77,31 @@ public class EmailArchiveServiceTests : IDisposable
             CREATE INDEX IF NOT EXISTS idx_email_features_schema_version 
                 ON email_features(FeatureSchemaVersion);
             CREATE INDEX IF NOT EXISTS idx_email_features_user_corrected 
-                ON email_features(UserCorrected);";
+                ON email_features(UserCorrected);
+
+            CREATE TABLE IF NOT EXISTS email_archive (
+                EmailId TEXT PRIMARY KEY,
+                ThreadId TEXT,
+                ProviderType TEXT NOT NULL,
+                HeadersJson TEXT NOT NULL,
+                BodyText TEXT,
+                BodyHtml TEXT,
+                FolderTagsJson TEXT NOT NULL,
+                SizeEstimate INTEGER NOT NULL,
+                ReceivedDate TEXT NOT NULL,
+                ArchivedAt TEXT NOT NULL,
+                Snippet TEXT,
+                SourceFolder TEXT NOT NULL,
+                UserCorrected INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (EmailId) REFERENCES email_features(EmailId) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_email_archive_archived_at
+                ON email_archive(ArchivedAt);
+            CREATE INDEX IF NOT EXISTS idx_email_archive_size_estimate
+                ON email_archive(SizeEstimate);
+            CREATE INDEX IF NOT EXISTS idx_email_archive_received_date
+                ON email_archive(ReceivedDate);";
         command.ExecuteNonQuery();
     }
 
@@ -379,7 +403,382 @@ public class EmailArchiveServiceTests : IDisposable
 
     #endregion
 
+    #region Archive Storage Tests
+
+    [Fact]
+    public async Task StoreArchiveAsync_ValidArchive_ReturnsSuccess()
+    {
+        // Arrange
+        var feature = CreateTestFeatureVector("archive-1");
+        await _service.StoreFeatureAsync(feature);
+        var archive = CreateTestArchive("archive-1");
+
+        // Act
+        var result = await _service.StoreArchiveAsync(archive);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value);
+    }
+
+    [Fact]
+    public async Task StoreArchiveAsync_NullArchive_ReturnsValidationError()
+    {
+        // Act
+        var result = await _service.StoreArchiveAsync(null!);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("cannot be null", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task StoreArchiveAsync_EmptyEmailId_ReturnsValidationError()
+    {
+        // Arrange
+        var archive = CreateTestArchive("");
+
+        // Act
+        var result = await _service.StoreArchiveAsync(archive);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("EmailId is required", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task StoreArchiveAsync_NoBodyContent_ReturnsValidationError()
+    {
+        // Arrange
+        var archive = CreateArchiveWithoutBody("archive-1");
+
+        // Act
+        var result = await _service.StoreArchiveAsync(archive);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("BodyText or BodyHtml must be provided", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task StoreArchiveAsync_UpdateExisting_Success()
+    {
+        // Arrange
+        var feature = CreateTestFeatureVector("archive-1");
+        await _service.StoreFeatureAsync(feature);
+        
+        var archive1 = CreateTestArchive("archive-1");
+        await _service.StoreArchiveAsync(archive1);
+
+        var archive2 = CreateTestArchive("archive-1", bodyText: "Updated body content");
+
+        // Act
+        var result = await _service.StoreArchiveAsync(archive2);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+
+        var retrieved = await _service.GetArchiveAsync("archive-1");
+        Assert.True(retrieved.IsSuccess);
+        Assert.Equal("Updated body content", retrieved.Value!.BodyText);
+    }
+
+    [Fact]
+    public async Task GetArchiveAsync_ExistingArchive_ReturnsArchive()
+    {
+        // Arrange
+        var feature = CreateTestFeatureVector("archive-1");
+        await _service.StoreFeatureAsync(feature);
+        
+        var archive = CreateTestArchive("archive-1");
+        await _service.StoreArchiveAsync(archive);
+
+        // Act
+        var result = await _service.GetArchiveAsync("archive-1");
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Equal("archive-1", result.Value!.EmailId);
+        Assert.Equal("gmail", result.Value.ProviderType);
+        Assert.Equal("Test body content", result.Value.BodyText);
+    }
+
+    [Fact]
+    public async Task GetArchiveAsync_NonExistentArchive_ReturnsNull()
+    {
+        // Act
+        var result = await _service.GetArchiveAsync("non-existent");
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public async Task GetArchiveAsync_EmptyEmailId_ReturnsValidationError()
+    {
+        // Act
+        var result = await _service.GetArchiveAsync("");
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("EmailId is required", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task GetArchiveAsync_NullableFields_HandledCorrectly()
+    {
+        // Arrange
+        var feature = CreateTestFeatureVector("archive-1");
+        await _service.StoreFeatureAsync(feature);
+        
+        var archive = CreateTestArchive("archive-1", threadId: null, bodyHtml: null, snippet: null);
+        await _service.StoreArchiveAsync(archive);
+
+        // Act
+        var result = await _service.GetArchiveAsync("archive-1");
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Null(result.Value!.ThreadId);
+        Assert.Null(result.Value.BodyHtml);
+        Assert.Null(result.Value.Snippet);
+        Assert.NotNull(result.Value.BodyText);
+    }
+
+    [Fact]
+    public async Task DeleteArchiveAsync_ExistingArchive_Success()
+    {
+        // Arrange
+        var feature = CreateTestFeatureVector("archive-1");
+        await _service.StoreFeatureAsync(feature);
+        
+        var archive = CreateTestArchive("archive-1");
+        await _service.StoreArchiveAsync(archive);
+
+        // Act
+        var result = await _service.DeleteArchiveAsync("archive-1");
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value);
+
+        // Verify deletion
+        var retrieved = await _service.GetArchiveAsync("archive-1");
+        Assert.Null(retrieved.Value);
+    }
+
+    [Fact]
+    public async Task DeleteArchiveAsync_NonExistentArchive_ReturnsFalse()
+    {
+        // Act
+        var result = await _service.DeleteArchiveAsync("non-existent");
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Value);
+    }
+
+    [Fact]
+    public async Task DeleteArchiveAsync_EmptyEmailId_ReturnsValidationError()
+    {
+        // Act
+        var result = await _service.DeleteArchiveAsync("");
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("EmailId is required", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task StoreArchivesBatchAsync_ValidArchives_Success()
+    {
+        // Arrange - First create features for FK constraint
+        var feature1 = CreateTestFeatureVector("archive-1");
+        var feature2 = CreateTestFeatureVector("archive-2");
+        var feature3 = CreateTestFeatureVector("archive-3");
+        await _service.StoreFeatureAsync(feature1);
+        await _service.StoreFeatureAsync(feature2);
+        await _service.StoreFeatureAsync(feature3);
+        
+        var archives = new List<EmailArchiveEntry>
+        {
+            CreateTestArchive("archive-1"),
+            CreateTestArchive("archive-2"),
+            CreateTestArchive("archive-3")
+        };
+
+        // Act
+        var result = await _service.StoreArchivesBatchAsync(archives);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Value);
+
+        // Verify all stored
+        var email1 = await _service.GetArchiveAsync("archive-1");
+        var email2 = await _service.GetArchiveAsync("archive-2");
+        var email3 = await _service.GetArchiveAsync("archive-3");
+
+        Assert.True(email1.IsSuccess && email1.Value != null);
+        Assert.True(email2.IsSuccess && email2.Value != null);
+        Assert.True(email3.IsSuccess && email3.Value != null);
+    }
+
+    [Fact]
+    public async Task StoreArchivesBatchAsync_EmptyList_ReturnsZero()
+    {
+        // Act
+        var result = await _service.StoreArchivesBatchAsync(new List<EmailArchiveEntry>());
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, result.Value);
+    }
+
+    [Fact]
+    public async Task StoreArchivesBatchAsync_NullCollection_ReturnsValidationError()
+    {
+        // Act
+        var result = await _service.StoreArchivesBatchAsync(null!);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("cannot be null", result.Error.Message);
+    }
+
+    [Fact]
+    public async Task StoreArchivesBatchAsync_InvalidArchiveInBatch_ReturnsValidationError()
+    {
+        // Arrange
+        var archives = new List<EmailArchiveEntry>
+        {
+            CreateTestArchive("archive-1"),
+            CreateTestArchive(""), // Invalid - empty EmailId
+            CreateTestArchive("archive-3")
+        };
+
+        // Act
+        var result = await _service.StoreArchivesBatchAsync(archives);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+    }
+
+    [Fact]
+    public async Task StoreArchivesBatchAsync_LargeBatch_ProcessesInChunks()
+    {
+        // Arrange - Create 1500 features and archives (should be 3 batches of 500)
+        for (int i = 1; i <= 1500; i++)
+        {
+            var feature = CreateTestFeatureVector($"archive-{i}");
+            await _service.StoreFeatureAsync(feature);
+        }
+        
+        var archives = new List<EmailArchiveEntry>();
+        for (int i = 1; i <= 1500; i++)
+        {
+            archives.Add(CreateTestArchive($"archive-{i}"));
+        }
+
+        // Act
+        var result = await _service.StoreArchivesBatchAsync(archives);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1500, result.Value);
+
+        // Spot check a few
+        var first = await _service.GetArchiveAsync("archive-1");
+        var middle = await _service.GetArchiveAsync("archive-750");
+        var last = await _service.GetArchiveAsync("archive-1500");
+
+        Assert.True(first.IsSuccess && first.Value != null);
+        Assert.True(middle.IsSuccess && middle.Value != null);
+        Assert.True(last.IsSuccess && last.Value != null);
+    }
+
+    [Fact]
+    public async Task StoreArchivesBatchAsync_NoBodyContent_ReturnsValidationError()
+    {
+        // Arrange
+        var archives = new List<EmailArchiveEntry>
+        {
+            CreateTestArchive("archive-1"),
+            CreateArchiveWithoutBody("archive-2"), // Invalid
+            CreateTestArchive("archive-3")
+        };
+
+        // Act
+        var result = await _service.StoreArchivesBatchAsync(archives);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.IsType<ValidationError>(result.Error);
+        Assert.Contains("BodyText or BodyHtml", result.Error.Message);
+    }
+
+    #endregion
+
     #region Helper Methods
+
+    private EmailArchiveEntry CreateTestArchive(
+        string emailId, 
+        string? threadId = "USE_DEFAULT",
+        string bodyText = "Test body content",
+        string? bodyHtml = "<p>Test body content</p>",
+        string? snippet = "Test body...")
+    {
+        return new EmailArchiveEntry
+        {
+            EmailId = emailId,
+            ThreadId = threadId == "USE_DEFAULT" ? $"thread-{emailId}" : threadId,
+            ProviderType = "gmail",
+            HeadersJson = "{\"from\":\"test@example.com\",\"to\":\"user@example.com\"}",
+            BodyText = bodyText,
+            BodyHtml = bodyHtml,
+            FolderTagsJson = "[\"INBOX\"]",
+            SizeEstimate = 1024,
+            ReceivedDate = DateTime.UtcNow.AddDays(-1),
+            ArchivedAt = DateTime.UtcNow,
+            Snippet = snippet,
+            SourceFolder = "INBOX",
+            UserCorrected = 0
+        };
+    }
+
+    private EmailArchiveEntry CreateArchiveWithoutBody(string emailId)
+    {
+        return new EmailArchiveEntry
+        {
+            EmailId = emailId,
+            ThreadId = $"thread-{emailId}",
+            ProviderType = "gmail",
+            HeadersJson = "{\"from\":\"test@example.com\",\"to\":\"user@example.com\"}",
+            BodyText = null,
+            BodyHtml = null,
+            FolderTagsJson = "[\"INBOX\"]",
+            SizeEstimate = 1024,
+            ReceivedDate = DateTime.UtcNow.AddDays(-1),
+            ArchivedAt = DateTime.UtcNow,
+            Snippet = "Test body...",
+            SourceFolder = "INBOX",
+            UserCorrected = 0
+        };
+    }
+
+    #endregion
+
+    #region Feature Storage Helper Methods
 
     private EmailFeatureVector CreateTestFeatureVector(string emailId, int schemaVersion = 1)
     {

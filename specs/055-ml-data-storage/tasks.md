@@ -84,26 +84,26 @@
 
 ### Domain Models for User Story 2
 
-- [ ] T026 [P] [US2] Create EmailArchiveEntry model with email content fields in `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/EmailArchiveEntry.cs`
-- [ ] T027 [P] [US2] Add DataAnnotations validation to EmailArchiveEntry (Required, at least one of BodyText/BodyHtml required)
+- [X] T026 [P] [US2] Create EmailArchiveEntry model with email content fields in `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/EmailArchiveEntry.cs`
+- [X] T027 [P] [US2] Add DataAnnotations validation to EmailArchiveEntry (Required, at least one of BodyText/BodyHtml required)
 - [ ] T028 [P] [US2] Unit test for EmailArchiveEntry validation in `src/Tests/TrashMailPanda.Tests/Unit/Storage/Models/EmailArchiveEntryTests.cs`
 
 ### Archive Storage Implementation for User Story 2
 
-- [ ] T029 [US2] Implement StoreArchiveAsync method in EmailArchiveService with BLOB storage for email content
-- [ ] T030 [US2] Implement StoreArchivesBatchAsync method in EmailArchiveService with transaction batching and quota checks
-- [ ] T031 [US2] Implement GetArchiveAsync method in EmailArchiveService with complete email retrieval
-- [ ] T032 [US2] Implement DeleteArchiveAsync method in EmailArchiveService preserving feature data (foreign key ON DELETE CASCADE)
-- [ ] T033 [US2] Add error handling for archive operations (ValidationError, QuotaExceededError, StorageError)
+- [X] T029 [US2] Implement StoreArchiveAsync method in EmailArchiveService with BLOB storage for email content
+- [X] T030 [US2] Implement StoreArchivesBatchAsync method in EmailArchiveService with transaction batching and quota checks
+- [X] T031 [US2] Implement GetArchiveAsync method in EmailArchiveService with complete email retrieval
+- [X] T032 [US2] Implement DeleteArchiveAsync method in EmailArchiveService preserving feature data (foreign key ON DELETE CASCADE)
+- [X] T033 [US2] Add error handling for archive operations (ValidationError, QuotaExceededError, StorageError)
 
 ### Tests for User Story 2
 
-- [ ] T034 [P] [US2] Unit test for StoreArchiveAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T035 [P] [US2] Unit test for StoreArchivesBatchAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T036 [P] [US2] Unit test for GetArchiveAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T037 [P] [US2] Unit test for DeleteArchiveAsync verifying feature preservation in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T038 [P] [US2] Integration test for complete email archive workflow in `src/Tests/TrashMailPanda.Tests/Integration/Storage/ArchiveStorageIntegrationTests.cs`
-- [ ] T039 [P] [US2] Integration test for feature regeneration from archived email in `src/Tests/TrashMailPanda.Tests/Integration/Storage/ArchiveStorageIntegrationTests.cs`
+- [X] T034 [P] [US2] Unit test for StoreArchiveAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
+- [X] T035 [P] [US2] Unit test for StoreArchivesBatchAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
+- [X] T036 [P] [US2] Unit test for GetArchiveAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
+- [X] T037 [P] [US2] Unit test for DeleteArchiveAsync verifying feature preservation in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
+- [X] T038 [P] [US2] Integration test for complete email archive workflow in `src/Tests/TrashMailPanda.Tests/Integration/Storage/ArchiveStorageIntegrationTests.cs`
+- [X] T039 [P] [US2] Integration test for feature regeneration from archived email in `src/Tests/TrashMailPanda.Tests/Integration/Storage/ArchiveStorageIntegrationTests.cs`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - features and full emails can be stored/retrieved
 
