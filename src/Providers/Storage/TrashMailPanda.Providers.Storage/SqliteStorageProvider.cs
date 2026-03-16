@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Providers.Storage.Models;
@@ -15,19 +16,44 @@ namespace TrashMailPanda.Providers.Storage;
 /// <summary>
 /// SQLite implementation of IStorageProvider with Entity Framework Core and encryption support.
 /// Provides encrypted local storage for all application data.
+/// 
+/// DEPRECATION NOTICE: This class is being phased out in favor of domain-specific services.
+/// See /docs/STORAGE_ARCHITECTURE_REFACTORING.md for migration plan.
+/// Once all consumers migrate to specific domain services, this class will be removed.
 /// </summary>
 public class SqliteStorageProvider : IStorageProvider, IDisposable
 {
     private readonly string _databasePath;
     private readonly string _password;
+    private readonly SemaphoreSlim _databaseLock;
+    private readonly bool _ownsLock;
     private TrashMailPandaDbContext? _context;
     private bool _initialized = false;
     private bool _disposed = false;
 
+    /// <summary>
+    /// Legacy constructor for backward compatibility.
+    /// Creates its own database lock - NOT RECOMMENDED for production use.
+    /// Use the constructor with SemaphoreSlim injection instead.
+    /// </summary>
     public SqliteStorageProvider(string databasePath, string password)
     {
         _databasePath = databasePath;
         _password = password;
+        _databaseLock = new SemaphoreSlim(1, 1);
+        _ownsLock = true;
+    }
+
+    /// <summary>
+    /// Recommended constructor with singleton semaphore injection.
+    /// Ensures proper concurrency control across all storage access.
+    /// </summary>
+    public SqliteStorageProvider(string databasePath, string password, SemaphoreSlim databaseLock)
+    {
+        _databasePath = databasePath;
+        _password = password;
+        _databaseLock = databaseLock ?? throw new ArgumentNullException(nameof(databaseLock));
+        _ownsLock = false;
     }
 
     public async Task InitAsync()
@@ -72,85 +98,101 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        var rules = await _context!.UserRules.ToListAsync();
-
-        var alwaysKeepSenders = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "sender")
-            .Select(r => r.RuleValue).ToList();
-        var alwaysKeepDomains = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "domain")
-            .Select(r => r.RuleValue).ToList();
-        var alwaysKeepListIds = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "listid")
-            .Select(r => r.RuleValue).ToList();
-        var autoTrashSenders = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "sender")
-            .Select(r => r.RuleValue).ToList();
-        var autoTrashDomains = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "domain")
-            .Select(r => r.RuleValue).ToList();
-        var autoTrashListIds = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "listid")
-            .Select(r => r.RuleValue).ToList();
-
-        return new UserRules
+        await _databaseLock.WaitAsync();
+        try
         {
-            AlwaysKeep = new AlwaysKeepRules
+            var rules = await _context!.UserRules.ToListAsync();
+
+            var alwaysKeepSenders = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "sender")
+                .Select(r => r.RuleValue).ToList();
+            var alwaysKeepDomains = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "domain")
+                .Select(r => r.RuleValue).ToList();
+            var alwaysKeepListIds = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "listid")
+                .Select(r => r.RuleValue).ToList();
+            var autoTrashSenders = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "sender")
+                .Select(r => r.RuleValue).ToList();
+            var autoTrashDomains = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "domain")
+                .Select(r => r.RuleValue).ToList();
+            var autoTrashListIds = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "listid")
+                .Select(r => r.RuleValue).ToList();
+
+            return new UserRules
             {
-                Senders = alwaysKeepSenders,
-                Domains = alwaysKeepDomains,
-                ListIds = alwaysKeepListIds
-            },
-            AutoTrash = new AutoTrashRules
-            {
-                Senders = autoTrashSenders,
-                Domains = autoTrashDomains,
-                ListIds = autoTrashListIds
-            }
-        };
+                AlwaysKeep = new AlwaysKeepRules
+                {
+                    Senders = alwaysKeepSenders,
+                    Domains = alwaysKeepDomains,
+                    ListIds = alwaysKeepListIds
+                },
+                AutoTrash = new AutoTrashRules
+                {
+                    Senders = autoTrashSenders,
+                    Domains = autoTrashDomains,
+                    ListIds = autoTrashListIds
+                }
+            };
+        }
+        finally
+        {
+            _databaseLock.Release();
+        }
     }
 
     public async Task UpdateUserRulesAsync(UserRules rules)
     {
         EnsureInitialized();
 
-        using var transaction = await _context!.Database.BeginTransactionAsync();
+        await _databaseLock.WaitAsync();
         try
         {
-            // Clear existing rules
-            _context.UserRules.RemoveRange(_context.UserRules);
-            
-            var now = DateTime.UtcNow;
-            var newRules = new List<UserRuleEntity>();
-
-            // Helper to add rules
-            void AddRules(string ruleType, string ruleKey, IEnumerable<string> values)
+            using var transaction = await _context!.Database.BeginTransactionAsync();
+            try
             {
-                foreach (var value in values)
+                // Clear existing rules
+                _context.UserRules.RemoveRange(_context.UserRules);
+
+                var now = DateTime.UtcNow;
+                var newRules = new List<UserRuleEntity>();
+
+                // Helper to add rules
+                void AddRules(string ruleType, string ruleKey, IEnumerable<string> values)
                 {
-                    newRules.Add(new UserRuleEntity
+                    foreach (var value in values)
                     {
-                        RuleType = ruleType,
-                        RuleKey = ruleKey,
-                        RuleValue = value,
-                        CreatedAt = now,
-                        UpdatedAt = now
-                    });
+                        newRules.Add(new UserRuleEntity
+                        {
+                            RuleType = ruleType,
+                            RuleKey = ruleKey,
+                            RuleValue = value,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        });
+                    }
                 }
+
+                // Insert always keep rules
+                AddRules("always_keep", "sender", rules.AlwaysKeep.Senders);
+                AddRules("always_keep", "domain", rules.AlwaysKeep.Domains);
+                AddRules("always_keep", "listid", rules.AlwaysKeep.ListIds);
+
+                // Insert auto trash rules
+                AddRules("auto_trash", "sender", rules.AutoTrash.Senders);
+                AddRules("auto_trash", "domain", rules.AutoTrash.Domains);
+                AddRules("auto_trash", "listid", rules.AutoTrash.ListIds);
+
+                await _context.UserRules.AddRangeAsync(newRules);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
             }
-
-            // Insert always keep rules
-            AddRules("always_keep", "sender", rules.AlwaysKeep.Senders);
-            AddRules("always_keep", "domain", rules.AlwaysKeep.Domains);
-            AddRules("always_keep", "listid", rules.AlwaysKeep.ListIds);
-
-            // Insert auto trash rules
-            AddRules("auto_trash", "sender", rules.AutoTrash.Senders);
-            AddRules("auto_trash", "domain", rules.AutoTrash.Domains);
-            AddRules("auto_trash", "listid", rules.AutoTrash.ListIds);
-
-            await _context.UserRules.AddRangeAsync(newRules);
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
-        catch
+        finally
         {
-            await transaction.RollbackAsync();
-            throw;
+            _databaseLock.Release();
         }
     }
 
@@ -456,6 +498,12 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
 
             _context.Dispose();
             _context = null;
+        }
+
+        // Dispose the semaphore only if we own it (legacy constructor)
+        if (_ownsLock)
+        {
+            _databaseLock?.Dispose();
         }
 
         _disposed = true;

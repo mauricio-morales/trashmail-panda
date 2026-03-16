@@ -439,7 +439,7 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                     };
                     await _context.StorageQuotas.AddAsync(quota, cancellationToken);
                     await _context.SaveChangesAsync(cancellationToken);
-                    
+
                     // Re-fetch to ensure we have the tracked entity
                     quota = await _context.StorageQuotas.FindAsync(new object[] { 1 }, cancellationToken);
                 }
@@ -450,7 +450,7 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
 
                 var connection = _context.Database.GetDbConnection();
                 var wasOpen = connection.State == System.Data.ConnectionState.Open;
-                
+
                 if (!wasOpen)
                     await connection.OpenAsync(cancellationToken);
 
@@ -506,10 +506,10 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                     // Save current quota state before clearing
                     var quotaId = quota!.Id;
                     var quotaLimitBytes = quota.LimitBytes;
-                    
+
                     // Clear change tracker to get fresh counts from database
                     _context.ChangeTracker.Clear();
-                    
+
                     var featureCount = await _context.EmailFeatures.CountAsync(cancellationToken);
                     var archiveCount = await _context.EmailArchives.CountAsync(cancellationToken);
                     var userCorrectedCount = await _context.EmailArchives.CountAsync(a => a.UserCorrected == 1, cancellationToken);
@@ -632,7 +632,7 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
 
             // Use count-based detection for in-memory DBs (when byte data unreliable)
             bool useCountBased = (quota.CurrentBytes == 0 || quota.ArchiveBytes == 0) && quota.ArchiveCount > 0;
-            
+
             double usagePercent;
             if (useCountBased)
             {
@@ -695,11 +695,11 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
 
             // Determine if cleanup is needed and calculate archives to delete
             int archivesToDelete;
-            
+
             // Use count-based cleanup only when both byte metrics are unreliable
             // Use count-based if CurrentBytes OR ArchiveBytes is 0 (unreliable)
             bool useCountBased = (quota.CurrentBytes == 0 || quota.ArchiveBytes == 0) && quota.ArchiveCount > 0;
-            
+
             if (useCountBased)
             {
                 // Count-based cleanup: Calculate target archive count based on limit and target percentage
@@ -713,15 +713,15 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 // Byte-based cleanup: Use actual storage bytes from PRAGMA/dbstat
                 // Only used when both CurrentBytes and ArchiveBytes are reliable (non-zero)
                 var bytesToFree = Math.Max(0, quota.CurrentBytes - targetBytes);
-                
+
                 // Estimate bytes per archive
                 long avgBytesPerArchive = quota.ArchiveCount > 0 && quota.ArchiveBytes > 0
                     ? quota.ArchiveBytes / quota.ArchiveCount
                     : 5120L; // Default 5KB estimate
-                    
+
                 archivesToDelete = (int)Math.Ceiling((double)bytesToFree / avgBytesPerArchive);
             }
-            
+
             // No cleanup needed if archivesToDelete is 0 or negative
             if (archivesToDelete <= 0)
                 return Result<int>.Success(0);
@@ -771,7 +771,7 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
 
                     int correctedDeleted = 0;
                     var remainingToDelete = archivesToDelete - totalDeleted;
-                    
+
                     // SC-004: Respect 95% retention rate for user-corrected emails (delete max 5%)
                     var maxUserCorrectedToDelete = (int)Math.Ceiling(correctedCount * 0.05);
                     var toDeleteFromCorrected = Math.Min(Math.Min(remainingToDelete, correctedCount), maxUserCorrectedToDelete);

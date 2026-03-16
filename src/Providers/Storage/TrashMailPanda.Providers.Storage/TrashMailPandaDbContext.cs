@@ -72,11 +72,6 @@ public class TrashMailPandaDbContext : DbContext
     /// </summary>
     public DbSet<EncryptedCredentialEntity> EncryptedCredentials => Set<EncryptedCredentialEntity>();
 
-    /// <summary>
-    /// Database migration version tracking.
-    /// </summary>
-    public DbSet<SchemaVersionEntity> SchemaVersions => Set<SchemaVersionEntity>();
-
     // ============================================================
     // MODEL CONFIGURATION
     // ============================================================
@@ -226,16 +221,6 @@ public class TrashMailPandaDbContext : DbContext
             entity.Property(e => e.Key).HasMaxLength(255).IsRequired();
             entity.Property(e => e.EncryptedValue).IsRequired();
             entity.Property(e => e.CreatedAt).IsRequired();
-        });
-
-        // SchemaVersionEntity configuration
-        modelBuilder.Entity<SchemaVersionEntity>(entity =>
-        {
-            entity.ToTable("schema_version");
-            entity.HasKey(e => e.Version);
-            entity.Property(e => e.Version).IsRequired();
-            entity.Property(e => e.AppliedAt).IsRequired();
-            entity.Property(e => e.Description).HasMaxLength(500).IsRequired();
         });
     }
 }

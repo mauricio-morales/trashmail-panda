@@ -119,7 +119,7 @@ public class StorageCleanupIntegrationTests : StorageTestBase
 
             // Verify usage decreased after cleanup
             var afterCleanup = await _service.GetStorageUsageAsync();
-            
+
             // Calculate usage percent (handle in-memory DBs where CurrentBytes may be 0)
             double usagePercent;
             if (afterCleanup.Value!.CurrentBytes > 0)
@@ -132,7 +132,7 @@ public class StorageCleanupIntegrationTests : StorageTestBase
                 var estimatedBytes = afterCleanup.Value.ArchiveCount * 5120L;
                 usagePercent = (double)estimatedBytes / afterCleanup.Value.LimitBytes * 100;
             }
-            
+
             Assert.True(usagePercent <= 90, $"Usage should be reduced below 90% after cleanup (actual: {usagePercent:F1}%)");
         }
     }

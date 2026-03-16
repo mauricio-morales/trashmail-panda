@@ -1,7 +1,10 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Threading;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.LLM;
 using TrashMailPanda.Providers.Storage;
@@ -72,8 +75,39 @@ public static class ServiceCollectionExtensions
     /// </summary>
     private static IServiceCollection AddProviders(this IServiceCollection services)
     {
-        // Storage provider can be constructed immediately with default path
-        // but initialization will be deferred until security services are ready
+        // 1. Register singleton semaphore (CRITICAL: shared across ALL storage access)
+        //    This prevents SQLite concurrency violations by serializing database operations
+        services.AddSingleton<SemaphoreSlim>(sp => new SemaphoreSlim(1, 1));
+
+        // 2. Register DbContext with encrypted SQLite connection
+        services.AddDbContext<TrashMailPandaDbContext>((serviceProvider, options) =>
+        {
+            var config = serviceProvider.GetRequiredService<IConfiguration>();
+            var databasePath = config.GetSection("StorageProvider:DatabasePath").Value ?? "./data/app.db";
+            var password = config.GetSection("StorageProvider:Password").Value ?? "TrashMailPanda-DefaultKey";
+
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Password = password
+            }.ToString();
+
+            options.UseSqlite(connectionString);
+        }, ServiceLifetime.Singleton); // Singleton for desktop app - single database instance
+
+        // 3. Register low-level storage repository (uses singleton semaphore)
+        services.AddSingleton<IStorageRepository, SqliteStorageRepository>();
+
+        // 4. Register domain services
+        services.AddSingleton<IEmailArchiveService>(serviceProvider =>
+        {
+            var context = serviceProvider.GetRequiredService<TrashMailPandaDbContext>();
+            var semaphore = serviceProvider.GetRequiredService<SemaphoreSlim>();
+            return new EmailArchiveService(context, semaphore);
+        });
+
+        // 5. Legacy IStorageProvider for backward compatibility
+        //    (will be removed in Phase 4 after all consumers migrate to specific services)
         services.AddSingleton<IStorageProvider>(serviceProvider =>
         {
             var config = serviceProvider.GetRequiredService<IConfiguration>();
