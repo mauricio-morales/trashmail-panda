@@ -17,10 +17,19 @@ namespace TrashMailPanda.Providers.Storage;
 /// SQLite implementation of IStorageProvider with Entity Framework Core and encryption support.
 /// Provides encrypted local storage for all application data.
 /// 
-/// DEPRECATION NOTICE: This class is being phased out in favor of domain-specific services.
-/// See /docs/STORAGE_ARCHITECTURE_REFACTORING.md for migration plan.
-/// Once all consumers migrate to specific domain services, this class will be removed.
+/// ⚠️ DEPRECATED: This class is being phased out in favor of domain-specific services.
+/// 
+/// Migration Guide:
+/// - For user rules → Use IUserRulesService
+/// - For email metadata → Use IEmailMetadataService  
+/// - For classification history → Use IClassificationHistoryService
+/// - For credentials/tokens → Use ICredentialStorageService
+/// - For app configuration → Use IConfigurationService
+/// 
+/// Production code should use StorageProviderAdapter (implements IStorageProvider via domain services).
+/// This class remains for backward compatibility and will be removed in a future version.
 /// </summary>
+[Obsolete("SqliteStorageProvider is deprecated. Use StorageProviderAdapter with domain-specific services instead. See class documentation for migration guide.")]
 public class SqliteStorageProvider : IStorageProvider, IDisposable
 {
     private readonly string _databasePath;

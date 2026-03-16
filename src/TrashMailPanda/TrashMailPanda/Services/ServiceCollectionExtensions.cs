@@ -98,7 +98,14 @@ public static class ServiceCollectionExtensions
         // 3. Register low-level storage repository (uses singleton semaphore)
         services.AddSingleton<IStorageRepository, SqliteStorageRepository>();
 
-        // 4. Register domain services
+        // 4. Register domain services (Phase 3 refactoring - separated concerns)
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IUserRulesService, TrashMailPanda.Providers.Storage.Services.UserRulesService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IEmailMetadataService, TrashMailPanda.Providers.Storage.Services.EmailMetadataService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IClassificationHistoryService, TrashMailPanda.Providers.Storage.Services.ClassificationHistoryService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.ICredentialStorageService, TrashMailPanda.Providers.Storage.Services.CredentialStorageService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IConfigurationService, TrashMailPanda.Providers.Storage.Services.ConfigurationService>();
+
+        // 5. Register EmailArchiveService (ML training data storage)
         services.AddSingleton<IEmailArchiveService>(serviceProvider =>
         {
             var context = serviceProvider.GetRequiredService<TrashMailPandaDbContext>();
@@ -106,15 +113,10 @@ public static class ServiceCollectionExtensions
             return new EmailArchiveService(context, semaphore);
         });
 
-        // 5. Legacy IStorageProvider for backward compatibility
+        // 6. Legacy IStorageProvider for backward compatibility (uses StorageProviderAdapter)
         //    (will be removed in Phase 4 after all consumers migrate to specific services)
-        services.AddSingleton<IStorageProvider>(serviceProvider =>
-        {
-            var config = serviceProvider.GetRequiredService<IConfiguration>();
-            var databasePath = config.GetSection("StorageProvider:DatabasePath").Value ?? "./data/app.db";
-            var password = config.GetSection("StorageProvider:Password").Value ?? "TrashMailPanda-DefaultKey";
-            return new SqliteStorageProvider(databasePath, password);
-        });
+        //    Now delegates to domain services instead of direct database access
+        services.AddSingleton<IStorageProvider, StorageProviderAdapter>();
 
         // Email and LLM providers are NOT registered here
         // They will be created by application services after secrets are captured through UI
