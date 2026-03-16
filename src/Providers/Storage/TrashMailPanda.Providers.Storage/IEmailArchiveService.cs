@@ -25,7 +25,7 @@ public interface IEmailArchiveService
     // ============================================================
     // Feature Vector Storage
     // ============================================================
-    
+
     /// <summary>
     /// Stores a single email feature vector.
     /// </summary>
@@ -36,9 +36,9 @@ public interface IEmailArchiveService
     /// Failure: ValidationError if feature is invalid, StorageError if database operation fails
     /// </returns>
     Task<Result<bool>> StoreFeatureAsync(
-        EmailFeatureVector feature, 
+        EmailFeatureVector feature,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Stores multiple email feature vectors in a single batch transaction.
     /// Optimized for bulk inserts during archive scanning.
@@ -50,9 +50,9 @@ public interface IEmailArchiveService
     /// Failure: ValidationError if any feature is invalid, StorageError if database operation fails
     /// </returns>
     Task<Result<int>> StoreFeaturesBatchAsync(
-        IEnumerable<EmailFeatureVector> features, 
+        IEnumerable<EmailFeatureVector> features,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Retrieves a single feature vector by email ID.
     /// </summary>
@@ -63,9 +63,9 @@ public interface IEmailArchiveService
     /// Failure: StorageError if database operation fails
     /// </returns>
     Task<Result<EmailFeatureVector?>> GetFeatureAsync(
-        string emailId, 
+        string emailId,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Retrieves all feature vectors for ML training.
     /// </summary>
@@ -76,13 +76,13 @@ public interface IEmailArchiveService
     /// Failure: StorageError if database operation fails
     /// </returns>
     Task<Result<IEnumerable<EmailFeatureVector>>> GetAllFeaturesAsync(
-        int? schemaVersion = null, 
+        int? schemaVersion = null,
         CancellationToken cancellationToken = default);
-    
+
     // ============================================================
     // Email Archive Storage
     // ============================================================
-    
+
     /// <summary>
     /// Stores a complete email archive entry.
     /// Subject to storage capacity limits.
@@ -96,9 +96,9 @@ public interface IEmailArchiveService
     ///          StorageError if database operation fails
     /// </returns>
     Task<Result<bool>> StoreArchiveAsync(
-        EmailArchiveEntry archive, 
+        EmailArchiveEntry archive,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Stores multiple email archives in a single batch transaction.
     /// Checks storage capacity before inserting.
@@ -110,9 +110,9 @@ public interface IEmailArchiveService
     /// Failure: ValidationError if any archive is invalid, StorageError if database operation fails
     /// </returns>
     Task<Result<int>> StoreArchivesBatchAsync(
-        IEnumerable<EmailArchiveEntry> archives, 
+        IEnumerable<EmailArchiveEntry> archives,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Retrieves a single email archive by email ID.
     /// </summary>
@@ -123,9 +123,9 @@ public interface IEmailArchiveService
     /// Failure: StorageError if database operation fails
     /// </returns>
     Task<Result<EmailArchiveEntry?>> GetArchiveAsync(
-        string emailId, 
+        string emailId,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Deletes email archive for a specific email ID.
     /// Feature vector is preserved.
@@ -137,13 +137,13 @@ public interface IEmailArchiveService
     /// Failure: StorageError if database operation fails
     /// </returns>
     Task<Result<bool>> DeleteArchiveAsync(
-        string emailId, 
+        string emailId,
         CancellationToken cancellationToken = default);
-    
+
     // ============================================================
     // Storage Monitoring & Quota
     // ============================================================
-    
+
     /// <summary>
     /// Gets current storage usage statistics.
     /// </summary>
@@ -154,7 +154,7 @@ public interface IEmailArchiveService
     /// </returns>
     Task<Result<StorageQuota>> GetStorageUsageAsync(
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Updates the configured storage limit.
     /// </summary>
@@ -165,9 +165,9 @@ public interface IEmailArchiveService
     /// Failure: ValidationError if limit &lt;= 0, StorageError if database operation fails
     /// </returns>
     Task<Result<bool>> UpdateStorageLimitAsync(
-        long limitBytes, 
+        long limitBytes,
         CancellationToken cancellationToken = default);
-    
+
     /// <summary>
     /// Checks if cleanup should be triggered based on current usage.
     /// </summary>
@@ -178,11 +178,11 @@ public interface IEmailArchiveService
     /// </returns>
     Task<Result<bool>> ShouldTriggerCleanupAsync(
         CancellationToken cancellationToken = default);
-    
+
     // ============================================================
     // Automatic Cleanup
     // ============================================================
-    
+
     /// <summary>
     /// Executes automatic cleanup to reduce storage usage.
     /// Removes oldest non-user-corrected email archives first, then user-corrected if needed.
@@ -195,6 +195,6 @@ public interface IEmailArchiveService
     /// Failure: StorageError if database operation fails
     /// </returns>
     Task<Result<int>> ExecuteCleanupAsync(
-        int targetPercent = 80, 
+        int targetPercent = 80,
         CancellationToken cancellationToken = default);
 }

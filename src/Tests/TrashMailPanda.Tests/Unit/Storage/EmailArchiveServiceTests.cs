@@ -469,7 +469,7 @@ public class EmailArchiveServiceTests : IDisposable
         // Arrange
         var feature = CreateTestFeatureVector("archive-1");
         await _service.StoreFeatureAsync(feature);
-        
+
         var archive1 = CreateTestArchive("archive-1");
         await _service.StoreArchiveAsync(archive1);
 
@@ -492,7 +492,7 @@ public class EmailArchiveServiceTests : IDisposable
         // Arrange
         var feature = CreateTestFeatureVector("archive-1");
         await _service.StoreFeatureAsync(feature);
-        
+
         var archive = CreateTestArchive("archive-1");
         await _service.StoreArchiveAsync(archive);
 
@@ -536,7 +536,7 @@ public class EmailArchiveServiceTests : IDisposable
         // Arrange
         var feature = CreateTestFeatureVector("archive-1");
         await _service.StoreFeatureAsync(feature);
-        
+
         var archive = CreateTestArchive("archive-1", threadId: null, bodyHtml: null, snippet: null);
         await _service.StoreArchiveAsync(archive);
 
@@ -558,7 +558,7 @@ public class EmailArchiveServiceTests : IDisposable
         // Arrange
         var feature = CreateTestFeatureVector("archive-1");
         await _service.StoreFeatureAsync(feature);
-        
+
         var archive = CreateTestArchive("archive-1");
         await _service.StoreArchiveAsync(archive);
 
@@ -607,7 +607,7 @@ public class EmailArchiveServiceTests : IDisposable
         await _service.StoreFeatureAsync(feature1);
         await _service.StoreFeatureAsync(feature2);
         await _service.StoreFeatureAsync(feature3);
-        
+
         var archives = new List<EmailArchiveEntry>
         {
             CreateTestArchive("archive-1"),
@@ -683,7 +683,7 @@ public class EmailArchiveServiceTests : IDisposable
             var feature = CreateTestFeatureVector($"archive-{i}");
             await _service.StoreFeatureAsync(feature);
         }
-        
+
         var archives = new List<EmailArchiveEntry>();
         for (int i = 1; i <= 1500; i++)
         {
@@ -732,7 +732,7 @@ public class EmailArchiveServiceTests : IDisposable
     #region Helper Methods
 
     private EmailArchiveEntry CreateTestArchive(
-        string emailId, 
+        string emailId,
         string? threadId = "USE_DEFAULT",
         string bodyText = "Test body content",
         string? bodyHtml = "<p>Test body content</p>",

@@ -66,7 +66,7 @@ public class Migration_001_MLStorageTests : IDisposable
         var hasSenderDomain = await ColumnExistsAsync("email_features", "SenderDomain");
         var hasFeatureSchemaVersion = await ColumnExistsAsync("email_features", "FeatureSchemaVersion");
         var hasExtractedAt = await ColumnExistsAsync("email_features", "ExtractedAt");
-        
+
         Assert.True(hasEmailId, "EmailId column should exist");
         Assert.True(hasSenderDomain, "SenderDomain column should exist");
         Assert.True(hasFeatureSchemaVersion, "FeatureSchemaVersion column should exist");
@@ -89,7 +89,7 @@ public class Migration_001_MLStorageTests : IDisposable
         var hasProviderType = await ColumnExistsAsync("email_archive", "ProviderType");
         var hasBodyText = await ColumnExistsAsync("email_archive", "BodyText");
         var hasBodyHtml = await ColumnExistsAsync("email_archive", "BodyHtml");
-        
+
         Assert.True(hasEmailId, "EmailId column should exist");
         Assert.True(hasProviderType, "ProviderType column should exist");
         Assert.True(hasBodyText, "BodyText column should exist");
@@ -149,7 +149,7 @@ public class Migration_001_MLStorageTests : IDisposable
         var hasFeaturesSchemaVersionIndex = await IndexExistsAsync("idx_features_schema_version");
         var hasFeaturesUserCorrectedIndex = await IndexExistsAsync("idx_features_user_corrected");
         var hasArchiveReceivedDateIndex = await IndexExistsAsync("idx_archive_received_date");
-        
+
         Assert.True(hasFeaturesExtractedAtIndex, "idx_features_extracted_at index should exist");
         Assert.True(hasFeaturesSchemaVersionIndex, "idx_features_schema_version index should exist");
         Assert.True(hasFeaturesUserCorrectedIndex, "idx_features_user_corrected index should exist");
@@ -173,7 +173,7 @@ public class Migration_001_MLStorageTests : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("@tableName", tableName);
-        
+
         var result = await command.ExecuteScalarAsync();
         return Convert.ToInt64(result) > 0;
     }
@@ -183,7 +183,7 @@ public class Migration_001_MLStorageTests : IDisposable
         var sql = $"PRAGMA table_info({tableName})";
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
-        
+
         using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
@@ -200,7 +200,7 @@ public class Migration_001_MLStorageTests : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("@indexName", indexName);
-        
+
         var result = await command.ExecuteScalarAsync();
         return Convert.ToInt64(result) > 0;
     }
@@ -211,7 +211,7 @@ public class Migration_001_MLStorageTests : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("@version", version);
-        
+
         var result = await command.ExecuteScalarAsync();
         return Convert.ToInt64(result) > 0;
     }
@@ -222,7 +222,7 @@ public class Migration_001_MLStorageTests : IDisposable
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("@version", version);
-        
+
         var result = await command.ExecuteScalarAsync();
         return Convert.ToInt32(result);
     }
@@ -232,7 +232,7 @@ public class Migration_001_MLStorageTests : IDisposable
         const string sql = "SELECT COUNT(*) FROM storage_quota WHERE Id=1";
         using var command = _connection.CreateCommand();
         command.CommandText = sql;
-        
+
         var result = await command.ExecuteScalarAsync();
         return Convert.ToInt64(result) > 0;
     }

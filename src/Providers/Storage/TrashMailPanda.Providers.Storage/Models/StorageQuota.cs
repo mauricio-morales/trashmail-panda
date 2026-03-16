@@ -10,6 +10,11 @@ namespace TrashMailPanda.Providers.Storage.Models;
 public class StorageQuota
 {
     /// <summary>
+    /// Default storage limit: 50GB in bytes.
+    /// </summary>
+    public const long DefaultLimitBytes = 53_687_091_200; // 50GB = 50 * 1024^3
+
+    /// <summary>
     /// Primary key (always 1 for single-row table).
     /// </summary>
     [Required]

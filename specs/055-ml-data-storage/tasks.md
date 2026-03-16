@@ -117,34 +117,34 @@
 
 ### Domain Models for User Story 3
 
-- [ ] T040 [P] [US3] Create StorageQuota model with usage metrics in `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/StorageQuota.cs`
-- [ ] T041 [P] [US3] Add DataAnnotations validation to StorageQuota (LimitBytes > 0, CurrentBytes >= 0)
-- [ ] T042 [P] [US3] Unit test for StorageQuota calculation logic in `src/Tests/TrashMailPanda.Tests/Unit/Storage/Models/StorageQuotaTests.cs`
+- [X] T040 [P] [US3] Create StorageQuota model with usage metrics in `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/StorageQuota.cs`
+- [X] T041 [P] [US3] Add DataAnnotations validation to StorageQuota (LimitBytes > 0, CurrentBytes >= 0)
+- [X] T042 [P] [US3] Unit test for StorageQuota calculation logic in `src/Tests/TrashMailPanda.Tests/Unit/Storage/Models/StorageQuotaTests.cs`
 
 ### Storage Monitoring Implementation for User Story 3
 
-- [ ] T043 [US3] Implement GetStorageUsageAsync method using PRAGMA page_count and dbstat per research.md decision R2
-- [ ] T044 [US3] Implement UpdateStorageLimitAsync method with configuration update and validation
-- [ ] T045 [US3] Implement ShouldTriggerCleanupAsync method checking 90% threshold per spec.md FR-005
-- [ ] T046 [US3] Add storage monitoring after batch operations in StoreFeaturesBatchAsync and StoreArchivesBatchAsync
-- [ ] T047 [US3] Add error handling for storage monitoring operations (ValidationError, StorageError)
+- [X] T043 [US3] Implement GetStorageUsageAsync method using PRAGMA page_count and dbstat per research.md decision R2
+- [X] T044 [US3] Implement UpdateStorageLimitAsync method with configuration update and validation
+- [X] T045 [US3] Implement ShouldTriggerCleanupAsync method checking 90% threshold per spec.md FR-005
+- [X] T046 [US3] Add storage monitoring after batch operations in StoreFeaturesBatchAsync and StoreArchivesBatchAsync
+- [X] T047 [US3] Add error handling for storage monitoring operations (ValidationError, StorageError)
 
 ### Automatic Cleanup Implementation for User Story 3
 
-- [ ] T048 [US3] Implement ExecuteCleanupAsync method with two-phase cleanup (DELETE oldest emails, then VACUUM) per research.md decision R3
-- [ ] T049 [US3] Add cleanup target calculation to reduce usage to 80% of limit per IEmailArchiveService contract
-- [ ] T050 [US3] Add batch DELETE logic removing oldest non-user-corrected archives first (1000 row batches)
-- [ ] T051 [US3] Add VACUUM execution after DELETE to reclaim disk space per research.md
+- [X] T048 [US3] Implement ExecuteCleanupAsync method with two-phase cleanup (DELETE oldest emails, then VACUUM) per research.md decision R3
+- [X] T049 [US3] Add cleanup target calculation to reduce usage to 80% of limit per IEmailArchiveService contract
+- [X] T050 [US3] Add batch DELETE logic removing oldest non-user-corrected archives first (1000 row batches)
+- [X] T051 [US3] Add VACUUM execution after DELETE to reclaim disk space per research.md
 
 ### Tests for User Story 3
 
-- [ ] T052 [P] [US3] Unit test for GetStorageUsageAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T053 [P] [US3] Unit test for UpdateStorageLimitAsync validation in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T054 [P] [US3] Unit test for ShouldTriggerCleanupAsync threshold logic in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T055 [P] [US3] Unit test for ExecuteCleanupAsync delete ordering in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T056 [P] [US3] Integration test for automatic cleanup workflow in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
-- [ ] T057 [P] [US3] Integration test for storage limit enforcement in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
-- [ ] T058 [P] [US3] Integration test verifying VACUUM reclaims space in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
+- [X] T052 [P] [US3] Unit test for GetStorageUsageAsync in `src/Tests/TrashMailPanda.Tests/Unit/Storage/StorageMonitoringTests.cs`
+- [X] T053 [P] [US3] Unit test for UpdateStorageLimitAsync validation in `src/Tests/TrashMailPanda.Tests/Unit/Storage/StorageMonitoringTests.cs`
+- [X] T054 [P] [US3] Unit test for ShouldTriggerCleanupAsync threshold logic in `src/Tests/TrashMailPanda.Tests/Unit/Storage/StorageMonitoringTests.cs`
+- [X] T055 [P] [US3] Unit test for ExecuteCleanupAsync delete ordering in `src/Tests/TrashMailPanda.Tests/Unit/Storage/StorageMonitoringTests.cs`
+- [X] T056 [P] [US3] Integration test for automatic cleanup workflow in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
+- [X] T057 [P] [US3] Integration test for storage limit enforcement in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
+- [X] T058 [P] [US3] Integration test verifying VACUUM reclaims space in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
 
 **Checkpoint**: All storage monitoring and automatic cleanup should be operational - storage limits enforced automatically
 
@@ -158,17 +158,17 @@
 
 ### User Correction Implementation for User Story 4
 
-- [ ] T059 [US4] Modify ExecuteCleanupAsync to exclude user-corrected emails from initial DELETE query (UserCorrected = 0 filter)
-- [ ] T060 [US4] Add secondary cleanup phase in ExecuteCleanupAsync for user-corrected emails only if target not met
-- [ ] T061 [US4] Update storage_quota.UserCorrectedCount tracking in batch storage operations
-- [ ] T062 [US4] Add error handling for edge case when all emails are user-corrected and limit reached (log warning, allow temporary limit exceed per spec.md edge cases)
+- [X] T059 [US4] Modify ExecuteCleanupAsync to exclude user-corrected emails from initial DELETE query (UserCorrected = 0 filter)
+- [X] T060 [US4] Add secondary cleanup phase in ExecuteCleanupAsync for user-corrected emails only if target not met
+- [X] T061 [US4] Update storage_quota.UserCorrectedCount tracking in batch storage operations
+- [X] T062 [US4] Add error handling for edge case when all emails are user-corrected and limit reached (log warning, allow temporary limit exceed per spec.md edge cases)
 
 ### Tests for User Story 4
 
-- [ ] T063 [P] [US4] Unit test for cleanup prioritization of non-corrected emails in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T064 [P] [US4] Unit test for user-corrected retention during cleanup in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T065 [P] [US4] Unit test for edge case when only user-corrected emails remain in `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceTests.cs`
-- [ ] T066 [P] [US4] Integration test verifying 95% retention rate for user-corrected emails per spec.md SC-004 in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
+- [X] T063 [P] [US4] Unit test for cleanup prioritization of non-corrected emails in `src/Tests/TrashMailPanda.Tests/Unit/Storage/UserCorrectionPreservationTests.cs`
+- [X] T064 [P] [US4] Unit test for user-corrected retention during cleanup in `src/Tests/TrashMailPanda.Tests/Unit/Storage/UserCorrectionPreservationTests.cs`
+- [X] T065 [P] [US4] Unit test for edge case when only user-corrected emails remain in `src/Tests/TrashMailPanda.Tests/Unit/Storage/UserCorrectionPreservationTests.cs`
+- [X] T066 [P] [US4] Integration test verifying 95% retention rate for user-corrected emails per spec.md SC-004 in `src/Tests/TrashMailPanda.Tests/Integration/Storage/StorageCleanupIntegrationTests.cs`
 
 **Checkpoint**: All user stories should now be independently functional - user corrections are preserved with high priority
 
@@ -178,19 +178,19 @@
 
 **Purpose**: Improvements that affect multiple user stories and final validation
 
-- [ ] T067 [P] Add XML documentation comments to all IEmailArchiveService interface methods
-- [ ] T068 [P] Add XML documentation comments to all domain models (EmailFeatureVector, EmailArchiveEntry, StorageQuota, FeatureSchema)
-- [ ] T069 [P] Verify all methods follow Result pattern with proper error types (no exceptions thrown)
-- [ ] T070 [P] Verify all SQL queries use parameterized statements (no string concatenation)
-- [ ] T071 [P] Add logging for all storage operations (feature stored, archive stored, cleanup executed)
-- [ ] T072 [P] Verify security: no email content in logs, all data encrypted via SQLCipher
-- [ ] T073 [P] Performance validation: feature storage <100ms, batch retrieval 1000 vectors <500ms per plan.md
-- [ ] T074 [P] Run code coverage analysis targeting 95% for Storage provider extension per plan.md
-- [ ] T075 [P] Run `dotnet format --verify-no-changes` for code formatting compliance
-- [ ] T076 Validate quickstart.md code examples against actual implementation
-- [ ] T077 Run all integration tests end-to-end per quickstart.md scenarios
-- [ ] T078 Update CLAUDE.md with EmailArchiveService usage patterns
-- [ ] T079 Create migration guide documenting schema version 5 changes
+- [X] T067 [P] Add XML documentation comments to all IEmailArchiveService interface methods
+- [X] T068 [P] Add XML documentation comments to all domain models (EmailFeatureVector, EmailArchiveEntry, StorageQuota, FeatureSchema)
+- [X] T069 [P] Verify all methods follow Result pattern with proper error types (no exceptions thrown)
+- [X] T070 [P] Verify all SQL queries use parameterized statements (no string concatenation)
+- [X] T071 [P] Add logging for all storage operations (feature stored, archive stored, cleanup executed)
+- [X] T072 [P] Verify security: no email content in logs, all data encrypted via SQLCipher
+- [X] T073 [P] Performance validation: feature storage <100ms, batch retrieval 1000 vectors <500ms per plan.md
+- [X] T074 [P] Run code coverage analysis targeting 95% for Storage provider extension per plan.md
+- [X] T075 [P] Run `dotnet format --verify-no-changes` for code formatting compliance
+- [X] T076 Validate quickstart.md code examples against actual implementation
+- [X] T077 Run all integration tests end-to-end per quickstart.md scenarios
+- [X] T078 Update CLAUDE.md with EmailArchiveService usage patterns
+- [X] T079 Create migration guide documenting schema version 5 changes
 
 ---
 

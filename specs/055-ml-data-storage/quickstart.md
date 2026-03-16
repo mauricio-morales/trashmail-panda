@@ -11,7 +11,7 @@ This guide shows how to use the ML Data Storage system to store email feature ve
 
 - TrashMail Panda project with Storage provider configured
 - Existing SQLite database with SQLCipher encryption
-- Dependency injection configured with `IStorageProvider`
+- Dependency injection configured with `IEmailArchiveService`
 
 ## Basic Usage
 
@@ -21,12 +21,12 @@ This guide shows how to use the ML Data Storage system to store email feature ve
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 
-// Inject the storage provider
+// Inject the email archive service
 public class EmailClassificationService
 {
-    private readonly IStorageProvider _storage;
+    private readonly IEmailArchiveService _storage;
     
-    public EmailClassificationService(IStorageProvider storage)
+    public EmailClassificationService(IEmailArchiveService storage)
     {
         _storage = storage;
     }
@@ -298,7 +298,12 @@ services.AddOptions<StorageConfig>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-services.AddSingleton<IStorageProvider, SqliteStorageProvider>();
+// Register EmailArchiveService with SQLite database connection
+services.AddSingleton<IEmailArchiveService>(sp => 
+{
+    var connection = sp.GetRequiredService<SqliteConnection>();
+    return new EmailArchiveService(connection);
+});
 ```
 
 ## Common Patterns
@@ -337,7 +342,7 @@ public async Task<Result<bool>> ProcessAndStoreEmailAsync(Email email)
 ```csharp
 public class StorageMonitorService : BackgroundService
 {
-    private readonly IStorageProvider _storage;
+    private readonly IEmailArchiveService _storage;
     private readonly ILogger<StorageMonitorService> _logger;
     
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

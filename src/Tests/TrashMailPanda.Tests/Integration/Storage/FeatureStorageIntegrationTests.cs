@@ -30,7 +30,7 @@ public class FeatureStorageIntegrationTests : IDisposable
     {
         _service.Dispose();
         _connection.Dispose();
-        
+
         // Clean up test database
         if (File.Exists(_testDbPath))
             File.Delete(_testDbPath);
@@ -247,7 +247,7 @@ public class FeatureStorageIntegrationTests : IDisposable
             ExtractedAt = feature.ExtractedAt,
             UserCorrected = feature.UserCorrected
         };
-        
+
         await _service.StoreFeatureAsync(feature);
 
         // Act - Update with new values
@@ -295,7 +295,7 @@ public class FeatureStorageIntegrationTests : IDisposable
             ExtractedAt = updatedFeature.ExtractedAt,
             UserCorrected = updatedFeature.UserCorrected
         };
-        
+
         await _service.StoreFeatureAsync(updatedFeature);
 
         // Assert - Should have updated, not created duplicate

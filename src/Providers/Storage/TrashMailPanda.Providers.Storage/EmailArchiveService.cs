@@ -179,7 +179,7 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 for (int i = 0; i < featureList.Count; i += batchSize)
                 {
                     var batch = featureList.Skip(i).Take(batchSize);
-                    
+
                     using var transaction = _connection.BeginTransaction();
                     try
                     {
@@ -187,17 +187,25 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                         {
                             var result = await StoreFeatureSingleAsync(feature, cancellationToken);
                             if (result.IsSuccess)
+                            {
                                 totalStored++;
+                            }
                             else
-                                throw new InvalidOperationException($"Failed to store feature: {result.Error.Message}");
+                            {
+                                // Rollback and return failure immediately on first error
+                                await transaction.RollbackAsync(cancellationToken);
+                                return Result<int>.Failure(new StorageError(
+                                    $"Failed to store feature {feature.EmailId}: {result.Error.Message}"));
+                            }
                         }
 
                         await transaction.CommitAsync(cancellationToken);
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         await transaction.RollbackAsync(cancellationToken);
-                        throw;
+                        return Result<int>.Failure(new StorageError(
+                            $"Transaction failed during batch storage: {ex.Message}"));
                     }
                 }
 
@@ -211,6 +219,12 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         catch (Exception ex)
         {
             return Result<int>.Failure(new StorageError($"Failed to store feature batch", ex.Message, ex));
+        }
+        finally
+        {
+            // T046: Add monitoring hook after successful batch operation (outside lock)
+            // Update storage usage statistics (best-effort, don't fail batch on monitoring error)
+            _ = await GetStorageUsageAsync();
         }
     }
 
@@ -372,13 +386,13 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
 
                 using var command = _connection.CreateCommand();
                 command.CommandText = sql;
-                
+
                 if (schemaVersion.HasValue)
                     command.Parameters.AddWithValue("@schemaVersion", schemaVersion.Value);
 
                 var features = new List<EmailFeatureVector>();
                 using var reader = await command.ExecuteReaderAsync(cancellationToken);
-                
+
                 while (await reader.ReadAsync(cancellationToken))
                 {
                     features.Add(ReadFeatureFromReader(reader));
@@ -578,6 +592,12 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         {
             return Result<int>.Failure(new StorageError("Failed to acquire lock for batch archive storage", ex.Message, ex));
         }
+        finally
+        {
+            // T046: Add monitoring hook after successful batch operation (outside lock)
+            // Update storage usage statistics (best-effort, don't fail batch on monitoring error)
+            _ = await GetStorageUsageAsync();
+        }
     }
 
     /// <summary>
@@ -719,26 +739,269 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
     public async Task<Result<StorageQuota>> GetStorageUsageAsync(
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 5 (User Story 3)
-        await Task.CompletedTask;
-        return Result<StorageQuota>.Failure(new UnsupportedOperationError("Storage monitoring not yet implemented"));
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                // Step 1: Get or create StorageQuota record
+                const string getQuotaSql = "SELECT Id, LimitBytes, CurrentBytes, FeatureBytes, ArchiveBytes, FeatureCount, ArchiveCount, UserCorrectedCount, LastCleanupAt, LastMonitoredAt FROM storage_quota WHERE Id = 1";
+
+                StorageQuota? quota = null;
+                using (var command = _connection.CreateCommand())
+                {
+                    command.CommandText = getQuotaSql;
+                    using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                    if (await reader.ReadAsync(cancellationToken))
+                    {
+                        quota = new StorageQuota
+                        {
+                            Id = reader.GetInt32(0),
+                            LimitBytes = reader.GetInt64(1),
+                            CurrentBytes = reader.GetInt64(2),
+                            FeatureBytes = reader.GetInt64(3),
+                            ArchiveBytes = reader.GetInt64(4),
+                            FeatureCount = reader.GetInt64(5),
+                            ArchiveCount = reader.GetInt64(6),
+                            UserCorrectedCount = reader.GetInt64(7),
+                            LastCleanupAt = reader.IsDBNull(8) ? null : DateTime.Parse(reader.GetString(8)),
+                            LastMonitoredAt = DateTime.Parse(reader.GetString(9))
+                        };
+                    }
+                }
+
+                // If no quota record exists, create default 50GB limit
+                if (quota == null)
+                {
+                    const string createQuotaSql = @"
+                        INSERT INTO storage_quota (Id, LimitBytes, CurrentBytes, FeatureBytes, ArchiveBytes, FeatureCount, ArchiveCount, UserCorrectedCount, LastMonitoredAt)
+                        VALUES (1, @LimitBytes, 0, 0, 0, 0, 0, 0, @Now)";
+
+                    using var createCommand = _connection.CreateCommand();
+                    createCommand.CommandText = createQuotaSql;
+                    createCommand.Parameters.AddWithValue("@LimitBytes", StorageQuota.DefaultLimitBytes);
+                    createCommand.Parameters.AddWithValue("@Now", DateTime.UtcNow.ToString("O"));
+                    await createCommand.ExecuteNonQueryAsync(cancellationToken);
+
+                    quota = new StorageQuota
+                    {
+                        Id = 1,
+                        LimitBytes = StorageQuota.DefaultLimitBytes,
+                        CurrentBytes = 0,
+                        FeatureBytes = 0,
+                        ArchiveBytes = 0,
+                        FeatureCount = 0,
+                        ArchiveCount = 0,
+                        UserCorrectedCount = 0,
+                        LastCleanupAt = null,
+                        LastMonitoredAt = DateTime.UtcNow
+                    };
+                }
+
+                // Step 2: Calculate actual storage usage using PRAGMA page_count
+                long pageCount = 0;
+                long pageSize = 4096; // SQLite default, will verify
+
+                using (var pragmaCommand = _connection.CreateCommand())
+                {
+                    pragmaCommand.CommandText = "PRAGMA page_count";
+                    var pageCountResult = await pragmaCommand.ExecuteScalarAsync(cancellationToken);
+                    if (pageCountResult != null)
+                        pageCount = Convert.ToInt64(pageCountResult);
+
+                    pragmaCommand.CommandText = "PRAGMA page_size";
+                    var pageSizeResult = await pragmaCommand.ExecuteScalarAsync(cancellationToken);
+                    if (pageSizeResult != null)
+                        pageSize = Convert.ToInt64(pageSizeResult);
+                }
+
+                var totalDatabaseBytes = pageCount * pageSize;
+
+                // Step 3: Get per-table sizes using dbstat (if available)
+                long featureBytes = 0;
+                long archiveBytes = 0;
+
+                try
+                {
+                    const string dbstatSql = "SELECT name, SUM(pgsize) FROM dbstat WHERE name IN ('email_features', 'email_archive') GROUP BY name";
+                    using var dbstatCommand = _connection.CreateCommand();
+                    dbstatCommand.CommandText = dbstatSql;
+                    using var dbstatReader = await dbstatCommand.ExecuteReaderAsync(cancellationToken);
+
+                    while (await dbstatReader.ReadAsync(cancellationToken))
+                    {
+                        var tableName = dbstatReader.GetString(0);
+                        var tableSize = dbstatReader.GetInt64(1);
+
+                        if (tableName == "email_features")
+                            featureBytes = tableSize;
+                        else if (tableName == "email_archive")
+                            archiveBytes = tableSize;
+                    }
+                }
+                catch
+                {
+                    // dbstat might not be available in all SQLite builds, fall back to estimates
+                    // Use SUM(length(FeatureJson)) as rough approximation
+                    featureBytes = quota.FeatureBytes; // Keep previous value
+                    archiveBytes = quota.ArchiveBytes;
+                }
+
+                // Step 4: Get record counts
+                long featureCount = 0;
+                long archiveCount = 0;
+                long userCorrectedCount = 0;
+
+                using (var countCommand = _connection.CreateCommand())
+                {
+                    countCommand.CommandText = "SELECT COUNT(*) FROM email_features";
+                    var featureCountResult = await countCommand.ExecuteScalarAsync(cancellationToken);
+                    if (featureCountResult != null)
+                        featureCount = Convert.ToInt64(featureCountResult);
+
+                    countCommand.CommandText = "SELECT COUNT(*) FROM email_archive";
+                    var archiveCountResult = await countCommand.ExecuteScalarAsync(cancellationToken);
+                    if (archiveCountResult != null)
+                        archiveCount = Convert.ToInt64(archiveCountResult);
+
+                    countCommand.CommandText = "SELECT COUNT(*) FROM email_archive WHERE UserCorrected = 1";
+                    var correctedCountResult = await countCommand.ExecuteScalarAsync(cancellationToken);
+                    if (correctedCountResult != null)
+                        userCorrectedCount = Convert.ToInt64(correctedCountResult);
+                }
+
+                // Step 5: Update quota record with fresh data
+                var updatedQuota = new StorageQuota
+                {
+                    Id = 1,
+                    LimitBytes = quota.LimitBytes,
+                    CurrentBytes = totalDatabaseBytes,
+                    FeatureBytes = featureBytes,
+                    ArchiveBytes = archiveBytes,
+                    FeatureCount = featureCount,
+                    ArchiveCount = archiveCount,
+                    UserCorrectedCount = userCorrectedCount,
+                    LastCleanupAt = quota.LastCleanupAt,
+                    LastMonitoredAt = DateTime.UtcNow
+                };
+
+                const string updateSql = @"
+                    UPDATE storage_quota 
+                    SET CurrentBytes = @CurrentBytes,
+                        FeatureBytes = @FeatureBytes,
+                        ArchiveBytes = @ArchiveBytes,
+                        FeatureCount = @FeatureCount,
+                        ArchiveCount = @ArchiveCount,
+                        UserCorrectedCount = @UserCorrectedCount,
+                        LastMonitoredAt = @LastMonitoredAt
+                    WHERE Id = 1";
+
+                using (var updateCommand = _connection.CreateCommand())
+                {
+                    updateCommand.CommandText = updateSql;
+                    updateCommand.Parameters.AddWithValue("@CurrentBytes", updatedQuota.CurrentBytes);
+                    updateCommand.Parameters.AddWithValue("@FeatureBytes", updatedQuota.FeatureBytes);
+                    updateCommand.Parameters.AddWithValue("@ArchiveBytes", updatedQuota.ArchiveBytes);
+                    updateCommand.Parameters.AddWithValue("@FeatureCount", updatedQuota.FeatureCount);
+                    updateCommand.Parameters.AddWithValue("@ArchiveCount", updatedQuota.ArchiveCount);
+                    updateCommand.Parameters.AddWithValue("@UserCorrectedCount", updatedQuota.UserCorrectedCount);
+                    updateCommand.Parameters.AddWithValue("@LastMonitoredAt", updatedQuota.LastMonitoredAt.ToString("O"));
+                    await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                return Result<StorageQuota>.Success(updatedQuota);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<StorageQuota>.Failure(new StorageError("Failed to get storage usage", ex.Message, ex));
+        }
     }
 
     public async Task<Result<bool>> UpdateStorageLimitAsync(
         long limitBytes,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 5 (User Story 3)
-        await Task.CompletedTask;
-        return Result<bool>.Failure(new UnsupportedOperationError("Storage limit update not yet implemented"));
+        if (limitBytes <= 0)
+            return Result<bool>.Failure(new ValidationError("Storage limit must be greater than zero"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                // Ensure quota record exists
+                const string checkSql = "SELECT COUNT(*) FROM storage_quota WHERE Id = 1";
+                using var checkCommand = _connection.CreateCommand();
+                checkCommand.CommandText = checkSql;
+                var exists = Convert.ToInt64(await checkCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+
+                if (!exists)
+                {
+                    // Create default quota record first
+                    const string createSql = @"
+                        INSERT INTO storage_quota (Id, LimitBytes, CurrentBytes, FeatureBytes, ArchiveBytes, FeatureCount, ArchiveCount, UserCorrectedCount, LastMonitoredAt)
+                        VALUES (1, @LimitBytes, 0, 0, 0, 0, 0, 0, @Now)";
+
+                    using var createCommand = _connection.CreateCommand();
+                    createCommand.CommandText = createSql;
+                    createCommand.Parameters.AddWithValue("@LimitBytes", limitBytes);
+                    createCommand.Parameters.AddWithValue("@Now", DateTime.UtcNow.ToString("O"));
+                    await createCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+                else
+                {
+                    // Update existing record
+                    const string updateSql = "UPDATE storage_quota SET LimitBytes = @LimitBytes WHERE Id = 1";
+                    using var updateCommand = _connection.CreateCommand();
+                    updateCommand.CommandText = updateSql;
+                    updateCommand.Parameters.AddWithValue("@LimitBytes", limitBytes);
+                    await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                return Result<bool>.Success(true);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError("Failed to update storage limit", ex.Message, ex));
+        }
     }
 
     public async Task<Result<bool>> ShouldTriggerCleanupAsync(
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 5 (User Story 3)
-        await Task.CompletedTask;
-        return Result<bool>.Failure(new UnsupportedOperationError("Cleanup trigger check not yet implemented"));
+        try
+        {
+            // Get current storage usage
+            var usageResult = await GetStorageUsageAsync(cancellationToken);
+            if (!usageResult.IsSuccess)
+                return Result<bool>.Failure(usageResult.Error);
+
+            var quota = usageResult.Value!;
+
+            // Calculate usage percentage
+            if (quota.LimitBytes == 0)
+                return Result<bool>.Success(false);
+
+            var usagePercent = (double)quota.CurrentBytes / quota.LimitBytes * 100.0;
+
+            // Trigger cleanup if usage >= 90% (per spec.md FR-005)
+            const double cleanupThreshold = 90.0;
+            return Result<bool>.Success(usagePercent >= cleanupThreshold);
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError("Failed to check cleanup trigger", ex.Message, ex));
+        }
     }
 
     // ============================================================
@@ -749,9 +1012,168 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         int targetPercent = 80,
         CancellationToken cancellationToken = default)
     {
-        // TODO: Implement in Phase 5 (User Story 3)
-        await Task.CompletedTask;
-        return Result<int>.Failure(new UnsupportedOperationError("Automatic cleanup not yet implemented"));
+        if (targetPercent <= 0 || targetPercent > 100)
+            return Result<int>.Failure(new ValidationError("Target percent must be between 1 and 100"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                // Step 1: Get current storage usage
+                var usageResult = await GetStorageUsageAsync(cancellationToken);
+                if (!usageResult.IsSuccess)
+                    return Result<int>.Failure(usageResult.Error);
+
+                var quota = usageResult.Value!;
+                var targetBytes = (long)(quota.LimitBytes * (targetPercent / 100.0));
+
+                // If already below target, no cleanup needed
+                if (quota.CurrentBytes <= targetBytes)
+                    return Result<int>.Success(0);
+
+                var bytesToFree = quota.CurrentBytes - targetBytes;
+
+                // Step 2: Determine how many archives to delete
+                // Strategy: Delete oldest non-corrected archives first, then user-corrected if needed
+                // Using batches of 1000 rows per delete operation (per research.md R3)
+
+                int totalDeleted = 0;
+                const int batchSize = 1000;
+
+                // Phase 1: Delete non-corrected archives (UserCorrected = 0)
+                const string countNonCorrectedSql = "SELECT COUNT(*) FROM email_archive WHERE UserCorrected = 0";
+                using var countCommand = _connection.CreateCommand();
+                countCommand.CommandText = countNonCorrectedSql;
+                var nonCorrectedCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
+
+                // Estimate bytes per archive (rough approximation)
+                long avgBytesPerArchive = quota.ArchiveCount > 0
+                    ? quota.ArchiveBytes / quota.ArchiveCount
+                    : 1024; // Default 1KB if no archives
+
+                var archivesToDelete = (int)Math.Ceiling((double)bytesToFree / avgBytesPerArchive);
+
+                // Delete non-corrected archives first (oldest to newest)
+                int nonCorrectedDeleted = 0;
+                if (nonCorrectedCount > 0)
+                {
+                    var toDeleteFromNonCorrected = Math.Min(archivesToDelete, nonCorrectedCount);
+
+                    while (nonCorrectedDeleted < toDeleteFromNonCorrected && !cancellationToken.IsCancellationRequested)
+                    {
+                        var batchToDelete = Math.Min(batchSize, toDeleteFromNonCorrected - nonCorrectedDeleted);
+
+                        const string deleteNonCorrectedSql = @"
+                            DELETE FROM email_archive 
+                            WHERE EmailId IN (
+                                SELECT EmailId 
+                                FROM email_archive 
+                                WHERE UserCorrected = 0 
+                                ORDER BY ArchivedAt ASC 
+                                LIMIT @BatchSize
+                            )";
+
+                        using var deleteCommand = _connection.CreateCommand();
+                        deleteCommand.CommandText = deleteNonCorrectedSql;
+                        deleteCommand.Parameters.AddWithValue("@BatchSize", batchToDelete);
+                        var deleted = await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+                        nonCorrectedDeleted += deleted;
+
+                        if (deleted == 0)
+                            break; // No more records to delete
+                    }
+
+                    totalDeleted += nonCorrectedDeleted;
+                }
+
+                // Phase 2: If still over budget, delete user-corrected archives (oldest first)
+                // Check current usage after Phase 1
+                var currentUsageResult = await GetStorageUsageAsync(cancellationToken);
+                if (!currentUsageResult.IsSuccess)
+                    return Result<int>.Failure(currentUsageResult.Error);
+
+                var currentQuota = currentUsageResult.Value!;
+                if (currentQuota.CurrentBytes > targetBytes)
+                {
+                    var remainingToDelete = archivesToDelete - totalDeleted;
+                    const string countCorrectedSql = "SELECT COUNT(*) FROM email_archive WHERE UserCorrected = 1";
+                    countCommand.CommandText = countCorrectedSql;
+                    var correctedCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken));
+
+                    int correctedDeleted = 0;
+                    var toDeleteFromCorrected = Math.Min(remainingToDelete, correctedCount);
+
+                    while (correctedDeleted < toDeleteFromCorrected && !cancellationToken.IsCancellationRequested)
+                    {
+                        var batchToDelete = Math.Min(batchSize, toDeleteFromCorrected - correctedDeleted);
+
+                        const string deleteCorrectedSql = @"
+                            DELETE FROM email_archive 
+                            WHERE EmailId IN (
+                                SELECT EmailId 
+                                FROM email_archive 
+                                WHERE UserCorrected = 1 
+                                ORDER BY ArchivedAt ASC 
+                                LIMIT @BatchSize
+                            )";
+
+                        using var deleteCommand = _connection.CreateCommand();
+                        deleteCommand.CommandText = deleteCorrectedSql;
+                        deleteCommand.Parameters.AddWithValue("@BatchSize", batchToDelete);
+                        var deleted = await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+                        correctedDeleted += deleted;
+
+                        if (deleted == 0)
+                            break; // No more records to delete
+                    }
+
+                    totalDeleted += correctedDeleted;
+                }
+
+                // T062: Edge case handling - Check if we couldn't meet target due to user-corrected emails
+                var finalUsageCheck = await GetStorageUsageAsync(cancellationToken);
+                if (finalUsageCheck.IsSuccess && finalUsageCheck.Value!.CurrentBytes > targetBytes)
+                {
+                    // Still over target after cleanup - likely all/most emails are user-corrected
+                    // Per spec.md edge cases: log warning and allow temporary limit exceed
+                    var usagePercent = (double)finalUsageCheck.Value.CurrentBytes / finalUsageCheck.Value.LimitBytes * 100;
+
+                    // Log warning (in production, this would use ILogger)
+                    Console.WriteLine($"WARNING: Storage cleanup incomplete - {usagePercent:F1}% usage remains. " +
+                                    $"UserCorrected emails: {finalUsageCheck.Value.UserCorrectedCount}/{finalUsageCheck.Value.ArchiveCount}. " +
+                                    "Consider increasing storage limit or reviewing retention policy.");
+                }
+
+                // Step 3: Execute VACUUM to reclaim disk space (per research.md R3)
+                if (totalDeleted > 0)
+                {
+                    using var vacuumCommand = _connection.CreateCommand();
+                    vacuumCommand.CommandText = "VACUUM";
+                    await vacuumCommand.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                // Step 4: Update LastCleanupAt timestamp
+                const string updateCleanupSql = "UPDATE storage_quota SET LastCleanupAt = @Now WHERE Id = 1";
+                using var updateCommand = _connection.CreateCommand();
+                updateCommand.CommandText = updateCleanupSql;
+                updateCommand.Parameters.AddWithValue("@Now", DateTime.UtcNow.ToString("O"));
+                await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+
+                // Step 5: Refresh storage usage after cleanup
+                await GetStorageUsageAsync(cancellationToken);
+
+                return Result<int>.Success(totalDeleted);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure(new StorageError("Failed to execute cleanup", ex.Message, ex));
+        }
     }
 
     // ============================================================
@@ -780,10 +1202,10 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
             using var command = _connection.CreateCommand();
             command.CommandText = sql;
             var result = await command.ExecuteScalarAsync(cancellationToken);
-            
+
             if (result == null || result == DBNull.Value)
                 return default;
-                
+
             return (T)Convert.ChangeType(result, typeof(T));
         }
         finally
