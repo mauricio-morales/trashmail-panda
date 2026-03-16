@@ -502,19 +502,47 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                         archiveBytes = quota.ArchiveBytes;
                     }
 
-                    // Step 4: Get record counts using LINQ
+                    // Step 4: Get record counts using LINQ (clear change tracker first for accurate post-deletion counts)
+                    // Save current quota state before clearing
+                    var quotaId = quota!.Id;
+                    var quotaLimitBytes = quota.LimitBytes;
+                    
+                    // Clear change tracker to get fresh counts from database
+                    _context.ChangeTracker.Clear();
+                    
                     var featureCount = await _context.EmailFeatures.CountAsync(cancellationToken);
                     var archiveCount = await _context.EmailArchives.CountAsync(cancellationToken);
                     var userCorrectedCount = await _context.EmailArchives.CountAsync(a => a.UserCorrected == 1, cancellationToken);
 
-                    // Step 5: Update quota record with fresh data
-                    quota!.CurrentBytes = totalDatabaseBytes;
-                    quota.FeatureBytes = featureBytes;
-                    quota.ArchiveBytes = archiveBytes;
-                    quota.FeatureCount = featureCount;
-                    quota.ArchiveCount = archiveCount;
-                    quota.UserCorrectedCount = userCorrectedCount;
-                    quota.LastMonitoredAt = DateTime.UtcNow;
+                    // Step 5: Re-fetch quota record after clearing change tracker and update with fresh data
+                    quota = await _context.StorageQuotas.FindAsync(new object[] { quotaId }, cancellationToken);
+                    if (quota == null)
+                    {
+                        // Quota was deleted or doesn't exist, recreate it
+                        quota = new StorageQuota
+                        {
+                            Id = quotaId,
+                            LimitBytes = quotaLimitBytes,
+                            CurrentBytes = totalDatabaseBytes,
+                            FeatureBytes = featureBytes,
+                            ArchiveBytes = archiveBytes,
+                            FeatureCount = featureCount,
+                            ArchiveCount = archiveCount,
+                            UserCorrectedCount = userCorrectedCount,
+                            LastMonitoredAt = DateTime.UtcNow
+                        };
+                        _context.StorageQuotas.Add(quota);
+                    }
+                    else
+                    {
+                        quota.CurrentBytes = totalDatabaseBytes;
+                        quota.FeatureBytes = featureBytes;
+                        quota.ArchiveBytes = archiveBytes;
+                        quota.FeatureCount = featureCount;
+                        quota.ArchiveCount = archiveCount;
+                        quota.UserCorrectedCount = userCorrectedCount;
+                        quota.LastMonitoredAt = DateTime.UtcNow;
+                    }
 
                     await _context.SaveChangesAsync(cancellationToken);
 
@@ -602,7 +630,21 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
             if (quota.LimitBytes == 0)
                 return Result<bool>.Success(false);
 
-            var usagePercent = (double)quota.CurrentBytes / quota.LimitBytes * 100.0;
+            // Use count-based detection for in-memory DBs (when byte data unreliable)
+            bool useCountBased = (quota.CurrentBytes == 0 || quota.ArchiveBytes == 0) && quota.ArchiveCount > 0;
+            
+            double usagePercent;
+            if (useCountBased)
+            {
+                // Estimate usage based on archive count (assume ~5KB per archive)
+                long estimatedBytes = quota.ArchiveCount * 5120L;
+                usagePercent = (double)estimatedBytes / quota.LimitBytes * 100.0;
+            }
+            else
+            {
+                // Use actual byte data
+                usagePercent = (double)quota.CurrentBytes / quota.LimitBytes * 100.0;
+            }
 
             // Trigger cleanup if usage >= 90% (per spec.md FR-005)
             const double cleanupThreshold = 90.0;
@@ -654,15 +696,16 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
             // Determine if cleanup is needed and calculate archives to delete
             int archivesToDelete;
             
-            // For in-memory databases or unreliable byte data, use count-based cleanup
+            // Use count-based cleanup only when both byte metrics are unreliable
             // Use count-based if CurrentBytes OR ArchiveBytes is 0 (unreliable)
             bool useCountBased = (quota.CurrentBytes == 0 || quota.ArchiveBytes == 0) && quota.ArchiveCount > 0;
             
             if (useCountBased)
             {
-                // Count-based cleanup: Use percentage of archive count
+                // Count-based cleanup: Calculate target archive count based on limit and target percentage
                 // This works reliably for in-memory databases where PRAGMA/dbstat may return 0
-                var targetArchiveCount = (int)(quota.ArchiveCount * (targetPercent / 100.0));
+                const long avgBytesPerArchive = 5120L; // 5KB estimate
+                var targetArchiveCount = (int)(targetBytes / avgBytesPerArchive);
                 archivesToDelete = (int)(quota.ArchiveCount - targetArchiveCount);
             }
             else

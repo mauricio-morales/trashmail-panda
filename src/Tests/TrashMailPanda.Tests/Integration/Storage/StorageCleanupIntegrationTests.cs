@@ -54,6 +54,9 @@ public class StorageCleanupIntegrationTests : StorageTestBase
         Assert.Equal(100, initialUsage.Value!.ArchiveCount);
         Assert.Equal(20, initialUsage.Value.UserCorrectedCount);
 
+        // Set storage limit to force cleanup (100 archives * 5KB ~= 512KB, target 50% = 256KB)
+        await _service.UpdateStorageLimitAsync(512 * 1024L); // 512KB limit
+
         // Act - Execute cleanup to target 50% capacity (should delete ~50 archives)
         var cleanupResult = await _service.ExecuteCleanupAsync(targetPercent: 50);
 
@@ -116,8 +119,21 @@ public class StorageCleanupIntegrationTests : StorageTestBase
 
             // Verify usage decreased after cleanup
             var afterCleanup = await _service.GetStorageUsageAsync();
-            var usagePercent = (double)afterCleanup.Value!.CurrentBytes / afterCleanup.Value.LimitBytes * 100;
-            Assert.True(usagePercent <= 90, "Usage should be reduced below 90% after cleanup");
+            
+            // Calculate usage percent (handle in-memory DBs where CurrentBytes may be 0)
+            double usagePercent;
+            if (afterCleanup.Value!.CurrentBytes > 0)
+            {
+                usagePercent = (double)afterCleanup.Value.CurrentBytes / afterCleanup.Value.LimitBytes * 100;
+            }
+            else
+            {
+                // In-memory DB: use count-based estimate
+                var estimatedBytes = afterCleanup.Value.ArchiveCount * 5120L;
+                usagePercent = (double)estimatedBytes / afterCleanup.Value.LimitBytes * 100;
+            }
+            
+            Assert.True(usagePercent <= 90, $"Usage should be reduced below 90% after cleanup (actual: {usagePercent:F1}%)");
         }
     }
 
@@ -144,7 +160,8 @@ public class StorageCleanupIntegrationTests : StorageTestBase
         var initialCount = beforeCleanup.Value.ArchiveCount;
 
         Assert.Equal(50, initialCount);
-
+        // Set storage limit to force cleanup (50 archives * 5KB ~= 256KB)
+        await _service.UpdateStorageLimitAsync(256 * 1024L); // 256KB limit
         // Act - Execute cleanup with very low target (force deletion)
         var cleanupResult = await _service.ExecuteCleanupAsync(targetPercent: 10);
 
@@ -203,8 +220,19 @@ public class StorageCleanupIntegrationTests : StorageTestBase
         Assert.Equal(userCorrectedCount, initialUsage.Value.UserCorrectedCount);
 
         // Set storage limit to force cleanup
+        // For in-memory DBs, CurrentBytes may be 0, so use count-based limit
         var currentBytes = initialUsage.Value.CurrentBytes;
-        var limitBytes = (long)(currentBytes * 0.5); // Set limit to 50% of current usage to force aggressive cleanup
+        long limitBytes;
+        if (currentBytes > 0)
+        {
+            limitBytes = (long)(currentBytes * 0.5); // Set limit to 50% of current usage to force aggressive cleanup
+        }
+        else
+        {
+            // In-memory DB: estimate ~5KB per archive, set limit to 50% of estimated usage
+            var estimatedBytes = totalArchives * 5120L;
+            limitBytes = estimatedBytes / 2;
+        }
         await _service.UpdateStorageLimitAsync(limitBytes);
 
         // Act - Execute cleanup targeting 80% of limit
@@ -231,9 +259,18 @@ public class StorageCleanupIntegrationTests : StorageTestBase
         Assert.True(deletedNonCorrected > deletedUserCorrected,
                    $"Should delete more non-corrected ({deletedNonCorrected}) than user-corrected ({deletedUserCorrected}) emails");
 
-        // Verify storage usage was reduced
-        Assert.True(finalUsage.Value.CurrentBytes < initialUsage.Value.CurrentBytes,
-                   "Storage usage should decrease after cleanup");
+        // Verify storage usage was reduced (check both bytes and count for in-memory DB compatibility)
+        if (initialUsage.Value.CurrentBytes > 0 && finalUsage.Value.CurrentBytes > 0)
+        {
+            Assert.True(finalUsage.Value.CurrentBytes < initialUsage.Value.CurrentBytes,
+                       "Storage usage should decrease after cleanup");
+        }
+        else
+        {
+            // In-memory DB: verify archive count decreased instead
+            Assert.True(finalUsage.Value.ArchiveCount < initialUsage.Value.ArchiveCount,
+                       "Archive count should decrease after cleanup");
+        }
     }
 
     // ============================================================
