@@ -7,7 +7,7 @@ namespace TrashMailPanda.Tests.Unit.Storage.Models;
 [Trait("Category", "Unit")]
 public class EmailArchiveEntryTests
 {
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_ValidModel_PassesValidation()
     {
         // Arrange
@@ -26,7 +26,7 @@ public class EmailArchiveEntryTests
         Assert.Empty(validationResults);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_MissingEmailId_FailsValidation()
     {
         // Arrange
@@ -60,7 +60,7 @@ public class EmailArchiveEntryTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("EmailId"));
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_MissingProviderType_FailsValidation()
     {
         // Arrange
@@ -94,7 +94,7 @@ public class EmailArchiveEntryTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("ProviderType"));
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_InvalidSizeEstimate_FailsValidation()
     {
         // Arrange
@@ -128,7 +128,7 @@ public class EmailArchiveEntryTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("SizeEstimate"));
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_WithBodyText_PassesValidation()
     {
         // Arrange - BodyText provided, BodyHtml null
@@ -161,7 +161,7 @@ public class EmailArchiveEntryTests
         Assert.True(isValid);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_WithBodyHtml_PassesValidation()
     {
         // Arrange - BodyHtml provided, BodyText null
@@ -194,7 +194,7 @@ public class EmailArchiveEntryTests
         Assert.True(isValid);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_WithBothBodyTextAndHtml_PassesValidation()
     {
         // Arrange - Both BodyText and BodyHtml provided
@@ -227,7 +227,7 @@ public class EmailArchiveEntryTests
         Assert.True(isValid);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_NullableFieldsCanBeNull()
     {
         // Arrange - ThreadId, Snippet, and one body field can be null
@@ -260,7 +260,7 @@ public class EmailArchiveEntryTests
         Assert.True(isValid);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void EmailArchiveEntry_InvalidUserCorrectedValue_FailsValidation()
     {
         // Arrange

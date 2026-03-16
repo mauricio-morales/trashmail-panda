@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using Xunit;
@@ -9,113 +8,26 @@ namespace TrashMailPanda.Tests.Integration.Storage;
 /// Integration tests for storage cleanup and limit enforcement.
 /// Tests automatic cleanup, VACUUM space reclamation, and storage limit enforcement.
 /// </summary>
-public class StorageCleanupIntegrationTests : IDisposable
+public class StorageCleanupIntegrationTests : StorageTestBase
 {
-    private readonly SqliteConnection _connection;
     private readonly EmailArchiveService _service;
-    private readonly string _tempDbPath;
 
-    public StorageCleanupIntegrationTests()
+    public StorageCleanupIntegrationTests() : base()
     {
-        _tempDbPath = Path.Combine(Path.GetTempPath(), $"test_cleanup_{Guid.NewGuid()}.db");
-        _connection = new SqliteConnection($"Data Source={_tempDbPath}");
-        _connection.Open();
-        InitializeDatabase();
-        _service = new EmailArchiveService(_connection);
+        _service = new EmailArchiveService(_context);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _service.Dispose();
-        _connection.Dispose();
-        if (File.Exists(_tempDbPath))
-            File.Delete(_tempDbPath);
-    }
-
-    private void InitializeDatabase()
-    {
-        using var command = _connection.CreateCommand();
-        command.CommandText = @"
-            CREATE TABLE email_features (
-                EmailId TEXT PRIMARY KEY,
-                SenderDomain TEXT NOT NULL,
-                SenderKnown INTEGER NOT NULL,
-                ContactStrength INTEGER NOT NULL,
-                SpfResult TEXT NOT NULL,
-                DkimResult TEXT NOT NULL,
-                DmarcResult TEXT NOT NULL,
-                HasListUnsubscribe INTEGER NOT NULL,
-                HasAttachments INTEGER NOT NULL,
-                HourReceived INTEGER NOT NULL,
-                DayOfWeek INTEGER NOT NULL,
-                EmailSizeLog REAL NOT NULL,
-                SubjectLength INTEGER NOT NULL,
-                RecipientCount INTEGER NOT NULL,
-                IsReply INTEGER NOT NULL,
-                InUserWhitelist INTEGER NOT NULL,
-                InUserBlacklist INTEGER NOT NULL,
-                LabelCount INTEGER NOT NULL,
-                LinkCount INTEGER NOT NULL,
-                ImageCount INTEGER NOT NULL,
-                HasTrackingPixel INTEGER NOT NULL,
-                UnsubscribeLinkInBody INTEGER NOT NULL,
-                EmailAgeDays INTEGER NOT NULL,
-                IsInInbox INTEGER NOT NULL,
-                IsStarred INTEGER NOT NULL,
-                IsImportant INTEGER NOT NULL,
-                WasInTrash INTEGER NOT NULL,
-                WasInSpam INTEGER NOT NULL,
-                IsArchived INTEGER NOT NULL,
-                ThreadMessageCount INTEGER NOT NULL,
-                SenderFrequency INTEGER NOT NULL,
-                SubjectText TEXT,
-                BodyTextShort TEXT,
-                TopicClusterId INTEGER,
-                TopicDistributionJson TEXT,
-                SenderCategory TEXT,
-                SemanticEmbeddingJson TEXT,
-                FeatureSchemaVersion INTEGER NOT NULL,
-                ExtractedAt TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE email_archive (
-                EmailId TEXT PRIMARY KEY,
-                ThreadId TEXT,
-                ProviderType TEXT NOT NULL,
-                HeadersJson TEXT NOT NULL,
-                BodyText TEXT,
-                BodyHtml TEXT,
-                FolderTagsJson TEXT NOT NULL,
-                SizeEstimate INTEGER NOT NULL,
-                ReceivedDate TEXT NOT NULL,
-                ArchivedAt TEXT NOT NULL,
-                Snippet TEXT,
-                SourceFolder TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (EmailId) REFERENCES email_features(EmailId) ON DELETE CASCADE
-            );
-
-            CREATE TABLE storage_quota (
-                Id INTEGER PRIMARY KEY CHECK (Id = 1),
-                LimitBytes INTEGER NOT NULL CHECK (LimitBytes > 0),
-                CurrentBytes INTEGER NOT NULL CHECK (CurrentBytes >= 0),
-                FeatureBytes INTEGER NOT NULL CHECK (FeatureBytes >= 0),
-                ArchiveBytes INTEGER NOT NULL CHECK (ArchiveBytes >= 0),
-                FeatureCount INTEGER NOT NULL CHECK (FeatureCount >= 0),
-                ArchiveCount INTEGER NOT NULL CHECK (ArchiveCount >= 0),
-                UserCorrectedCount INTEGER NOT NULL CHECK (UserCorrectedCount >= 0),
-                LastCleanupAt TEXT,
-                LastMonitoredAt TEXT NOT NULL
-            );";
-        command.ExecuteNonQuery();
+        base.Dispose();
     }
 
     // ============================================================
     // T056: Integration test for automatic cleanup workflow
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task AutomaticCleanup_RemovesOldestNonCorrectedArchives_MaintainsUserCorrected()
     {
         // Arrange - Create 100 archives: 80 non-corrected (old), 20 user-corrected (old)
@@ -171,7 +83,7 @@ public class StorageCleanupIntegrationTests : IDisposable
     // T057: Integration test for storage limit enforcement
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StorageLimit_TriggersCleanup_WhenExceeding90Percent()
     {
         // Arrange - Set a very low storage limit
@@ -213,7 +125,7 @@ public class StorageCleanupIntegrationTests : IDisposable
     // T058: Integration test verifying VACUUM reclaims space
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task Cleanup_ExecutesVACUUM_ReclaimsSpace()
     {
         // Arrange - Create 50 archives
@@ -256,7 +168,7 @@ public class StorageCleanupIntegrationTests : IDisposable
     // T066: Integration test verifying 95% retention rate for user-corrected emails (SC-004)
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task Cleanup_Maintains95PercentRetention_ForUserCorrectedEmails()
     {
         // Arrange - Create 1000 archives (500 non-corrected, 500 user-corrected)

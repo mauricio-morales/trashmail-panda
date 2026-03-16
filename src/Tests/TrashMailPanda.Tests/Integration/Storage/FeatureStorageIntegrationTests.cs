@@ -1,42 +1,26 @@
-using Microsoft.Data.Sqlite;
 using TrashMailPanda.Providers.Storage;
-using TrashMailPanda.Providers.Storage.Migrations;
 using TrashMailPanda.Providers.Storage.Models;
 using Xunit;
 
 namespace TrashMailPanda.Tests.Integration.Storage;
 
 [Trait("Category", "Integration")]
-public class FeatureStorageIntegrationTests : IDisposable
+public class FeatureStorageIntegrationTests : StorageTestBase
 {
-    private readonly SqliteConnection _connection;
     private readonly EmailArchiveService _service;
-    private readonly string _testDbPath;
 
-    public FeatureStorageIntegrationTests()
+    public FeatureStorageIntegrationTests() : base()
     {
-        // Create test database file
-        _testDbPath = Path.Combine(Path.GetTempPath(), $"test-features-{Guid.NewGuid()}.db");
-        _connection = new SqliteConnection($"Data Source={_testDbPath}");
-        _connection.Open();
-
-        // Apply migration to create schema
-        Migration_001_MLStorage.ApplyAsync(_connection).Wait();
-
-        _service = new EmailArchiveService(_connection);
+        _service = new EmailArchiveService(_context);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _service.Dispose();
-        _connection.Dispose();
-
-        // Clean up test database
-        if (File.Exists(_testDbPath))
-            File.Delete(_testDbPath);
+        base.Dispose();
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task FeatureStorage_EndToEndWorkflow_SuccessfullyStoresAndRetrieves()
     {
         // Arrange
@@ -80,7 +64,7 @@ public class FeatureStorageIntegrationTests : IDisposable
         Assert.Contains(featureList, f => f.EmailId == "workflow-3");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task FeatureStorage_BatchStorage_HandlesLargeBatchCorrectly()
     {
         // Arrange - Create 500 features (one full batch)
@@ -103,7 +87,7 @@ public class FeatureStorageIntegrationTests : IDisposable
         Assert.Equal(500, allFeatures.Value.Count());
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task FeatureStorage_FeaturePersistsAfterArchiveDeletion_VerifiesIndependentStorage()
     {
         // Arrange - Create feature
@@ -169,7 +153,7 @@ public class FeatureStorageIntegrationTests : IDisposable
         Assert.Equal("example.com", retrievedAfter.Value.SenderDomain);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task FeatureStorage_SchemaVersionFilter_ReturnsCorrectSubset()
     {
         // Arrange - Create features with different schema versions
@@ -199,7 +183,7 @@ public class FeatureStorageIntegrationTests : IDisposable
         Assert.Equal(3, allFeatures.Value.Count());
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task FeatureStorage_UpsertBehavior_UpdatesExistingFeature()
     {
         // Arrange - Store initial feature

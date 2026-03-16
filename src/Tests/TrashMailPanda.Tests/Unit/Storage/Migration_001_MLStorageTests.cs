@@ -38,7 +38,7 @@ public class Migration_001_MLStorageTests : IDisposable
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_CreatesSchemaVersionTable()
     {
@@ -50,7 +50,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.True(tableExists, "schema_version table should be created");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_CreatesEmailFeaturesTable()
     {
@@ -73,7 +73,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.True(hasExtractedAt, "ExtractedAt column should exist");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_CreatesEmailArchiveTable()
     {
@@ -96,7 +96,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.True(hasBodyHtml, "BodyHtml column should exist");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_CreatesStorageQuotaTable()
     {
@@ -112,7 +112,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.True(hasDefaultRow, "Default storage quota row should be initialized");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_RecordsMigrationVersion()
     {
@@ -124,7 +124,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.True(versionRecorded, $"Migration version {Migration_001_MLStorage.Version} should be recorded");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_IsIdempotent()
     {
@@ -137,7 +137,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.Equal(1, versionCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_CreatesRequiredIndexes()
     {
@@ -156,7 +156,7 @@ public class Migration_001_MLStorageTests : IDisposable
         Assert.True(hasArchiveReceivedDateIndex, "idx_archive_received_date index should exist");
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     [Trait("Category", "Unit")]
     public async Task ApplyAsync_ThrowsOnNullConnection()
     {

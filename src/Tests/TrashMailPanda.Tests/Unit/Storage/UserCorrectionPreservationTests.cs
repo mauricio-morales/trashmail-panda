@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using Xunit;
@@ -9,109 +8,26 @@ namespace TrashMailPanda.Tests.Unit.Storage;
 /// Tests for user correction preservation during cleanup operations.
 /// Validates cleanup prioritization, retention rates, and edge case handling.
 /// </summary>
-public class UserCorrectionPreservationTests : IDisposable
+public class UserCorrectionPreservationTests : StorageTestBase
 {
-    private readonly SqliteConnection _connection;
     private readonly EmailArchiveService _service;
 
-    public UserCorrectionPreservationTests()
+    public UserCorrectionPreservationTests() : base()
     {
-        _connection = new SqliteConnection("Data Source=:memory:");
-        _connection.Open();
-        InitializeTestSchema();
-        _service = new EmailArchiveService(_connection);
+        _service = new EmailArchiveService(_context);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _service.Dispose();
-        _connection.Dispose();
-    }
-
-    private void InitializeTestSchema()
-    {
-        using var command = _connection.CreateCommand();
-        command.CommandText = @"
-            CREATE TABLE email_features (
-                EmailId TEXT PRIMARY KEY,
-                SenderDomain TEXT NOT NULL,
-                SenderKnown INTEGER NOT NULL,
-                ContactStrength INTEGER NOT NULL,
-                SpfResult TEXT NOT NULL,
-                DkimResult TEXT NOT NULL,
-                DmarcResult TEXT NOT NULL,
-                HasListUnsubscribe INTEGER NOT NULL,
-                HasAttachments INTEGER NOT NULL,
-                HourReceived INTEGER NOT NULL,
-                DayOfWeek INTEGER NOT NULL,
-                EmailSizeLog REAL NOT NULL,
-                SubjectLength INTEGER NOT NULL,
-                RecipientCount INTEGER NOT NULL,
-                IsReply INTEGER NOT NULL,
-                InUserWhitelist INTEGER NOT NULL,
-                InUserBlacklist INTEGER NOT NULL,
-                LabelCount INTEGER NOT NULL,
-                LinkCount INTEGER NOT NULL,
-                ImageCount INTEGER NOT NULL,
-                HasTrackingPixel INTEGER NOT NULL,
-                UnsubscribeLinkInBody INTEGER NOT NULL,
-                EmailAgeDays INTEGER NOT NULL,
-                IsInInbox INTEGER NOT NULL,
-                IsStarred INTEGER NOT NULL,
-                IsImportant INTEGER NOT NULL,
-                WasInTrash INTEGER NOT NULL,
-                WasInSpam INTEGER NOT NULL,
-                IsArchived INTEGER NOT NULL,
-                ThreadMessageCount INTEGER NOT NULL,
-                SenderFrequency INTEGER NOT NULL,
-                SubjectText TEXT,
-                BodyTextShort TEXT,
-                TopicClusterId INTEGER,
-                TopicDistributionJson TEXT,
-                SenderCategory TEXT,
-                SemanticEmbeddingJson TEXT,
-                FeatureSchemaVersion INTEGER NOT NULL,
-                ExtractedAt TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE email_archive (
-                EmailId TEXT PRIMARY KEY,
-                ThreadId TEXT,
-                ProviderType TEXT NOT NULL,
-                HeadersJson TEXT NOT NULL,
-                BodyText TEXT,
-                BodyHtml TEXT,
-                FolderTagsJson TEXT NOT NULL,
-                SizeEstimate INTEGER NOT NULL,
-                ReceivedDate TEXT NOT NULL,
-                ArchivedAt TEXT NOT NULL,
-                Snippet TEXT,
-                SourceFolder TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (EmailId) REFERENCES email_features(EmailId) ON DELETE CASCADE
-            );
-
-            CREATE TABLE storage_quota (
-                Id INTEGER PRIMARY KEY CHECK (Id = 1),
-                LimitBytes INTEGER NOT NULL CHECK (LimitBytes > 0),
-                CurrentBytes INTEGER NOT NULL CHECK (CurrentBytes >= 0),
-                FeatureBytes INTEGER NOT NULL CHECK (FeatureBytes >= 0),
-                ArchiveBytes INTEGER NOT NULL CHECK (ArchiveBytes >= 0),
-                FeatureCount INTEGER NOT NULL CHECK (FeatureCount >= 0),
-                ArchiveCount INTEGER NOT NULL CHECK (ArchiveCount >= 0),
-                UserCorrectedCount INTEGER NOT NULL CHECK (UserCorrectedCount >= 0),
-                LastCleanupAt TEXT,
-                LastMonitoredAt TEXT NOT NULL
-            );";
-        command.ExecuteNonQuery();
+        base.Dispose();
     }
 
     // ============================================================
     // T063: Unit test for cleanup prioritization of non-corrected emails
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task Cleanup_DeletesNonCorrectedFirst_PreservesUserCorrected()
     {
         // Arrange - Create 10 non-corrected and 5 user-corrected archives
@@ -165,7 +81,7 @@ public class UserCorrectionPreservationTests : IDisposable
     // T064: Unit test for user-corrected retention during cleanup
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task Cleanup_RetainsUserCorrected_WhenNonCorrectedAvailable()
     {
         // Arrange - Create many non-corrected and few user-corrected
@@ -213,7 +129,7 @@ public class UserCorrectionPreservationTests : IDisposable
     // T065: Unit test for edge case when only user-corrected emails remain
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task Cleanup_HandlesAllUserCorrectedCase_AllowsTemporaryExceed()
     {
         // Arrange - Create ONLY user-corrected archives

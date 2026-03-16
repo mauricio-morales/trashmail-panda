@@ -9,7 +9,7 @@ namespace TrashMailPanda.Tests.Unit.Storage.Models;
 [Trait("Category", "Unit")]
 public class StorageQuotaTests
 {
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_ValidQuota_PassesValidation()
     {
         // Arrange
@@ -36,7 +36,7 @@ public class StorageQuotaTests
         Assert.Empty(validationResults);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_LimitBytesZero_FailsValidation()
     {
         // Arrange
@@ -63,7 +63,7 @@ public class StorageQuotaTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("LimitBytes"));
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_NegativeCurrentBytes_FailsValidation()
     {
         // Arrange
@@ -90,7 +90,7 @@ public class StorageQuotaTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("CurrentBytes"));
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_IdNotEqualToOne_FailsValidation()
     {
         // Arrange
@@ -117,7 +117,7 @@ public class StorageQuotaTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("Id"));
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_NullLastCleanupAt_IsValid()
     {
         // Arrange
@@ -144,7 +144,7 @@ public class StorageQuotaTests
         Assert.Null(quota.LastCleanupAt);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_UsageCalculation_MatchesComponentSum()
     {
         // Arrange
@@ -171,7 +171,7 @@ public class StorageQuotaTests
         Assert.Equal(10L * 1024 * 1024 * 1024, quota.CurrentBytes);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_UsagePercentage_CalculatesCorrectly()
     {
         // Arrange
@@ -199,7 +199,7 @@ public class StorageQuotaTests
         Assert.Equal(90.0, usagePercentage, 2);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_DefaultLimit_Is50GB()
     {
         // Arrange
@@ -223,7 +223,7 @@ public class StorageQuotaTests
         Assert.Equal(53_687_091_200, quota.LimitBytes); // Exactly 50GB
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public void StorageQuota_CountFields_TrackCorrectMetrics()
     {
         // Arrange

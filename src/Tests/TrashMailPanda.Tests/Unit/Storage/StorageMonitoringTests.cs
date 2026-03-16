@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using Xunit;
@@ -9,109 +8,26 @@ namespace TrashMailPanda.Tests.Unit.Storage;
 /// Unit tests for storage monitoring and cleanup functionality.
 /// Tests GetStorageUsageAsync, UpdateStorageLimitAsync, ShouldTriggerCleanupAsync, and ExecuteCleanupAsync.
 /// </summary>
-public class StorageMonitoringTests : IDisposable
+public class StorageMonitoringTests : StorageTestBase
 {
-    private readonly SqliteConnection _connection;
     private readonly EmailArchiveService _service;
 
-    public StorageMonitoringTests()
+    public StorageMonitoringTests() : base()
     {
-        _connection = new SqliteConnection("Data Source=:memory:");
-        _connection.Open();
-        InitializeTestSchema();
-        _service = new EmailArchiveService(_connection);
+        _service = new EmailArchiveService(_context);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _service.Dispose();
-        _connection.Dispose();
-    }
-
-    private void InitializeTestSchema()
-    {
-        using var command = _connection.CreateCommand();
-        command.CommandText = @"
-            CREATE TABLE email_features (
-                EmailId TEXT PRIMARY KEY,
-                SenderDomain TEXT NOT NULL,
-                SenderKnown INTEGER NOT NULL,
-                ContactStrength REAL NOT NULL,
-                SpfResult INTEGER NOT NULL,
-                DkimResult INTEGER NOT NULL,
-                DmarcResult INTEGER NOT NULL,
-                HasListUnsubscribe INTEGER NOT NULL,
-                HasAttachments INTEGER NOT NULL,
-                HourReceived INTEGER NOT NULL,
-                DayOfWeek INTEGER NOT NULL,
-                EmailSizeLog REAL NOT NULL,
-                SubjectLength INTEGER NOT NULL,
-                RecipientCount INTEGER NOT NULL,
-                IsReply INTEGER NOT NULL,
-                InUserWhitelist INTEGER NOT NULL,
-                InUserBlacklist INTEGER NOT NULL,
-                LabelCount INTEGER NOT NULL,
-                LinkCount INTEGER NOT NULL,
-                ImageCount INTEGER NOT NULL,
-                HasTrackingPixel INTEGER NOT NULL,
-                UnsubscribeLinkInBody INTEGER NOT NULL,
-                EmailAgeDays REAL NOT NULL,
-                IsInInbox INTEGER NOT NULL,
-                IsStarred INTEGER NOT NULL,
-                IsImportant INTEGER NOT NULL,
-                WasInTrash INTEGER NOT NULL,
-                WasInSpam INTEGER NOT NULL,
-                IsArchived INTEGER NOT NULL,
-                ThreadMessageCount INTEGER NOT NULL,
-                SenderFrequency REAL NOT NULL,
-                SubjectText TEXT,
-                BodyTextShort TEXT,
-                TopicClusterId INTEGER,
-                TopicDistributionJson TEXT,
-                SenderCategory TEXT,
-                SemanticEmbeddingJson TEXT,
-                FeatureSchemaVersion INTEGER NOT NULL,
-                ExtractedAt TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE email_archive (
-                EmailId TEXT PRIMARY KEY,
-                ThreadId TEXT,
-                ProviderType TEXT NOT NULL,
-                HeadersJson TEXT NOT NULL,
-                BodyText TEXT,
-                BodyHtml TEXT,
-                FolderTagsJson TEXT NOT NULL,
-                SizeEstimate INTEGER NOT NULL,
-                ReceivedDate TEXT NOT NULL,
-                ArchivedAt TEXT NOT NULL,
-                Snippet TEXT,
-                SourceFolder TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (EmailId) REFERENCES email_features(EmailId) ON DELETE CASCADE
-            );
-
-            CREATE TABLE storage_quota (
-                Id INTEGER PRIMARY KEY CHECK (Id = 1),
-                LimitBytes INTEGER NOT NULL CHECK (LimitBytes > 0),
-                CurrentBytes INTEGER NOT NULL CHECK (CurrentBytes >= 0),
-                FeatureBytes INTEGER NOT NULL CHECK (FeatureBytes >= 0),
-                ArchiveBytes INTEGER NOT NULL CHECK (ArchiveBytes >= 0),
-                FeatureCount INTEGER NOT NULL CHECK (FeatureCount >= 0),
-                ArchiveCount INTEGER NOT NULL CHECK (ArchiveCount >= 0),
-                UserCorrectedCount INTEGER NOT NULL CHECK (UserCorrectedCount >= 0),
-                LastCleanupAt TEXT,
-                LastMonitoredAt TEXT NOT NULL
-            );";
-        command.ExecuteNonQuery();
+        base.Dispose();
     }
 
     // ============================================================
     // GetStorageUsageAsync Tests
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetStorageUsageAsync_CreatesDefaultQuota_WhenNoQuotaExists()
     {
         // Act
@@ -126,7 +42,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.Equal(0, result.Value.ArchiveCount);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetStorageUsageAsync_UpdatesUsageStatistics_WithRealData()
     {
         // Arrange - Store some features and archives
@@ -150,7 +66,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.True(result.Value.CurrentBytes > 0); // Database has actual size
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetStorageUsageAsync_UpdatesLastMonitoredAt_OnEachCall()
     {
         // Arrange
@@ -172,7 +88,7 @@ public class StorageMonitoringTests : IDisposable
     // UpdateStorageLimitAsync Tests
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task UpdateStorageLimitAsync_RejectsZeroLimit()
     {
         // Act
@@ -183,7 +99,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.Contains("greater than zero", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task UpdateStorageLimitAsync_RejectsNegativeLimit()
     {
         // Act
@@ -194,7 +110,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.Contains("greater than zero", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task UpdateStorageLimitAsync_CreatesQuotaRecord_WhenNotExists()
     {
         // Arrange
@@ -210,7 +126,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.Equal(newLimit, usageResult.Value!.LimitBytes);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task UpdateStorageLimitAsync_UpdatesExistingQuota()
     {
         // Arrange - Create initial quota
@@ -231,7 +147,7 @@ public class StorageMonitoringTests : IDisposable
     // ShouldTriggerCleanupAsync Tests
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task ShouldTriggerCleanupAsync_ReturnsFalse_WhenWellBelowThreshold()
     {
         // Arrange - Set high limit, add small data
@@ -247,7 +163,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.False(result.Value); // Should not trigger cleanup
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task ShouldTriggerCleanupAsync_ReturnsTrue_WhenAt90Percent()
     {
         // This test is challenging in unit tests because we need actual database size.
@@ -270,7 +186,7 @@ public class StorageMonitoringTests : IDisposable
     // ExecuteCleanupAsync Tests
     // ============================================================
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task ExecuteCleanupAsync_RejectsInvalidTargetPercent()
     {
         // Act
@@ -281,7 +197,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.Contains("between 1 and 100", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task ExecuteCleanupAsync_DeletesOldestArchives_NonCorrectedFirst()
     {
         // Arrange - Create features and archives with different timestamps and corrected status
@@ -321,7 +237,7 @@ public class StorageMonitoringTests : IDisposable
         // This test mainly verifies the method executes without error
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task ExecuteCleanupAsync_UpdatesLastCleanupAt()
     {
         // Arrange
@@ -337,7 +253,7 @@ public class StorageMonitoringTests : IDisposable
         Assert.NotNull(afterCleanup.Value!.LastCleanupAt);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task ExecuteCleanupAsync_NoCleanup_WhenBelowTargetPercent()
     {
         // Arrange - Low usage scenario

@@ -442,16 +442,13 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 }
 
                 // Step 2: Calculate actual storage usage using PRAGMA page_count
-                var pageCountResult = await _context.Database.ExecuteSqlRawAsync("PRAGMA page_count", cancellationToken);
-                var pageSizeResult = await _context.Database.ExecuteSqlRawAsync("PRAGMA page_size", cancellationToken);
-
-                // Use raw SQL to get scalar values
                 long pageCount = 0;
                 long pageSize = 4096; // Default
 
                 using (var connection = _context.Database.GetDbConnection())
                 {
-                    await connection.OpenAsync(cancellationToken);
+                    if (connection.State != System.Data.ConnectionState.Open)
+                        await connection.OpenAsync(cancellationToken);
 
                     using (var command = connection.CreateCommand())
                     {
