@@ -506,6 +506,154 @@ Key tables/entities:
 - `encrypted_tokens` - OAuth tokens and API keys
 - `config` - Application configuration
 
+**ML Data Storage (Schema Version 5)**:
+
+- `email_features` - 38-feature vectors for ML training (never auto-deleted)
+- `email_archive` - Complete email content for compliance (subject to cleanup)
+- `storage_quota` - Storage usage tracking and cleanup management
+
+### EmailArchiveService Usage Patterns
+
+**IMPORTANT**: For ML data storage, use `IEmailArchiveService` (not IStorageProvider).
+
+#### Basic Feature Storage
+
+```csharp
+// Inject IEmailArchiveService
+public class EmailProcessor
+{
+    private readonly IEmailArchiveService _archiveService;
+    
+    public EmailProcessor(IEmailArchiveService archiveService)
+    {
+        _archiveService = archiveService;
+    }
+    
+    // Store single feature vector
+    public async Task<Result<bool>> ProcessEmailAsync(Email email)
+    {
+        var feature = new EmailFeatureVector
+        {
+            EmailId = email.Id,
+            SenderDomain = ExtractDomain(email.From),
+            SpfResult = email.Headers["SPF"] ?? "none",
+            DkimResult = email.Headers["DKIM"] ?? "none",
+            SubjectLength = email.Subject.Length,
+            // ... 35 more features
+            FeatureSchemaVersion = FeatureSchema.CurrentVersion,
+            ExtractedAt = DateTime.UtcNow,
+            UserCorrected = 0
+        };
+        
+        return await _archiveService.StoreFeatureAsync(feature);
+    }
+}
+```
+
+#### Batch Operations (Recommended for Performance)
+
+```csharp
+// Batch store feature vectors - optimized
+var result = await _archiveService.StoreFeaturesBatchAsync(features);
+// Stores 1000 vectors in ~2-3 seconds with single transaction
+
+// Batch store archives - with quota checking
+var count = await _archiveService.StoreArchivesBatchAsync(archives);
+// May store fewer than requested if quota reached
+```
+
+#### Storage Monitoring & Cleanup
+
+```csharp
+// Check current usage
+var quotaResult = await _archiveService.GetStorageUsageAsync();
+var quota = quotaResult.Value;
+Console.WriteLine($"Using {quota.CurrentBytes}/{quota.LimitBytes} bytes");
+Console.WriteLine($"Archives: {quota.ArchiveCount}, Features: {quota.FeatureCount}");
+Console.WriteLine($"User-corrected: {quota.UserCorrectedCount}");
+
+// Check if cleanup needed (>90% usage)
+var needsCleanup = await _archiveService.ShouldTriggerCleanupAsync();
+
+// Execute cleanup (target 80% usage)
+if (needsCleanup.Value)
+{
+    var deleted = await _archiveService.ExecuteCleanupAsync(targetPercent: 80);
+    Console.WriteLine($"Deleted {deleted.Value} oldest archives");
+}
+```
+
+#### User Correction Preservation
+
+```csharp
+// Mark email as user-corrected (protected from cleanup)
+var feature = new EmailFeatureVector
+{
+    EmailId = email.Id,
+    // ... other features
+    UserCorrected = 1  // Protected - 95% retention rate guaranteed
+};
+
+await _archiveService.StoreFeatureAsync(feature);
+```
+
+#### Dependency Injection Setup
+
+```csharp
+// Program.cs
+services.AddSingleton<SqliteConnection>( sp =>
+{
+    var connection = new SqliteConnection("Data Source=app.db");
+    connection.Open();
+    return connection;
+});
+
+services.AddSingleton<IEmailArchiveService>(sp =>
+{
+    var connection = sp.GetRequiredService<SqliteConnection>();
+    return new EmailArchiveService(connection);
+});
+```
+
+#### Key Behaviors
+
+- **Features never deleted**: Always preserved for ML training
+- **Archives auto-cleanup**: Removes oldest when quota exceeded (default 90% trigger)
+- **Two-phase cleanup**: Deletes non-corrected first, then user-corrected if needed
+- **Result pattern**: All methods return `Result<T>` (never throw exceptions)
+- **Parameterized SQL**: All queries use parameters (no string concatenation)
+- **Thread-safe**: Uses connection-level locking with SemaphoreSlim
+
+#### Common Patterns
+
+```csharp
+// Pattern: Store both feature + archive
+var featureResult = await _archiveService.StoreFeatureAsync(feature);
+if (featureResult.IsSuccess)
+{
+    var archiveResult = await _archiveService.StoreArchiveAsync(archive);
+    // Archive failure is non-fatal (quota may be exceeded)
+}
+
+// Pattern: Retrieve for ML training
+var featuresResult = await _archiveService.GetAllFeaturesAsync(
+    schemaVersion: FeatureSchema.CurrentVersion);
+var features = featuresResult.Value; // List<EmailFeatureVector>
+
+// Pattern: Delete archive but keep feature
+var deleted = await _archiveService.DeleteArchiveAsync(emailId);
+// Feature vector remains for training
+```
+
+#### Performance Notes
+
+- Feature storage: <100ms per single insert
+- Batch storage: 1000 features in <5s
+- Batch retrieval: 1000 vectors in <500ms
+- Storage monitoring: <100ms (uses SQLite dbstat)
+
+For complete examples, see `specs/055-ml-data-storage/quickstart.md`.
+
 ## Testing Strategy
 
 ### Test Structure
