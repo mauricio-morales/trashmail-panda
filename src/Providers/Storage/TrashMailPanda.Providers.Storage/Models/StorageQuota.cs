@@ -19,7 +19,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(1, 1)]
-    public int Id { get; init; } = 1;
+    public int Id { get; set; } = 1;
 
     /// <summary>
     /// Configured storage limit in bytes.
@@ -27,59 +27,59 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(1, long.MaxValue)]
-    public long LimitBytes { get; init; }
+    public long LimitBytes { get; set; }
 
     /// <summary>
     /// Current database size in bytes.
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
-    public long CurrentBytes { get; init; }
+    public long CurrentBytes { get; set; }
 
     /// <summary>
     /// Space used by email_features table in bytes.
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
-    public long FeatureBytes { get; init; }
+    public long FeatureBytes { get; set; }
 
     /// <summary>
     /// Space used by email_archive table in bytes.
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
-    public long ArchiveBytes { get; init; }
+    public long ArchiveBytes { get; set; }
 
     /// <summary>
     /// Total stored feature vectors count.
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
-    public long FeatureCount { get; init; }
+    public long FeatureCount { get; set; }
 
     /// <summary>
     /// Total stored full email archives count.
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
-    public long ArchiveCount { get; init; }
+    public long ArchiveCount { get; set; }
 
     /// <summary>
     /// Count of user-corrected emails (high priority retention).
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
-    public long UserCorrectedCount { get; init; }
+    public long UserCorrectedCount { get; set; }
 
     /// <summary>
     /// ISO8601 timestamp of last cleanup execution.
     /// Null if never executed.
     /// </summary>
-    public DateTime? LastCleanupAt { get; init; }
+    public DateTime? LastCleanupAt { get; set; }
 
     /// <summary>
     /// ISO8601 timestamp of last monitoring check.
     /// </summary>
     [Required]
-    public DateTime LastMonitoredAt { get; init; }
+    public DateTime LastMonitoredAt { get; set; }
 }
