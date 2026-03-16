@@ -1,34 +1,68 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using SQLitePCL;
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TrashMailPanda.Shared;
-using TrashMailPanda.Providers.Storage.Migrations;
+using TrashMailPanda.Providers.Storage.Models;
 
 namespace TrashMailPanda.Providers.Storage;
 
 /// <summary>
-/// SQLite implementation of IStorageProvider with encryption support
-/// Provides encrypted local storage for all application data
+/// SQLite implementation of IStorageProvider with Entity Framework Core and encryption support.
+/// Provides encrypted local storage for all application data.
+/// 
+/// ⚠️ DEPRECATED: This class is being phased out in favor of domain-specific services.
+/// 
+/// Migration Guide:
+/// - For user rules → Use IUserRulesService
+/// - For email metadata → Use IEmailMetadataService  
+/// - For classification history → Use IClassificationHistoryService
+/// - For credentials/tokens → Use ICredentialStorageService
+/// - For app configuration → Use IConfigurationService
+/// 
+/// Production code should use StorageProviderAdapter (implements IStorageProvider via domain services).
+/// This class remains for backward compatibility and will be removed in a future version.
 /// </summary>
+[Obsolete("SqliteStorageProvider is deprecated. Use StorageProviderAdapter with domain-specific services instead. See class documentation for migration guide.")]
 public class SqliteStorageProvider : IStorageProvider, IDisposable
 {
-    private SqliteConnection? _connection;
     private readonly string _databasePath;
     private readonly string _password;
+    private readonly SemaphoreSlim _databaseLock;
+    private readonly bool _ownsLock;
+    private TrashMailPandaDbContext? _context;
     private bool _initialized = false;
     private bool _disposed = false;
-    private readonly SemaphoreSlim _connectionLock = new(1, 1);
 
+    /// <summary>
+    /// Legacy constructor for backward compatibility.
+    /// Creates its own database lock - NOT RECOMMENDED for production use.
+    /// Use the constructor with SemaphoreSlim injection instead.
+    /// </summary>
     public SqliteStorageProvider(string databasePath, string password)
     {
         _databasePath = databasePath;
         _password = password;
+        _databaseLock = new SemaphoreSlim(1, 1);
+        _ownsLock = true;
+    }
+
+    /// <summary>
+    /// Recommended constructor with singleton semaphore injection.
+    /// Ensures proper concurrency control across all storage access.
+    /// </summary>
+    public SqliteStorageProvider(string databasePath, string password, SemaphoreSlim databaseLock)
+    {
+        _databasePath = databasePath;
+        _password = password;
+        _databaseLock = databaseLock ?? throw new ArgumentNullException(nameof(databaseLock));
+        _ownsLock = false;
     }
 
     public async Task InitAsync()
@@ -47,18 +81,19 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            // Create connection with encryption
+            // Create DbContext with encrypted connection
+            var optionsBuilder = new DbContextOptionsBuilder<TrashMailPandaDbContext>();
             var connectionString = new SqliteConnectionStringBuilder
             {
                 DataSource = _databasePath,
                 Password = _password
             }.ToString();
 
-            _connection = new SqliteConnection(connectionString);
-            await _connection.OpenAsync();
+            optionsBuilder.UseSqlite(connectionString);
+            _context = new TrashMailPandaDbContext(optionsBuilder.Options);
 
-            // Create database schema
-            await CreateSchemaAsync();
+            // Apply migrations to create/update schema
+            await _context.Database.MigrateAsync();
 
             _initialized = true;
         }
@@ -72,113 +107,101 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        const string sql = "SELECT rule_type, rule_key, rule_value FROM user_rules";
-
-        var alwaysKeepSenders = new List<string>();
-        var alwaysKeepDomains = new List<string>();
-        var alwaysKeepListIds = new List<string>();
-        var autoTrashSenders = new List<string>();
-        var autoTrashDomains = new List<string>();
-        var autoTrashListIds = new List<string>();
-
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        await _databaseLock.WaitAsync();
+        try
         {
-            var ruleType = reader.GetString(0);
-            var ruleKey = reader.GetString(1);
-            var ruleValue = reader.GetString(2);
+            var rules = await _context!.UserRules.ToListAsync();
 
-            switch (ruleType)
+            var alwaysKeepSenders = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "sender")
+                .Select(r => r.RuleValue).ToList();
+            var alwaysKeepDomains = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "domain")
+                .Select(r => r.RuleValue).ToList();
+            var alwaysKeepListIds = rules.Where(r => r.RuleType == "always_keep" && r.RuleKey == "listid")
+                .Select(r => r.RuleValue).ToList();
+            var autoTrashSenders = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "sender")
+                .Select(r => r.RuleValue).ToList();
+            var autoTrashDomains = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "domain")
+                .Select(r => r.RuleValue).ToList();
+            var autoTrashListIds = rules.Where(r => r.RuleType == "auto_trash" && r.RuleKey == "listid")
+                .Select(r => r.RuleValue).ToList();
+
+            return new UserRules
             {
-                case "always_keep" when ruleKey == "sender":
-                    alwaysKeepSenders.Add(ruleValue);
-                    break;
-                case "always_keep" when ruleKey == "domain":
-                    alwaysKeepDomains.Add(ruleValue);
-                    break;
-                case "always_keep" when ruleKey == "listid":
-                    alwaysKeepListIds.Add(ruleValue);
-                    break;
-                case "auto_trash" when ruleKey == "sender":
-                    autoTrashSenders.Add(ruleValue);
-                    break;
-                case "auto_trash" when ruleKey == "domain":
-                    autoTrashDomains.Add(ruleValue);
-                    break;
-                case "auto_trash" when ruleKey == "listid":
-                    autoTrashListIds.Add(ruleValue);
-                    break;
-            }
+                AlwaysKeep = new AlwaysKeepRules
+                {
+                    Senders = alwaysKeepSenders,
+                    Domains = alwaysKeepDomains,
+                    ListIds = alwaysKeepListIds
+                },
+                AutoTrash = new AutoTrashRules
+                {
+                    Senders = autoTrashSenders,
+                    Domains = autoTrashDomains,
+                    ListIds = autoTrashListIds
+                }
+            };
         }
-
-        return new UserRules
+        finally
         {
-            AlwaysKeep = new AlwaysKeepRules
-            {
-                Senders = alwaysKeepSenders,
-                Domains = alwaysKeepDomains,
-                ListIds = alwaysKeepListIds
-            },
-            AutoTrash = new AutoTrashRules
-            {
-                Senders = autoTrashSenders,
-                Domains = autoTrashDomains,
-                ListIds = autoTrashListIds
-            }
-        };
+            _databaseLock.Release();
+        }
     }
 
     public async Task UpdateUserRulesAsync(UserRules rules)
     {
         EnsureInitialized();
 
-        using var transaction = _connection!.BeginTransaction();
+        await _databaseLock.WaitAsync();
         try
         {
-            // Clear existing rules
-            using (var deleteCommand = _connection.CreateCommand())
+            using var transaction = await _context!.Database.BeginTransactionAsync();
+            try
             {
-                deleteCommand.CommandText = "DELETE FROM user_rules";
-                await deleteCommand.ExecuteNonQueryAsync();
-            }
+                // Clear existing rules
+                _context.UserRules.RemoveRange(_context.UserRules);
 
-            // Insert new rules
-            const string insertSql = "INSERT INTO user_rules (rule_type, rule_key, rule_value, created_at, updated_at) VALUES (@type, @key, @value, @now, @now)";
-            var now = DateTime.UtcNow.ToString("O");
+                var now = DateTime.UtcNow;
+                var newRules = new List<UserRuleEntity>();
 
-            async Task InsertRules(string ruleType, string ruleKey, IEnumerable<string> values)
-            {
-                foreach (var value in values)
+                // Helper to add rules
+                void AddRules(string ruleType, string ruleKey, IEnumerable<string> values)
                 {
-                    using var command = _connection.CreateCommand();
-                    command.CommandText = insertSql;
-                    command.Parameters.AddWithValue("@type", ruleType);
-                    command.Parameters.AddWithValue("@key", ruleKey);
-                    command.Parameters.AddWithValue("@value", value);
-                    command.Parameters.AddWithValue("@now", now);
-                    await command.ExecuteNonQueryAsync();
+                    foreach (var value in values)
+                    {
+                        newRules.Add(new UserRuleEntity
+                        {
+                            RuleType = ruleType,
+                            RuleKey = ruleKey,
+                            RuleValue = value,
+                            CreatedAt = now,
+                            UpdatedAt = now
+                        });
+                    }
                 }
+
+                // Insert always keep rules
+                AddRules("always_keep", "sender", rules.AlwaysKeep.Senders);
+                AddRules("always_keep", "domain", rules.AlwaysKeep.Domains);
+                AddRules("always_keep", "listid", rules.AlwaysKeep.ListIds);
+
+                // Insert auto trash rules
+                AddRules("auto_trash", "sender", rules.AutoTrash.Senders);
+                AddRules("auto_trash", "domain", rules.AutoTrash.Domains);
+                AddRules("auto_trash", "listid", rules.AutoTrash.ListIds);
+
+                await _context.UserRules.AddRangeAsync(newRules);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
             }
-
-            // Insert always keep rules
-            await InsertRules("always_keep", "sender", rules.AlwaysKeep.Senders);
-            await InsertRules("always_keep", "domain", rules.AlwaysKeep.Domains);
-            await InsertRules("always_keep", "listid", rules.AlwaysKeep.ListIds);
-
-            // Insert auto trash rules
-            await InsertRules("auto_trash", "sender", rules.AutoTrash.Senders);
-            await InsertRules("auto_trash", "domain", rules.AutoTrash.Domains);
-            await InsertRules("auto_trash", "listid", rules.AutoTrash.ListIds);
-
-            await transaction.CommitAsync();
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
-        catch
+        finally
         {
-            await transaction.RollbackAsync();
-            throw;
+            _databaseLock.Release();
         }
     }
 
@@ -186,39 +209,26 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        const string sql = @"
-            SELECT email_id, folder_id, subject, sender_email, sender_name, received_date, 
-                   classification, confidence, reasons, bulk_key, last_classified, 
-                   user_action, user_action_timestamp
-            FROM email_metadata 
-            WHERE email_id = @emailId";
-
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("@emailId", emailId);
-
-        using var reader = await command.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
+        var entity = await _context!.EmailMetadata.FindAsync(emailId);
+        if (entity == null)
             return null;
 
-        var reasonsJson = reader.IsDBNull(8) ? null : reader.GetString(8);
-        var reasons = string.IsNullOrEmpty(reasonsJson) ? null :
-            JsonSerializer.Deserialize<string[]>(reasonsJson);
+        var reasons = string.IsNullOrEmpty(entity.ReasonsJson) ? null :
+            JsonSerializer.Deserialize<string[]>(entity.ReasonsJson);
 
-        var userActionStr = reader.IsDBNull(11) ? null : reader.GetString(11);
-        UserAction? userAction = string.IsNullOrEmpty(userActionStr) ? null :
-            Enum.Parse<UserAction>(userActionStr);
+        UserAction? userAction = string.IsNullOrEmpty(entity.UserAction) ? null :
+            Enum.Parse<UserAction>(entity.UserAction);
 
         return new EmailMetadata
         {
-            Id = reader.GetString(0),
-            Classification = reader.IsDBNull(6) ? null : reader.GetString(6),
-            Confidence = reader.IsDBNull(7) ? null : reader.GetDouble(7),
+            Id = entity.EmailId,
+            Classification = entity.Classification,
+            Confidence = entity.Confidence,
             Reasons = reasons,
-            BulkKey = reader.IsDBNull(9) ? null : reader.GetString(9),
-            LastClassified = reader.IsDBNull(10) ? DateTime.MinValue : DateTime.Parse(reader.GetString(10)),
+            BulkKey = entity.BulkKey,
+            LastClassified = entity.LastClassified ?? DateTime.MinValue,
             UserAction = userAction,
-            UserActionTimestamp = reader.IsDBNull(12) ? null : DateTime.Parse(reader.GetString(12))
+            UserActionTimestamp = entity.UserActionTimestamp
         };
     }
 
@@ -226,30 +236,29 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        const string sql = @"
-            INSERT OR REPLACE INTO email_metadata 
-            (email_id, classification, confidence, reasons, bulk_key, last_classified, user_action, user_action_timestamp)
-            VALUES (@emailId, @classification, @confidence, @reasons, @bulkKey, @lastClassified, @userAction, @userActionTimestamp)";
+        var entity = await _context!.EmailMetadata.FindAsync(emailId);
+        if (entity == null)
+        {
+            entity = new EmailMetadataEntity { EmailId = emailId };
+            _context.EmailMetadata.Add(entity);
+        }
 
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("@emailId", emailId);
-        command.Parameters.AddWithValue("@classification", metadata.Classification ?? (object)DBNull.Value);
-        command.Parameters.AddWithValue("@confidence", metadata.Confidence ?? (object)DBNull.Value);
-        command.Parameters.AddWithValue("@reasons", metadata.Reasons != null ? JsonSerializer.Serialize(metadata.Reasons) : DBNull.Value);
-        command.Parameters.AddWithValue("@bulkKey", metadata.BulkKey ?? (object)DBNull.Value);
-        command.Parameters.AddWithValue("@lastClassified", metadata.LastClassified.ToString("O"));
-        command.Parameters.AddWithValue("@userAction", metadata.UserAction?.ToString() ?? (object)DBNull.Value);
-        command.Parameters.AddWithValue("@userActionTimestamp", metadata.UserActionTimestamp?.ToString("O") ?? (object)DBNull.Value);
+        entity.Classification = metadata.Classification;
+        entity.Confidence = metadata.Confidence;
+        entity.ReasonsJson = metadata.Reasons != null ? JsonSerializer.Serialize(metadata.Reasons) : null;
+        entity.BulkKey = metadata.BulkKey;
+        entity.LastClassified = metadata.LastClassified;
+        entity.UserAction = metadata.UserAction?.ToString();
+        entity.UserActionTimestamp = metadata.UserActionTimestamp;
 
-        await command.ExecuteNonQueryAsync();
+        await _context.SaveChangesAsync();
     }
 
     public async Task BulkSetEmailMetadataAsync(IReadOnlyList<EmailMetadataEntry> entries)
     {
         EnsureInitialized();
 
-        using var transaction = _connection!.BeginTransaction();
+        using var transaction = await _context!.Database.BeginTransactionAsync();
         try
         {
             foreach (var entry in entries)
@@ -269,186 +278,120 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        var sql = "SELECT timestamp, email_id, classification, confidence, reasons, user_action, user_feedback FROM classification_history WHERE 1=1";
-        var parameters = new List<SqliteParameter>();
+        var query = _context!.ClassificationHistory.AsQueryable();
 
         if (filters != null)
         {
             if (filters.After.HasValue)
-            {
-                sql += " AND timestamp >= @after";
-                parameters.Add(new SqliteParameter("@after", filters.After.Value.ToString("O")));
-            }
+                query = query.Where(h => h.Timestamp >= filters.After.Value);
 
             if (filters.Before.HasValue)
-            {
-                sql += " AND timestamp <= @before";
-                parameters.Add(new SqliteParameter("@before", filters.Before.Value.ToString("O")));
-            }
+                query = query.Where(h => h.Timestamp <= filters.Before.Value);
 
             if (filters.Limit.HasValue)
-            {
-                sql += " LIMIT @limit";
-                parameters.Add(new SqliteParameter("@limit", filters.Limit.Value));
-            }
+                query = query.Take(filters.Limit.Value);
         }
 
-        sql += " ORDER BY timestamp DESC";
+        var entities = await query.OrderByDescending(h => h.Timestamp).ToListAsync();
 
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddRange(parameters.ToArray());
-
-        var results = new List<ClassificationHistoryItem>();
-        using var reader = await command.ExecuteReaderAsync();
-
-        while (await reader.ReadAsync())
+        return entities.Select(e =>
         {
-            var reasonsJson = reader.IsDBNull(4) ? "[]" : reader.GetString(4);
-            var reasons = JsonSerializer.Deserialize<string[]>(reasonsJson) ?? Array.Empty<string>();
+            var reasons = JsonSerializer.Deserialize<string[]>(e.ReasonsJson) ?? Array.Empty<string>();
+            UserFeedback? userFeedback = string.IsNullOrEmpty(e.UserFeedback) ? null :
+                Enum.Parse<UserFeedback>(e.UserFeedback);
 
-            var userFeedbackStr = reader.IsDBNull(6) ? null : reader.GetString(6);
-            UserFeedback? userFeedback = string.IsNullOrEmpty(userFeedbackStr) ? null :
-                Enum.Parse<UserFeedback>(userFeedbackStr);
-
-            results.Add(new ClassificationHistoryItem
+            return new ClassificationHistoryItem
             {
-                Timestamp = DateTime.Parse(reader.GetString(0)),
-                EmailId = reader.GetString(1),
-                Classification = reader.GetString(2),
-                Confidence = reader.GetDouble(3),
+                Timestamp = e.Timestamp,
+                EmailId = e.EmailId,
+                Classification = e.Classification,
+                Confidence = e.Confidence,
                 Reasons = reasons,
-                UserAction = reader.IsDBNull(5) ? null : reader.GetString(5),
+                UserAction = e.UserAction,
                 UserFeedback = userFeedback
-            });
-        }
-
-        return results;
+            };
+        }).ToList();
     }
 
     public async Task AddClassificationResultAsync(ClassificationHistoryItem result)
     {
         EnsureInitialized();
 
-        const string sql = @"
-            INSERT INTO classification_history 
-            (timestamp, email_id, classification, confidence, reasons, user_action, user_feedback)
-            VALUES (@timestamp, @emailId, @classification, @confidence, @reasons, @userAction, @userFeedback)";
+        var entity = new ClassificationHistoryEntity
+        {
+            Timestamp = result.Timestamp,
+            EmailId = result.EmailId,
+            Classification = result.Classification,
+            Confidence = result.Confidence,
+            ReasonsJson = JsonSerializer.Serialize(result.Reasons),
+            UserAction = result.UserAction,
+            UserFeedback = result.UserFeedback?.ToString()
+        };
 
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("@timestamp", result.Timestamp.ToString("O"));
-        command.Parameters.AddWithValue("@emailId", result.EmailId);
-        command.Parameters.AddWithValue("@classification", result.Classification);
-        command.Parameters.AddWithValue("@confidence", result.Confidence);
-        command.Parameters.AddWithValue("@reasons", JsonSerializer.Serialize(result.Reasons));
-        command.Parameters.AddWithValue("@userAction", result.UserAction ?? (object)DBNull.Value);
-        command.Parameters.AddWithValue("@userFeedback", result.UserFeedback?.ToString() ?? (object)DBNull.Value);
-
-        await command.ExecuteNonQueryAsync();
+        _context!.ClassificationHistory.Add(entity);
+        await _context.SaveChangesAsync();
     }
 
     public async Task<IReadOnlyDictionary<string, string>> GetEncryptedTokensAsync()
     {
         EnsureInitialized();
 
-        const string sql = "SELECT provider, encrypted_token FROM encrypted_tokens";
-
-        var tokens = new Dictionary<string, string>();
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            tokens[reader.GetString(0)] = reader.GetString(1);
-        }
-
-        return tokens;
+        var tokens = await _context!.EncryptedTokens.ToListAsync();
+        return tokens.ToDictionary(t => t.Provider, t => t.EncryptedToken);
     }
 
     public async Task SetEncryptedTokenAsync(string provider, string encryptedToken)
     {
         EnsureInitialized();
 
-        const string sql = @"
-            INSERT OR REPLACE INTO encrypted_tokens (provider, encrypted_token, created_at)
-            VALUES (@provider, @encryptedToken, @createdAt)";
+        var entity = await _context!.EncryptedTokens.FindAsync(provider);
+        if (entity == null)
+        {
+            entity = new EncryptedTokenEntity { Provider = provider };
+            _context.EncryptedTokens.Add(entity);
+        }
 
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("@provider", provider);
-        command.Parameters.AddWithValue("@encryptedToken", encryptedToken);
-        command.Parameters.AddWithValue("@createdAt", DateTime.UtcNow.ToString("O"));
+        entity.EncryptedToken = encryptedToken;
+        entity.CreatedAt = DateTime.UtcNow;
 
-        await command.ExecuteNonQueryAsync();
+        await _context.SaveChangesAsync();
     }
 
     public async Task<string?> GetEncryptedCredentialAsync(string key)
     {
-        const string sql = "SELECT encrypted_value FROM encrypted_credentials WHERE key = @key";
+        EnsureInitialized();
 
-        var command = await CreateCommandAsync();
-        try
-        {
-            command.CommandText = sql;
-            command.Parameters.AddWithValue("@key", key);
-
-            using var reader = await command.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
-            {
-                return reader.GetString(0);
-            }
-
-            return null;
-        }
-        finally
-        {
-            command.Dispose();
-            ReleaseConnection();
-        }
+        var entity = await _context!.EncryptedCredentials.FindAsync(key);
+        return entity?.EncryptedValue;
     }
 
     public async Task SetEncryptedCredentialAsync(string key, string encryptedValue, DateTime? expiresAt = null)
     {
-        const string sql = @"
-            INSERT OR REPLACE INTO encrypted_credentials (key, encrypted_value, created_at, expires_at)
-            VALUES (@key, @encryptedValue, @createdAt, @expiresAt)";
+        EnsureInitialized();
 
-        var command = await CreateCommandAsync();
-        try
+        var entity = await _context!.EncryptedCredentials.FindAsync(key);
+        if (entity == null)
         {
-            command.CommandText = sql;
-            command.Parameters.AddWithValue("@key", key);
-            command.Parameters.AddWithValue("@encryptedValue", encryptedValue);
-            command.Parameters.AddWithValue("@createdAt", DateTime.UtcNow.ToString("O"));
-            command.Parameters.AddWithValue("@expiresAt", expiresAt?.ToString("O") ?? (object)DBNull.Value);
+            entity = new EncryptedCredentialEntity { Key = key };
+            _context.EncryptedCredentials.Add(entity);
+        }
 
-            await command.ExecuteNonQueryAsync();
-        }
-        finally
-        {
-            command.Dispose();
-            ReleaseConnection();
-        }
+        entity.EncryptedValue = encryptedValue;
+        entity.CreatedAt = DateTime.UtcNow;
+        entity.ExpiresAt = expiresAt;
+
+        await _context.SaveChangesAsync();
     }
 
     public async Task RemoveEncryptedCredentialAsync(string key)
     {
-        const string sql = "DELETE FROM encrypted_credentials WHERE key = @key";
+        EnsureInitialized();
 
-        var command = await CreateCommandAsync();
-        try
+        var entity = await _context!.EncryptedCredentials.FindAsync(key);
+        if (entity != null)
         {
-            command.CommandText = sql;
-            command.Parameters.AddWithValue("@key", key);
-
-            await command.ExecuteNonQueryAsync();
-        }
-        finally
-        {
-            command.Dispose();
-            ReleaseConnection();
+            _context.EncryptedCredentials.Remove(entity);
+            await _context.SaveChangesAsync();
         }
     }
 
@@ -456,39 +399,22 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        const string sql = @"
-            SELECT key FROM encrypted_credentials 
-            WHERE expires_at IS NOT NULL AND expires_at <= @currentTime";
+        var now = DateTime.UtcNow;
+        var expiredKeys = await _context!.EncryptedCredentials
+            .Where(c => c.ExpiresAt != null && c.ExpiresAt <= now)
+            .Select(c => c.Key)
+            .ToListAsync();
 
-        var keys = new List<string>();
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("@currentTime", DateTime.UtcNow.ToString("O"));
-
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            keys.Add(reader.GetString(0));
-        }
-
-        return keys;
+        return expiredKeys;
     }
 
     public async Task<IReadOnlyList<string>> GetAllEncryptedCredentialKeysAsync()
     {
         EnsureInitialized();
 
-        const string sql = "SELECT key FROM encrypted_credentials";
-
-        var keys = new List<string>();
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            keys.Add(reader.GetString(0));
-        }
+        var keys = await _context!.EncryptedCredentials
+            .Select(c => c.Key)
+            .ToListAsync();
 
         return keys;
     }
@@ -497,28 +423,21 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        const string sql = "SELECT key, value FROM app_config";
-
+        var configEntries = await _context!.AppConfig.ToListAsync();
         var config = new AppConfig();
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
 
-        using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        foreach (var entry in configEntries)
         {
-            var key = reader.GetString(0);
-            var value = reader.GetString(1);
-
-            switch (key)
+            switch (entry.Key)
             {
                 case "ConnectionState":
-                    config.ConnectionState = JsonSerializer.Deserialize<TrashMailPanda.Shared.ConnectionState>(value);
+                    config.ConnectionState = JsonSerializer.Deserialize<TrashMailPanda.Shared.ConnectionState>(entry.Value);
                     break;
                 case "ProcessingSettings":
-                    config.ProcessingSettings = JsonSerializer.Deserialize<ProcessingSettings>(value);
+                    config.ProcessingSettings = JsonSerializer.Deserialize<ProcessingSettings>(entry.Value);
                     break;
                 case "UISettings":
-                    config.UISettings = JsonSerializer.Deserialize<UISettings>(value);
+                    config.UISettings = JsonSerializer.Deserialize<UISettings>(entry.Value);
                     break;
             }
         }
@@ -530,7 +449,7 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     {
         EnsureInitialized();
 
-        using var transaction = _connection!.BeginTransaction();
+        using var transaction = await _context!.Database.BeginTransactionAsync();
         try
         {
             await SetConfigValueAsync("ConnectionState", config.ConnectionState);
@@ -548,183 +467,55 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
 
     private async Task SetConfigValueAsync(string key, object? value)
     {
-        const string sql = "INSERT OR REPLACE INTO app_config (key, value) VALUES (@key, @value)";
-
-        using var command = _connection!.CreateCommand();
-        command.CommandText = sql;
-        command.Parameters.AddWithValue("@key", key);
-        command.Parameters.AddWithValue("@value", value != null ? JsonSerializer.Serialize(value) : DBNull.Value);
-
-        await command.ExecuteNonQueryAsync();
-    }
-
-    private async Task CreateSchemaAsync()
-    {
-        // Apply ML storage migration first
-        await Migration_001_MLStorage.ApplyAsync(_connection!);
-
-        var schemaCommands = new[]
+        var entity = await _context!.AppConfig.FindAsync(key);
+        if (entity == null)
         {
-            @"CREATE TABLE IF NOT EXISTS user_rules (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                rule_type TEXT NOT NULL,
-                rule_key TEXT NOT NULL,
-                rule_value TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-
-            @"CREATE TABLE IF NOT EXISTS email_metadata (
-                email_id TEXT PRIMARY KEY,
-                folder_id TEXT,
-                folder_name TEXT,
-                subject TEXT,
-                sender_email TEXT,
-                sender_name TEXT,
-                received_date TEXT,
-                classification TEXT,
-                confidence REAL,
-                reasons TEXT,
-                bulk_key TEXT,
-                last_classified TEXT,
-                user_action TEXT,
-                user_action_timestamp TEXT,
-                processing_batch_id TEXT
-            )",
-
-            @"CREATE INDEX IF NOT EXISTS idx_email_classification ON email_metadata(classification)",
-            @"CREATE INDEX IF NOT EXISTS idx_email_user_action ON email_metadata(user_action)",
-
-            @"CREATE TABLE IF NOT EXISTS classification_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                email_id TEXT NOT NULL,
-                classification TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                reasons TEXT NOT NULL,
-                user_action TEXT,
-                user_feedback TEXT,
-                batch_id TEXT
-            )",
-
-            @"CREATE INDEX IF NOT EXISTS idx_classification_timestamp ON classification_history(timestamp)",
-            @"CREATE INDEX IF NOT EXISTS idx_classification_email ON classification_history(email_id)",
-
-            @"CREATE TABLE IF NOT EXISTS app_config (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )",
-
-            @"CREATE TABLE IF NOT EXISTS encrypted_tokens (
-                provider TEXT PRIMARY KEY,
-                encrypted_token TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )",
-
-            @"CREATE TABLE IF NOT EXISTS encrypted_credentials (
-                key TEXT PRIMARY KEY,
-                encrypted_value TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT
-            )"
-        };
-
-        foreach (var sql in schemaCommands)
-        {
-            using var command = _connection!.CreateCommand();
-            command.CommandText = sql;
-            await command.ExecuteNonQueryAsync();
+            entity = new AppConfigEntity { Key = key };
+            _context.AppConfig.Add(entity);
         }
+
+        entity.Value = value != null ? JsonSerializer.Serialize(value) : string.Empty;
+        await _context.SaveChangesAsync();
     }
 
     private void EnsureInitialized()
     {
-        if (!_initialized || _connection == null)
+        if (!_initialized || _context == null)
             throw new InvalidOperationException("Storage provider not initialized. Call InitAsync first.");
 
         if (_disposed)
             throw new ObjectDisposedException(nameof(SqliteStorageProvider));
     }
 
-    private async Task<SqliteCommand> CreateCommandAsync()
-    {
-        EnsureInitialized();
-        await _connectionLock.WaitAsync();
-
-        try
-        {
-            if (_connection == null)
-                throw new InvalidOperationException("Database connection is null");
-
-            return _connection.CreateCommand();
-        }
-        catch
-        {
-            _connectionLock.Release();
-            throw;
-        }
-    }
-
-    private void ReleaseConnection()
-    {
-        _connectionLock.Release();
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
 
-        _connectionLock.Wait();
-        try
+        if (_context != null)
         {
-            if (_connection != null)
+            try
             {
-                // CRITICAL FIX: Force WAL checkpoint before closing connection to release file locks
-                // This is essential on Windows where SQLite WAL mode can keep auxiliary files locked
-                try
-                {
-                    if (_connection.State == System.Data.ConnectionState.Open)
-                    {
-                        // Execute WAL checkpoint to merge WAL into main database and release locks
-                        using var checkpointCmd = _connection.CreateCommand();
-                        checkpointCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-                        checkpointCmd.ExecuteNonQuery();
-
-                        // Also ensure journal mode is properly closed
-                        using var journalCmd = _connection.CreateCommand();
-                        journalCmd.CommandText = "PRAGMA journal_mode=DELETE;";
-                        journalCmd.ExecuteNonQuery();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Log but don't throw - disposal should be robust
-                    System.Diagnostics.Debug.WriteLine($"WAL checkpoint failed during disposal: {ex.Message}");
-                }
-
-                // Now close and dispose the connection
-                try
-                {
-                    if (_connection.State != System.Data.ConnectionState.Closed)
-                    {
-                        _connection.Close();
-                    }
-                }
-                catch
-                {
-                    // Ignore exceptions during close
-                }
-
-                _connection.Dispose();
-                _connection = null;
+                // Force WAL checkpoint before closing to release file locks
+                // Critical on Windows where SQLite WAL mode can keep auxiliary files locked
+                _context.Database.ExecuteSqlRaw("PRAGMA wal_checkpoint(TRUNCATE);");
+                _context.Database.ExecuteSqlRaw("PRAGMA journal_mode=DELETE;");
             }
-            _initialized = false;
-            _disposed = true;
+            catch
+            {
+                // Ignore errors during cleanup
+            }
+
+            _context.Dispose();
+            _context = null;
         }
-        finally
+
+        // Dispose the semaphore only if we own it (legacy constructor)
+        if (_ownsLock)
         {
-            _connectionLock.Release();
-            _connectionLock.Dispose();
+            _databaseLock?.Dispose();
         }
+
+        _disposed = true;
+        GC.SuppressFinalize(this);
     }
 }

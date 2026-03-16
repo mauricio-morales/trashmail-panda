@@ -7,113 +7,25 @@ using Xunit;
 namespace TrashMailPanda.Tests.Unit.Storage;
 
 [Trait("Category", "Unit")]
-public class EmailArchiveServiceTests : IDisposable
+public class EmailArchiveServiceTests : StorageTestBase
 {
-    private readonly SqliteConnection _connection;
     private readonly EmailArchiveService _service;
 
-    public EmailArchiveServiceTests()
+    public EmailArchiveServiceTests() : base()
     {
-        // Create in-memory database for testing
-        _connection = new SqliteConnection("DataSource=:memory:");
-        _connection.Open();
-
-        // Initialize schema
-        InitializeTestSchema();
-
-        // Create service under test
-        _service = new EmailArchiveService(_connection);
+        // Create service under test with DbContext from base class
+        _service = new EmailArchiveService(_context);
     }
 
-    private void InitializeTestSchema()
-    {
-        using var command = _connection.CreateCommand();
-        command.CommandText = @"
-            CREATE TABLE IF NOT EXISTS email_features (
-                EmailId TEXT PRIMARY KEY,
-                SenderDomain TEXT NOT NULL,
-                SenderKnown INTEGER NOT NULL,
-                ContactStrength INTEGER NOT NULL,
-                SpfResult TEXT NOT NULL,
-                DkimResult TEXT NOT NULL,
-                DmarcResult TEXT NOT NULL,
-                HasListUnsubscribe INTEGER NOT NULL,
-                HasAttachments INTEGER NOT NULL,
-                HourReceived INTEGER NOT NULL,
-                DayOfWeek INTEGER NOT NULL,
-                EmailSizeLog REAL NOT NULL,
-                SubjectLength INTEGER NOT NULL,
-                RecipientCount INTEGER NOT NULL,
-                IsReply INTEGER NOT NULL,
-                InUserWhitelist INTEGER NOT NULL,
-                InUserBlacklist INTEGER NOT NULL,
-                LabelCount INTEGER NOT NULL,
-                LinkCount INTEGER NOT NULL,
-                ImageCount INTEGER NOT NULL,
-                HasTrackingPixel INTEGER NOT NULL,
-                UnsubscribeLinkInBody INTEGER NOT NULL,
-                EmailAgeDays INTEGER NOT NULL,
-                IsInInbox INTEGER NOT NULL,
-                IsStarred INTEGER NOT NULL,
-                IsImportant INTEGER NOT NULL,
-                WasInTrash INTEGER NOT NULL,
-                WasInSpam INTEGER NOT NULL,
-                IsArchived INTEGER NOT NULL,
-                ThreadMessageCount INTEGER NOT NULL,
-                SenderFrequency INTEGER NOT NULL,
-                SubjectText TEXT,
-                BodyTextShort TEXT,
-                TopicClusterId INTEGER,
-                TopicDistributionJson TEXT,
-                SenderCategory TEXT,
-                SemanticEmbeddingJson TEXT,
-                FeatureSchemaVersion INTEGER NOT NULL DEFAULT 1,
-                ExtractedAt TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0
-            );
-            
-            CREATE INDEX IF NOT EXISTS idx_email_features_extracted_at 
-                ON email_features(ExtractedAt);
-            CREATE INDEX IF NOT EXISTS idx_email_features_schema_version 
-                ON email_features(FeatureSchemaVersion);
-            CREATE INDEX IF NOT EXISTS idx_email_features_user_corrected 
-                ON email_features(UserCorrected);
-
-            CREATE TABLE IF NOT EXISTS email_archive (
-                EmailId TEXT PRIMARY KEY,
-                ThreadId TEXT,
-                ProviderType TEXT NOT NULL,
-                HeadersJson TEXT NOT NULL,
-                BodyText TEXT,
-                BodyHtml TEXT,
-                FolderTagsJson TEXT NOT NULL,
-                SizeEstimate INTEGER NOT NULL,
-                ReceivedDate TEXT NOT NULL,
-                ArchivedAt TEXT NOT NULL,
-                Snippet TEXT,
-                SourceFolder TEXT NOT NULL,
-                UserCorrected INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (EmailId) REFERENCES email_features(EmailId) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_email_archive_archived_at
-                ON email_archive(ArchivedAt);
-            CREATE INDEX IF NOT EXISTS idx_email_archive_size_estimate
-                ON email_archive(SizeEstimate);
-            CREATE INDEX IF NOT EXISTS idx_email_archive_received_date
-                ON email_archive(ReceivedDate);";
-        command.ExecuteNonQuery();
-    }
-
-    public void Dispose()
+    public override void Dispose()
     {
         _service.Dispose();
-        _connection.Dispose();
+        base.Dispose();
     }
 
     #region StoreFeatureAsync Tests (T020)
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeatureAsync_ValidFeature_ReturnsSuccess()
     {
         // Arrange
@@ -127,7 +39,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.True(result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeatureAsync_NullFeature_ReturnsValidationError()
     {
         // Act
@@ -139,7 +51,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("Feature", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeatureAsync_NullOrWhitespaceEmailId_ReturnsValidationError()
     {
         // Arrange
@@ -154,7 +66,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("EmailId", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeatureAsync_FeatureAlreadyExists_UpdatesExistingRow()
     {
         // Arrange
@@ -223,7 +135,7 @@ public class EmailArchiveServiceTests : IDisposable
 
     #region StoreFeaturesBatchAsync Tests (T021)
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeaturesBatchAsync_ValidBatch_ReturnsSuccessWithCount()
     {
         // Arrange
@@ -242,7 +154,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(3, result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeaturesBatchAsync_LargeBatch_ProcessesIn500RowBatches()
     {
         // Arrange - Create 1000 features to test batch processing
@@ -260,7 +172,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(1000, result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeaturesBatchAsync_EmptyCollection_ReturnsZero()
     {
         // Arrange
@@ -274,7 +186,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(0, result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeaturesBatchAsync_NullCollection_ReturnsValidationError()
     {
         // Act
@@ -285,7 +197,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.IsType<ValidationError>(result.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreFeaturesBatchAsync_ContainsInvalidFeature_ReturnsValidationError()
     {
         // Arrange
@@ -308,7 +220,7 @@ public class EmailArchiveServiceTests : IDisposable
 
     #region GetFeatureAsync Tests (T022)
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetFeatureAsync_ExistingFeature_ReturnsFeature()
     {
         // Arrange
@@ -326,7 +238,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(original.ContactStrength, result.Value.ContactStrength);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetFeatureAsync_NonExistentFeature_ReturnsNull()
     {
         // Act
@@ -337,7 +249,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Null(result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetFeatureAsync_NullOrWhitespaceEmailId_ReturnsValidationError()
     {
         // Act
@@ -353,7 +265,7 @@ public class EmailArchiveServiceTests : IDisposable
 
     #region GetAllFeaturesAsync Tests (T023)
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetAllFeaturesAsync_NoFilter_ReturnsAllFeatures()
     {
         // Arrange
@@ -369,7 +281,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(3, result.Value.Count());
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetAllFeaturesAsync_WithSchemaVersionFilter_ReturnsMatchingFeatures()
     {
         // Arrange
@@ -390,7 +302,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(1, features[0].FeatureSchemaVersion);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetAllFeaturesAsync_EmptyDatabase_ReturnsEmptyCollection()
     {
         // Act
@@ -405,7 +317,7 @@ public class EmailArchiveServiceTests : IDisposable
 
     #region Archive Storage Tests
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchiveAsync_ValidArchive_ReturnsSuccess()
     {
         // Arrange
@@ -421,7 +333,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.True(result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchiveAsync_NullArchive_ReturnsValidationError()
     {
         // Act
@@ -433,7 +345,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("cannot be null", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchiveAsync_EmptyEmailId_ReturnsValidationError()
     {
         // Arrange
@@ -448,7 +360,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("EmailId is required", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchiveAsync_NoBodyContent_ReturnsValidationError()
     {
         // Arrange
@@ -463,7 +375,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("BodyText or BodyHtml must be provided", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchiveAsync_UpdateExisting_Success()
     {
         // Arrange
@@ -486,7 +398,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal("Updated body content", retrieved.Value!.BodyText);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetArchiveAsync_ExistingArchive_ReturnsArchive()
     {
         // Arrange
@@ -507,7 +419,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal("Test body content", result.Value.BodyText);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetArchiveAsync_NonExistentArchive_ReturnsNull()
     {
         // Act
@@ -518,7 +430,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Null(result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetArchiveAsync_EmptyEmailId_ReturnsValidationError()
     {
         // Act
@@ -530,7 +442,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("EmailId is required", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task GetArchiveAsync_NullableFields_HandledCorrectly()
     {
         // Arrange
@@ -552,7 +464,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.NotNull(result.Value.BodyText);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task DeleteArchiveAsync_ExistingArchive_Success()
     {
         // Arrange
@@ -574,7 +486,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Null(retrieved.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task DeleteArchiveAsync_NonExistentArchive_ReturnsFalse()
     {
         // Act
@@ -585,7 +497,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.False(result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task DeleteArchiveAsync_EmptyEmailId_ReturnsValidationError()
     {
         // Act
@@ -597,7 +509,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("EmailId is required", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchivesBatchAsync_ValidArchives_Success()
     {
         // Arrange - First create features for FK constraint
@@ -632,7 +544,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.True(email3.IsSuccess && email3.Value != null);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchivesBatchAsync_EmptyList_ReturnsZero()
     {
         // Act
@@ -643,7 +555,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Equal(0, result.Value);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchivesBatchAsync_NullCollection_ReturnsValidationError()
     {
         // Act
@@ -655,7 +567,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.Contains("cannot be null", result.Error.Message);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchivesBatchAsync_InvalidArchiveInBatch_ReturnsValidationError()
     {
         // Arrange
@@ -674,7 +586,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.IsType<ValidationError>(result.Error);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchivesBatchAsync_LargeBatch_ProcessesInChunks()
     {
         // Arrange - Create 1500 features and archives (should be 3 batches of 500)
@@ -707,7 +619,7 @@ public class EmailArchiveServiceTests : IDisposable
         Assert.True(last.IsSuccess && last.Value != null);
     }
 
-    [Fact]
+    [Fact(Timeout = 5000)]
     public async Task StoreArchivesBatchAsync_NoBodyContent_ReturnsValidationError()
     {
         // Arrange

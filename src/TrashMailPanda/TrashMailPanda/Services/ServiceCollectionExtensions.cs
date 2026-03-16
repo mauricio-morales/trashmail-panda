@@ -1,7 +1,10 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Threading;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.LLM;
 using TrashMailPanda.Providers.Storage;
@@ -72,15 +75,48 @@ public static class ServiceCollectionExtensions
     /// </summary>
     private static IServiceCollection AddProviders(this IServiceCollection services)
     {
-        // Storage provider can be constructed immediately with default path
-        // but initialization will be deferred until security services are ready
-        services.AddSingleton<IStorageProvider>(serviceProvider =>
+        // 1. Register singleton semaphore (CRITICAL: shared across ALL storage access)
+        //    This prevents SQLite concurrency violations by serializing database operations
+        services.AddSingleton<SemaphoreSlim>(sp => new SemaphoreSlim(1, 1));
+
+        // 2. Register DbContext with encrypted SQLite connection
+        services.AddDbContext<TrashMailPandaDbContext>((serviceProvider, options) =>
         {
             var config = serviceProvider.GetRequiredService<IConfiguration>();
             var databasePath = config.GetSection("StorageProvider:DatabasePath").Value ?? "./data/app.db";
             var password = config.GetSection("StorageProvider:Password").Value ?? "TrashMailPanda-DefaultKey";
-            return new SqliteStorageProvider(databasePath, password);
+
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Password = password
+            }.ToString();
+
+            options.UseSqlite(connectionString);
+        }, ServiceLifetime.Singleton); // Singleton for desktop app - single database instance
+
+        // 3. Register low-level storage repository (uses singleton semaphore)
+        services.AddSingleton<IStorageRepository, SqliteStorageRepository>();
+
+        // 4. Register domain services (Phase 3 refactoring - separated concerns)
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IUserRulesService, TrashMailPanda.Providers.Storage.Services.UserRulesService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IEmailMetadataService, TrashMailPanda.Providers.Storage.Services.EmailMetadataService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IClassificationHistoryService, TrashMailPanda.Providers.Storage.Services.ClassificationHistoryService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.ICredentialStorageService, TrashMailPanda.Providers.Storage.Services.CredentialStorageService>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.Services.IConfigurationService, TrashMailPanda.Providers.Storage.Services.ConfigurationService>();
+
+        // 5. Register EmailArchiveService (ML training data storage)
+        services.AddSingleton<IEmailArchiveService>(serviceProvider =>
+        {
+            var context = serviceProvider.GetRequiredService<TrashMailPandaDbContext>();
+            var semaphore = serviceProvider.GetRequiredService<SemaphoreSlim>();
+            return new EmailArchiveService(context, semaphore);
         });
+
+        // 6. Legacy IStorageProvider for backward compatibility (uses StorageProviderAdapter)
+        //    (will be removed in Phase 4 after all consumers migrate to specific services)
+        //    Now delegates to domain services instead of direct database access
+        services.AddSingleton<IStorageProvider, StorageProviderAdapter>();
 
         // Email and LLM providers are NOT registered here
         // They will be created by application services after secrets are captured through UI
