@@ -104,13 +104,13 @@ description: "Task list for Console Startup Orchestration & Health Checks implem
 
 ### Implementation for User Story 3
 
-- [ ] T033 [P] [US3] Add health check invocation in ConsoleStartupOrchestrator.InitializeProviderAsync() immediately after each provider's InitializeAsync() completes
-- [ ] T034 [US3] Implement health check result mapping in ConsoleStatusDisplay.DisplayHealthCheckStatus() to map HealthCheckResult.Status to console colors (Healthy=green, Degraded=yellow, Critical=bold red)
-- [ ] T035 [US3] Add health check timeout handling (10 seconds per check) in ConsoleStartupOrchestrator.PerformHealthCheckAsync()
-- [ ] T036 [US3] Implement OAuth scope validation logic in Gmail provider health check to detect missing scopes with INSUFFICIENT_SCOPES error code
-- [ ] T037 [US3] Add scope mismatch error display in ConsoleStatusDisplay.DisplayScopeMismatch() showing required vs. current scopes with re-authorization instructions
-- [ ] T038 [US3] Add health check logging for all results (Healthy, Degraded, Critical) with detailed status information using ILogger
-- [ ] T039 [US3] Update GoogleConfig in appsettings.json to include RequiredScopes array with gmail.modify scope
+- [X] T033 [P] [US3] Add health check invocation in ConsoleStartupOrchestrator.InitializeProviderAsync() immediately after each provider's InitializeAsync() completes
+- [X] T034 [US3] Implement health check result mapping in ConsoleStatusDisplay.DisplayHealthCheckStatus() to map HealthCheckResult.Status to console colors (Healthy=green, Degraded=yellow, Critical=bold red)
+- [X] T035 [US3] Add health check timeout handling (10 seconds per check) in ConsoleStartupOrchestrator.PerformHealthCheckAsync()
+- [X] T036 [US3] Implement OAuth scope validation logic in Gmail provider health check to detect missing scopes with INSUFFICIENT_SCOPES error code
+- [X] T037 [US3] Add scope mismatch error display in ConsoleStatusDisplay.DisplayScopeMismatch() showing required vs. current scopes with re-authorization instructions
+- [X] T038 [US3] Add health check logging for all results (Healthy, Degraded, Critical) with detailed status information using ILogger
+- [X] T039 [US3] Update GoogleConfig in appsettings.json to include RequiredScopes array with gmail.modify scope
 
 **Checkpoint**: All user stories should now show health checks with color-coded indicators immediately after initialization
 

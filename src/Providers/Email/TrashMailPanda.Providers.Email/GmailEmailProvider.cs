@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -156,7 +158,7 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     }
 
     /// <summary>
-    /// Performs Gmail-specific health checks
+    /// Performs Gmail-specific health checks including OAuth scope validation
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Health check result</returns>
@@ -170,7 +172,21 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
                     HealthCheckResult.Critical("Gmail service not initialized"));
             }
 
-            // Test basic connectivity by getting user profile
+            if (_credential == null)
+            {
+                return Result<HealthCheckResult>.Success(
+                    HealthCheckResult.Critical("OAuth credential not available"));
+            }
+
+            // Step 1: Validate OAuth scopes using Google's tokeninfo endpoint
+            var scopeValidationResult = await ValidateOAuthScopesAsync(cancellationToken);
+            if (!scopeValidationResult.IsSuccess)
+            {
+                return Result<HealthCheckResult>.Success(
+                    HealthCheckResult.FromError(scopeValidationResult.Error, TimeSpan.Zero));
+            }
+
+            // Step 2: Test basic connectivity by getting user profile
             var profileResult = await _rateLimitHandler.ExecuteWithRetryAsync(async () =>
             {
                 var profile = await _gmailService.Users.GetProfile(GmailApiConstants.USER_ID_ME).ExecuteAsync(cancellationToken);
@@ -202,6 +218,87 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
         {
             return Result<HealthCheckResult>.Success(
                 HealthCheckResult.FromError(ex.ToProviderError("Health check failed"), TimeSpan.Zero));
+        }
+    }
+
+    /// <summary>
+    /// Validates that the current OAuth token has all required scopes
+    /// </summary>
+    private async Task<Result<bool>> ValidateOAuthScopesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_credential == null || Configuration == null)
+            {
+                return Result<bool>.Failure(new AuthenticationError("No credential available for scope validation"));
+            }
+
+            // Get current access token
+            var token = await _credential.GetAccessTokenForRequestAsync(cancellationToken: cancellationToken);
+            if (string.IsNullOrEmpty(token))
+            {
+                return Result<bool>.Failure(new AuthenticationError("Failed to retrieve access token"));
+            }
+
+            // Call Google's tokeninfo endpoint to get current scopes
+            using var httpClient = new HttpClient();
+            var response = await httpClient.GetAsync(
+                $"https://www.googleapis.com/oauth2/v3/tokeninfo?access_token={token}",
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Logger.LogWarning("Token validation failed with status {StatusCode}", response.StatusCode);
+                // Don't fail health check if tokeninfo is unavailable - just skip scope validation
+                return Result<bool>.Success(true);
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var tokenInfo = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(content);
+
+            if (tokenInfo == null || !tokenInfo.ContainsKey("scope"))
+            {
+                Logger.LogWarning("Token info response missing scope field");
+                return Result<bool>.Success(true);
+            }
+
+            // Parse current scopes (space-separated string)
+            var currentScopesStr = tokenInfo["scope"].GetString() ?? "";
+            var currentScopes = currentScopesStr.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            // Get required scopes from configuration (use gmail.modify as default)
+            var requiredScopes = Configuration.Scopes ?? new[] { "https://www.googleapis.com/auth/gmail.modify" };
+
+            // Check for missing scopes
+            var missingScopes = requiredScopes.Except(currentScopes).ToArray();
+
+            if (missingScopes.Length > 0)
+            {
+                Logger.LogError("OAuth token missing required scopes: {MissingScopes}", string.Join(", ", missingScopes));
+
+                var error = new InsufficientScopesError(
+                    "OAuth token missing required permissions",
+                    $"Missing scopes: {string.Join(", ", missingScopes)}")
+                {
+                    Context = new Dictionary<string, object>
+                    {
+                        { "MissingScopes", missingScopes },
+                        { "CurrentScopes", currentScopes },
+                        { "RequiredScopes", requiredScopes }
+                    }
+                };
+
+                return Result<bool>.Failure(error);
+            }
+
+            Logger.LogInformation("OAuth scope validation passed - all required scopes present");
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "OAuth scope validation failed - continuing without scope check");
+            // Don't fail health check if scope validation encounters errors - graceful degradation
+            return Result<bool>.Success(true);
         }
     }
 
