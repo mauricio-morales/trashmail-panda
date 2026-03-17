@@ -45,42 +45,17 @@ public class ConfigurationWizard
 
         try
         {
+            // Storage is always auto-configured — no user input required
+            AutoConfigureStorage();
+
             // Check which providers are already configured
-            var storageConfigured = await IsStorageConfiguredAsync();
             var gmailConfigured = await IsGmailConfiguredAsync();
 
             // Step 1: Welcome screen with status
-            await DisplayWelcomeAsync(storageConfigured, gmailConfigured);
+            await DisplayWelcomeAsync(gmailConfigured);
             _state.CurrentStep = WizardStep.Welcome;
 
-            // Step 2: Storage configuration (conditional)
-            _state.CurrentStep = WizardStep.StorageSetup;
-            if (storageConfigured)
-            {
-                _logger.LogInformation("Storage already configured, offering skip option");
-                if (!await PromptReconfigureOrSkipAsync("Storage"))
-                {
-                    _state.StorageConfigured = true;
-                }
-                else
-                {
-                    if (!await ConfigureStorageAsync(cancellationToken))
-                    {
-                        _logger.LogWarning("User cancelled configuration at storage setup");
-                        return false;
-                    }
-                }
-            }
-            else
-            {
-                if (!await ConfigureStorageAsync(cancellationToken))
-                {
-                    _logger.LogWarning("User cancelled configuration at storage setup");
-                    return false;
-                }
-            }
-
-            // Step 3: Gmail OAuth setup (conditional)
+            // Step 2: Gmail OAuth setup (conditional)
             _state.CurrentStep = WizardStep.GmailSetup;
             if (gmailConfigured)
             {
@@ -132,7 +107,7 @@ public class ConfigurationWizard
     /// <summary>
     /// Display welcome screen with setup overview
     /// </summary>
-    private async Task DisplayWelcomeAsync(bool storageConfigured, bool gmailConfigured)
+    private async Task DisplayWelcomeAsync(bool gmailConfigured)
     {
         AnsiConsole.Clear();
 
@@ -149,26 +124,18 @@ public class ConfigurationWizard
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("This wizard will guide you through configuring:");
 
-        // Storage status
-        if (storageConfigured)
-        {
-            AnsiConsole.MarkupLine("  [green]✓[/] [cyan]1.[/] Storage settings [dim](already configured)[/]");
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("  [cyan]1.[/] Storage settings (database location and encryption)");
-        }
-
         // Gmail status
         if (gmailConfigured)
         {
-            AnsiConsole.MarkupLine("  [green]✓[/] [cyan]2.[/] Gmail integration [dim](already configured)[/]");
+            AnsiConsole.MarkupLine("  [green]✓[/] [cyan]1.[/] Gmail integration [dim](already configured)[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine("  [cyan]2.[/] Gmail integration (OAuth authentication)");
+            AnsiConsole.MarkupLine("  [cyan]1.[/] Gmail integration (OAuth authentication)");
         }
 
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[dim]Storage is configured automatically — no setup required.[/]");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[dim]Press Enter to continue...[/]");
 
@@ -177,74 +144,18 @@ public class ConfigurationWizard
     }
 
     /// <summary>
-    /// Configure storage provider settings
+    /// Auto-configures storage using the OS-standard path with mandatory encryption.
+    /// No user input is required — the database location is determined by the OS.
     /// </summary>
-    private async Task<bool> ConfigureStorageAsync(CancellationToken cancellationToken)
+    private void AutoConfigureStorage()
     {
-        AnsiConsole.Clear();
-
-        var rule = new Rule("[bold cyan]Step 1: Storage Configuration[/]")
-        {
-            Justification = Justify.Left
-        };
-        AnsiConsole.Write(rule);
-        AnsiConsole.WriteLine();
-
-        // Prompt for database path
-        var defaultPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "TrashMailPanda",
-            "app.db");
-
-        var databasePath = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Database location:[/]")
-                .DefaultValue(defaultPath)
-                .ShowDefaultValue(true)
-                .Validate(path =>
-                {
-                    try
-                    {
-                        var directory = Path.GetDirectoryName(path);
-                        if (string.IsNullOrEmpty(directory))
-                        {
-                            return ValidationResult.Error("Invalid path");
-                        }
-                        return ValidationResult.Success();
-                    }
-                    catch
-                    {
-                        return ValidationResult.Error("Invalid path format");
-                    }
-                }));
-
-        // Create directory if it doesn't exist
-        var directory = Path.GetDirectoryName(databasePath);
-        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-        {
+        var dbPath = StorageProviderConfig.GetOsDefaultPath();
+        var directory = Path.GetDirectoryName(dbPath);
+        if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
-            _logger.LogInformation("Created database directory: {Directory}", directory);
-        }
-
-        // Prompt for encryption option
-        var useEncryption = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[cyan]Enable database encryption?[/]")
-                .AddChoices("Yes (Recommended)", "No"));
-
-        var enableEncryption = useEncryption == "Yes (Recommended)";
-
-        // Store configuration in secure storage
-        await _secureStorage.StoreCredentialAsync("storage_database_path", databasePath);
-        await _secureStorage.StoreCredentialAsync("storage_encryption_enabled", enableEncryption.ToString());
 
         _state.StorageConfigured = true;
-        _logger.LogInformation("Storage configured: Path={Path}, Encryption={Encryption}", databasePath, enableEncryption);
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[green]✓ Storage configured successfully[/]");
-        await Task.Delay(1000, cancellationToken);
-
-        return true;
+        _logger.LogInformation("Storage auto-configured at OS-standard path: {Path}", dbPath);
     }
 
     /// <summary>
@@ -254,7 +165,7 @@ public class ConfigurationWizard
     {
         AnsiConsole.Clear();
 
-        var rule = new Rule("[bold cyan]Step 2: Gmail OAuth Setup[/]")
+        var rule = new Rule("[bold cyan]Step 1: Gmail OAuth Setup[/]")
         {
             Justification = Justify.Left
         };
@@ -374,15 +285,7 @@ public class ConfigurationWizard
         AnsiConsole.MarkupLine("[bold]The following providers have been configured:[/]");
         AnsiConsole.WriteLine();
 
-        // Storage status
-        if (_state.StorageConfigured)
-        {
-            AnsiConsole.MarkupLine("  [green]✓[/] Storage Provider");
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("  [red]✗[/] Storage Provider");
-        }
+        AnsiConsole.MarkupLine("  [green]✓[/] Storage Provider [dim](auto-configured)[/]");
 
         // Gmail status
         if (_state.GmailConfigured)
@@ -412,22 +315,6 @@ public class ConfigurationWizard
         await _secureStorage.StoreCredentialAsync("setup_completed", DateTime.UtcNow.ToString("O"));
 
         _logger.LogInformation("Configurations saved successfully");
-    }
-
-    /// <summary>
-    /// Check if storage provider is already configured
-    /// </summary>
-    private async Task<bool> IsStorageConfiguredAsync()
-    {
-        try
-        {
-            var databasePath = await _secureStorage.RetrieveCredentialAsync("storage_database_path");
-            return databasePath.IsSuccess && !string.IsNullOrEmpty(databasePath.Value);
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     /// <summary>

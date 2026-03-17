@@ -315,6 +315,21 @@ public sealed record UnknownError(string Message, string? Details = null, Except
 }
 
 /// <summary>
+/// Error that occurs when local storage quota is exceeded during a training scan.
+/// The scan is paused and can be resumed after freeing space.
+/// </summary>
+public sealed record StorageQuotaError(string Message, string? Details = null, Exception? InnerException = null)
+    : ProviderError(Message, Details, InnerException)
+{
+    public override string Category => "Storage";
+    public override string ErrorCode => "STORAGE_QUOTA_EXCEEDED";
+    public override bool RequiresUserIntervention => true;
+
+    public override string GetUserFriendlyMessage() =>
+        $"Storage quota exceeded: {Message}. Free up space and resume the scan.";
+}
+
+/// <summary>
 /// Extension methods for working with provider errors
 /// </summary>
 public static class ProviderErrorExtensions

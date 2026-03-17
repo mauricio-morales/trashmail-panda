@@ -311,6 +311,24 @@ public class EmailFeatureVector
     // ============================================================
 
     /// <summary>
+    /// Boolean: user replied to this email (or another in the thread).
+    /// Resolved via local thread-based back-correction from SENT folder messages.
+    /// 0=false, 1=true. Default 0 (backward-safe).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    public int IsReplied { get; init; }
+
+    /// <summary>
+    /// Boolean: user forwarded this email (or another in the thread).
+    /// Resolved via local Fwd:/FW:/Fw: prefix detection in SENT folder messages.
+    /// 0=false, 1=true. Default 0 (backward-safe).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    public int IsForwarded { get; init; }
+
+    /// <summary>
     /// Schema version for compatibility checks and migration.
     /// </summary>
     [Required]

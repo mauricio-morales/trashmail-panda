@@ -386,6 +386,8 @@ Boolean attributes that providers map to:
 | `IsFlagged` | STARRED label | \Flagged flag | flag.flagStatus | User marked as important/starred |
 | `IsImportant` | IMPORTANT label | N/A | importance property | High-priority marker |
 | `HasAttachment` | Has attachment parts | BODYSTRUCTURE | hasAttachments | Email contains attachments |
+| `IsReplied` | Local thread back-correction (SENT folder match by ThreadId) | Local thread back-correction | Local thread back-correction | User replied to email — ⭐⭐⭐⭐⭐ strong keep signal |
+| `IsForwarded` | Local thread back-correction (SENT message with Fwd:/FW: SubjectPrefix) | Local thread back-correction | Local thread back-correction | User forwarded email — ⭐⭐⭐⭐⭐ strong keep signal |
 
 ### Why Canonical Abstraction Matters
 

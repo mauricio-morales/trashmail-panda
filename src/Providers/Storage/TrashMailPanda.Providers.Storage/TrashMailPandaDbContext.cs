@@ -38,6 +38,26 @@ public class TrashMailPandaDbContext : DbContext
     /// </summary>
     public DbSet<FeatureSchema> FeatureSchemas => Set<FeatureSchema>();
 
+    /// <summary>
+    /// Gmail training email records imported from training scans.
+    /// </summary>
+    public DbSet<TrainingEmailEntity> TrainingEmails => Set<TrainingEmailEntity>();
+
+    /// <summary>
+    /// User's complete Gmail label catalog (user-created and system labels).
+    /// </summary>
+    public DbSet<LabelTaxonomyEntity> LabelTaxonomy => Set<LabelTaxonomyEntity>();
+
+    /// <summary>
+    /// Links training emails to Gmail labels.
+    /// </summary>
+    public DbSet<LabelAssociationEntity> LabelAssociations => Set<LabelAssociationEntity>();
+
+    /// <summary>
+    /// Training data scan progress: per-folder cursors, resumability state, and incremental historyId.
+    /// </summary>
+    public DbSet<ScanProgressEntity> ScanProgress => Set<ScanProgressEntity>();
+
     // ============================================================
     // DBSETS - Core Application Tables
     // ============================================================
@@ -221,6 +241,89 @@ public class TrashMailPandaDbContext : DbContext
             entity.Property(e => e.Key).HasMaxLength(255).IsRequired();
             entity.Property(e => e.EncryptedValue).IsRequired();
             entity.Property(e => e.CreatedAt).IsRequired();
+        });
+
+        // TrainingEmailEntity configuration
+        modelBuilder.Entity<TrainingEmailEntity>(entity =>
+        {
+            entity.ToTable("training_emails");
+            entity.HasKey(e => e.EmailId);
+            entity.Property(e => e.EmailId).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.AccountId).HasMaxLength(320).IsRequired();
+            entity.Property(e => e.ThreadId).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.FolderOrigin).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.SubjectPrefix).HasMaxLength(10);
+            entity.Property(e => e.ClassificationSignal).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.RawLabelIds).HasMaxLength(2000);
+            entity.Property(e => e.LastSeenAt).IsRequired();
+            entity.Property(e => e.ImportedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
+
+            entity.HasIndex(e => e.AccountId).HasDatabaseName("idx_training_emails_account");
+            entity.HasIndex(e => new { e.ClassificationSignal, e.IsValid }).HasDatabaseName("idx_training_emails_signal");
+            entity.HasIndex(e => e.LastSeenAt).HasDatabaseName("idx_training_emails_last_seen");
+            entity.HasIndex(e => e.ThreadId).HasDatabaseName("idx_training_emails_thread");
+
+            entity.HasMany(e => e.LabelAssociations)
+                  .WithOne(a => a.TrainingEmail)
+                  .HasForeignKey(a => a.EmailId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // LabelTaxonomyEntity configuration
+        modelBuilder.Entity<LabelTaxonomyEntity>(entity =>
+        {
+            entity.ToTable("label_taxonomy");
+            entity.HasKey(e => e.LabelId);
+            entity.Property(e => e.LabelId).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.AccountId).HasMaxLength(320).IsRequired();
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Color).HasMaxLength(50);
+            entity.Property(e => e.LabelType).HasMaxLength(10).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
+
+            entity.HasIndex(e => new { e.AccountId, e.LabelType }).HasDatabaseName("idx_label_taxonomy_account");
+            entity.HasIndex(e => e.UsageCount).HasDatabaseName("idx_label_taxonomy_usage");
+
+            entity.HasMany(e => e.LabelAssociations)
+                  .WithOne(a => a.LabelTaxonomy)
+                  .HasForeignKey(a => a.LabelId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // LabelAssociationEntity configuration
+        modelBuilder.Entity<LabelAssociationEntity>(entity =>
+        {
+            entity.ToTable("label_associations");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EmailId).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.LabelId).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired();
+
+            // Unique constraint: one association per email-label pair
+            entity.HasIndex(e => new { e.EmailId, e.LabelId })
+                  .IsUnique()
+                  .HasDatabaseName("idx_label_assoc_unique");
+
+            entity.HasIndex(e => e.EmailId).HasDatabaseName("idx_label_assoc_email");
+            entity.HasIndex(e => new { e.LabelId, e.IsTrainingSignal }).HasDatabaseName("idx_label_assoc_label");
+        });
+
+        // ScanProgressEntity configuration
+        modelBuilder.Entity<ScanProgressEntity>(entity =>
+        {
+            entity.ToTable("scan_progress");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.AccountId).HasMaxLength(320).IsRequired();
+            entity.Property(e => e.ScanType).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.Status).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.FolderProgressJson).HasMaxLength(4000);
+            entity.Property(e => e.LastProcessedEmailId).HasMaxLength(500);
+            entity.Property(e => e.StartedAt).IsRequired();
+            entity.Property(e => e.UpdatedAt).IsRequired();
+
+            entity.HasIndex(e => new { e.AccountId, e.Status }).HasDatabaseName("idx_scan_progress_account_status");
         });
     }
 }
