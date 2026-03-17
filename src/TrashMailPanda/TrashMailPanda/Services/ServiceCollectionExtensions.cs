@@ -139,6 +139,15 @@ public static class ServiceCollectionExtensions
         // Add Gmail OAuth authentication service
         services.AddSingleton<IGmailOAuthService, GmailOAuthService>();
 
+        // Add Google OAuth services (for Gmail authentication)
+        services.AddSingleton<IGoogleOAuthHandler, GoogleOAuthHandler>();
+        services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
+        services.AddTransient<ILocalOAuthCallbackListener, LocalOAuthCallbackListener>();
+
+        // Register factory for LocalOAuthCallbackListener
+        services.AddSingleton<Func<ILocalOAuthCallbackListener>>(sp =>
+            () => sp.GetRequiredService<ILocalOAuthCallbackListener>());
+
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
 

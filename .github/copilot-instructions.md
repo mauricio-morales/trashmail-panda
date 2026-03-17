@@ -6,9 +6,15 @@
 
 TrashMail Panda is an AI-powered email triage assistant for Gmail users, built with:
 - **.NET 9.0** + **C# 12** (nullable reference types enabled)
-- **Avalonia UI 11** (cross-platform desktop)
-- **CommunityToolkit.Mvvm** (MVVM pattern)
+- **Console-first TUI** (Terminal User Interface with Spectre.Console)
+- **Local ML models** (transitioning from OpenAI to ML.NET for privacy)
 - **Provider-agnostic architecture** (IEmailProvider, ILLMProvider, IStorageProvider)
+
+**Architecture Evolution**: Moving from Avalonia desktop UI to console-based TUI to support:
+- Lightweight, scriptable interface
+- MCP (Model Context Protocol) integration
+- Privacy-first local ML classification
+- Cross-platform terminal experience
 
 ## Critical Patterns (Enforced by CI/CD)
 
@@ -45,30 +51,28 @@ public class EmailService { }
 public class EmailHelper { } // Move to separate file
 ```
 
-### 3. MVVM with CommunityToolkit
+### 3. Console Output with Spectre.Console
 ```csharp
-// ✅ ViewModel pattern
-public partial class MyViewModel : ObservableObject
-{
-    [ObservableProperty]
-    private string _title = "Default";
+// ✅ Use Spectre.Console for colored output
+using Spectre.Console;
 
-    [RelayCommand]
-    private async Task RefreshAsync()
-    {
-        // Implementation
-    }
-}
+AnsiConsole.MarkupLine("[green]✓ Operation successful[/]");
+AnsiConsole.MarkupLine("[red]✗ Error occurred[/]");
+AnsiConsole.MarkupLine("[yellow]⚠ Warning message[/]");
+
+// ✅ Use semantic color scheme
+// Green: Success, Yellow: Warning, Red: Error, Blue: Info, Cyan: Actions
 ```
 
-### 4. UI Colors (NEVER Hardcode RGB)
+### 4. Console UI Colors (Semantic Markup)
 ```csharp
-// ✅ Use semantic helpers
-var color = ProfessionalColors.GetStatusColor("Connected");
-var accent = ProfessionalColors.AccentBlue;
+// ✅ Use semantic color markup in console
+AnsiConsole.MarkupLine("[green]✓[/] Provider ready");
+AnsiConsole.MarkupLine("[bold red]✗[/] [red]Connection failed[/]");
+AnsiConsole.MarkupLine("[cyan]→[/] Processing...");
 
-// ❌ NEVER hardcode colors - breaks theming
-var color = Color.Parse("#E57373"); // Forbidden
+// ❌ Don't use raw ANSI codes
+Console.WriteLine("\u001b[32mSuccess\u001b[0m"); // Use Spectre.Console instead
 ```
 
 ### 5. Provider Implementation
@@ -96,7 +100,27 @@ services.AddSingleton<IEmailProvider, GmailEmailProvider>();
 services.AddOptions<GmailConfig>().ValidateDataAnnotations();
 ```
 
-### 7. Security Rules
+### 7. Console OAuth Pattern
+```csharp
+// ✅ OAuth flow with colored console output
+public async Task<Result<OAuthFlowResult>> AuthenticateAsync()
+{
+    AnsiConsole.MarkupLine("[blue]ℹ Opening browser for authentication...[/]");
+    
+    var result = await _oauthHandler.AuthenticateAsync(config);
+    
+    if (result.IsSuccess)
+    {
+        AnsiConsole.MarkupLine("[green]✓ Authentication successful![/]");
+        return result;
+    }
+    
+    OAuthErrorHandler.DisplayError(result.Error, allowRetry: true);
+    return result;
+}
+```
+
+### 8. Security Rules
 - **NEVER** log sensitive data (tokens, emails, API keys)
 - **NEVER** commit secrets to version control
 - Use `SecureStorageManager` for token storage (OS keychain)
@@ -107,11 +131,10 @@ services.AddOptions<GmailConfig>().ValidateDataAnnotations();
 
 ```
 src/
-├── TrashMailPanda/          # Main Avalonia app
-│   ├── Views/               # XAML views
-│   ├── ViewModels/          # MVVM ViewModels
-│   ├── Theming/             # ProfessionalColors, styles
-│   └── Services/            # App services
+├── TrashMailPanda/          # Main console app
+│   ├── Services/            # OAuth, app services
+│   ├── Models/              # OAuthFlowResult, OAuthConfiguration, etc.
+│   └── Program.cs           # Console entry point
 ├── Shared/                  # Cross-cutting concerns
 │   └── TrashMailPanda.Shared/
 │       ├── Base/            # IProvider, Result<T>
@@ -119,10 +142,22 @@ src/
 │       └── Models/          # DTOs
 ├── Providers/               # External integrations
 │   ├── Email/               # GmailEmailProvider
-│   ├── LLM/                 # OpenAIProvider
+│   ├── LLM/                 # OpenAIProvider (transitioning to ML.NET)
 │   └── Storage/             # SqliteStorageProvider
 └── Tests/                   # xUnit tests
 ```
+
+## Console OAuth Services
+
+- **IGoogleOAuthHandler** - Orchestrates OAuth 2.0 flow with PKCE
+- **IGoogleTokenValidator** - Validates and refreshes tokens
+- **ILocalOAuthCallbackListener** - HTTP listener for OAuth callbacks (localhost)
+- **OAuthErrorHandler** - User-friendly error messages with Spectre.Console
+- **PKCEGenerator** - Generates SHA256 code challenge/verifier pairs
+
+**Storage Keys**: `gmail_client_id`, `gmail_client_secret`, `gmail_access_token`, `gmail_refresh_token`, `gmail_token_expiry`, `gmail_token_issued_utc`, `gmail_user_email`
+
+**Documentation**: See [docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md](docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md)
 
 ## Quick Reference
 
@@ -139,16 +174,18 @@ src/
 - **Constitution**: [`.specify/memory/constitution.md`](.specify/memory/constitution.md) - Engineering principles
 - **Architecture**: Check provider interfaces in `src/Shared/TrashMailPanda.Shared/Base/`
 - **Security**: `src/Shared/TrashMailPanda.Shared/Security/` - Encryption, keychain
-- **Theming**: `src/TrashMailPanda/TrashMailPanda/Theming/ProfessionalColors.cs`
+- **OAuth Guide**: `docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md` - Complete OAuth setup
+- **ML Architecture**: `docs/architecture/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md` - Console-first design
 
 ## Common Mistakes to Avoid
 
 1. ❌ Throwing exceptions from providers → ✅ Return `Result.Failure()`
-2. ❌ Hardcoding `#RRGGBB` colors → ✅ Use `ProfessionalColors`
+2. ❌ Hardcoding colors in Spectre.Console → ✅ Use semantic markup: `[green]`, `[red]`, `[cyan]`
 3. ❌ Multiple public classes per file → ✅ One per file
 4. ❌ Nullable warnings → ✅ Explicit `string?` or `string` types
 5. ❌ Secrets in config → ✅ Environment variables + OS keychain
 6. ❌ No tests → ✅ Maintain 90%+ coverage
+7. ❌ Logging token values → ✅ Log operations only, never sensitive data
 
 ## Testing Categories
 

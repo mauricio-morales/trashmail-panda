@@ -2,12 +2,14 @@
 
 > **📌 Note**: This is **legacy documentation** from the Claude Code workflow.  
 > **Current workflow**: GitHub Copilot + [spec-kit](.specify/)  
+> **Architecture Shift**: Moving from Avalonia desktop UI to **console-first TUI** (see `docs/architecture/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md`)  
 > **See instead**:
 > - [`.github/copilot-instructions.md`](.github/copilot-instructions.md) - Quick reference for GitHub Copilot
 > - [`.specify/memory/constitution.md`](.specify/memory/constitution.md) - Core engineering principles
+> - [`docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md`](docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md) - Console OAuth setup
 > - [`docs/*.md`](docs/) - Technical implementation guides
 >
-> **This file is kept** as comprehensive technical documentation and architectural reference.
+> **This file is kept** as comprehensive technical documentation and architectural reference. Sections are being updated to reflect the console-first architecture.
 
 ---
 
@@ -15,9 +17,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TrashMail Panda is an AI-powered email triage assistant built as a cross-platform .NET desktop application. It helps users clean their Gmail inbox safely through intelligent classification and bulk operations. The project uses a provider-agnostic architecture with C# throughout.
+TrashMail Panda is an AI-powered email triage assistant built as a cross-platform .NET application transitioning to a console-first architecture. It helps users clean their Gmail inbox safely through intelligent classification and bulk operations. The project uses a provider-agnostic architecture with C# throughout.
 
-**Key Technologies**: Avalonia UI 11, CommunityToolkit.Mvvm, Microsoft.Extensions.Hosting/DI/Logging, Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlcipher, Google.Apis.Gmail.v1, System.Text.Json, Polly
+**Architecture Evolution**: Moving from Avalonia desktop UI to console-based TUI (Terminal User Interface) using Spectre.Console for:
+- Lightweight, scriptable interface
+- MCP (Model Context Protocol) integration for AI assistants
+- Privacy-first local ML classification (transitioning from OpenAI to ML.NET)
+- Cross-platform terminal experience
+
+**Key Technologies**: Spectre.Console, Microsoft.Extensions.Hosting/DI/Logging, Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlcipher, Google.Apis.Gmail.v1, System.Text.Json, Polly
 
 ## Development Commands
 
@@ -100,7 +108,7 @@ Key states: `Initializing`, `CheckingProviders`, `DashboardReady`, `SetupRequire
 Coordinates provider health checks and app readiness:
 
 - **StartupOrchestrator** (`src/Services/StartupOrchestrator.cs`) - Orchestrates provider checks
-- **StartupView** (`src/Views/StartupView.axaml`) - Avalonia UI integration with MVVM
+- **Console Output** - Spectre.Console for colored status messages
 - **Parallel Provider Checks** - All provider health checks run concurrently with Task.WhenAll
 - **Individual Timeouts** - Each provider has independent timeout handling with CancellationToken
 
@@ -108,19 +116,19 @@ Coordinates provider health checks and app readiness:
 
 ```
 src/
-├── TrashMailPanda/         # Main Avalonia application
-│   ├── Views/              # Avalonia XAML views
-│   ├── ViewModels/         # MVVM view models
-│   ├── Models/             # Domain models
-│   └── Services/           # Application services
+├── TrashMailPanda/         # Main console application
+│   ├── Services/            # OAuth, app services
+│   ├── Models/              # OAuthFlowResult, OAuthConfiguration, etc.
+│   └── Program.cs           # Console entry point
 ├── Shared/                 # Shared types and utilities
 │   ├── Base/               # IProvider architecture
 │   ├── Models/             # Data transfer objects
 │   ├── Extensions/         # Extension methods
+│   ├── Security/           # SecureStorageManager, encryption
 │   └── Utils/              # Shared utilities & provider initialization
 ├── Providers/              # Provider implementations
 │   ├── Email/              # Gmail provider
-│   ├── LLM/                # OpenAI provider  
+│   ├── LLM/                # OpenAI provider (transitioning to ML.NET)
 │   └── Storage/            # SQLite provider
 └── Tests/                  # xUnit test projects
     ├── Unit/               # Unit tests
@@ -155,7 +163,123 @@ catch (Exception ex)
 }
 ```
 
-## Avalonia MVVM Patterns
+## Console OAuth Patterns
+
+**IMPORTANT FOR AI AGENTS**: TrashMail Panda uses console-based OAuth flows with Spectre.Console for colored terminal output.
+
+### OAuth Services
+
+- **IGoogleOAuthHandler** (`src/Services/IGoogleOAuthHandler.cs`) - Orchestrates OAuth 2.0 flow with PKCE
+- **IGoogleTokenValidator** (`src/Services/IGoogleTokenValidator.cs`) - Validates and refreshes tokens
+- **ILocalOAuthCallbackListener** (`src/Services/ILocalOAuthCallbackListener.cs`) - HTTP listener for callbacks
+- **OAuthErrorHandler** (`src/Services/OAuthErrorHandler.cs`) - User-friendly error messages
+- **PKCEGenerator** (`src/Services/PKCEGenerator.cs`) - Generates SHA256 code challenge/verifier pairs
+
+### Console OAuth Flow
+
+```csharp
+// Check authentication status
+var tokenValidator = services.GetRequiredService<IGoogleTokenValidator>();
+var validationResult = await tokenValidator.ValidateAsync();
+
+if (validationResult.Value.Status == TokenStatus.NotAuthenticated)
+{
+    // Start OAuth flow
+    var oauthHandler = services.GetRequiredService<IGoogleOAuthHandler>();
+    var authResult = await oauthHandler.AuthenticateAsync(config);
+    
+    if (authResult.IsSuccess)
+    {
+        AnsiConsole.MarkupLine("[green]✓ Authentication successful![/]");
+    }
+    else
+    {
+        OAuthErrorHandler.DisplayError(authResult.Error, allowRetry: true);
+    }
+}
+else if (validationResult.Value.Status == TokenStatus.ExpiredCanRefresh)
+{
+    // Auto-refresh token
+    var oauthHandler = services.GetRequiredService<IGoogleOAuthHandler>();
+    var refreshResult = await oauthHandler.RefreshTokenAsync(refreshToken, config);
+}
+```
+
+### Colored Console Output
+
+Use Spectre.Console for all console output:
+
+```csharp
+// Success
+AnsiConsole.MarkupLine("[green]✓ Operation successful[/]");
+
+// Error
+AnsiConsole.MarkupLine("[bold red]✗ Error:[/] [red]{message}[/]");
+
+// Warning
+AnsiConsole.MarkupLine("[yellow]⚠ Warning message[/]");
+
+// Info
+AnsiConsole.MarkupLine("[blue]ℹ Information[/]");
+
+// Action
+AnsiConsole.MarkupLine("[cyan]→ Processing...[/]");
+
+// Status spinner
+await AnsiConsole.Status()
+    .Spinner(Spinner.Known.Dots)
+    .StartAsync("[cyan]Waiting for authorization...[/]", async ctx =>
+    {
+        // Long-running operation
+    });
+```
+
+### OAuth Token Storage
+
+**CRITICAL**: Tokens are stored in OS keychain, NEVER in database:
+
+- **macOS**: Keychain Access (via `security` command)
+- **Windows**: DPAPI (`ProtectedData` API)
+- **Linux**: libsecret (via `secret-tool` command)
+
+**Storage Keys**:
+- `gmail_client_id` - OAuth client ID from Google Cloud Console
+- `gmail_client_secret` - OAuth client secret
+- `gmail_access_token` - Short-lived access token (1 hour)
+- `gmail_refresh_token` - Long-lived refresh token
+- `gmail_token_expiry` - Expiry in seconds
+- `gmail_token_issued_utc` - Issue timestamp (ISO 8601)
+- `gmail_user_email` - Authenticated user email
+
+### Error Handling Patterns
+
+```csharp
+// Use OAuthErrorHandler for consistent error display
+try
+{
+    var result = await oauthHandler.AuthenticateAsync(config);
+    
+    if (!result.IsSuccess)
+    {
+        OAuthErrorHandler.DisplayError(result.Error, allowRetry: true, logger);
+        return false;
+    }
+}
+catch (Exception ex)
+{
+    OAuthErrorHandler.DisplayError(ex, allowRetry: true, logger);
+    
+    // Offer retry
+    if (OAuthErrorHandler.PromptRetry("authentication"))
+    {
+        return await AuthenticateAsync(); // Retry
+    }
+}
+```
+
+## Avalonia MVVM Patterns (Legacy)
+
+> **Note**: Avalonia UI is being phased out in favor of console TUI. These patterns are retained for reference during the transition.
 
 ### ViewModels and Services
 
@@ -163,14 +287,14 @@ catch (Exception ex)
 - **IProviderStatusService** (`src/Services/IProviderStatusService.cs`) - Real-time provider health monitoring  
 - **ObservableObject** (from CommunityToolkit.Mvvm) - MVVM base class for property change notification
 
-### State Management
+### State Management (Legacy)
 
 - **CommunityToolkit.Mvvm**: Observable properties and commands for UI binding
 - **Provider Status**: Real-time health monitoring and setup requirements
 - **Dialog Management**: Coordinated setup flows for different providers with Avalonia dialogs
 - **Error Handling**: Graceful error handling with Result<T> pattern and user notifications
 
-### View Architecture
+### View Architecture (Legacy)
 
 - **StartupView**: Central orchestrator for application startup
 - **ProviderSetupUserControl**: Reusable provider status and setup controls
