@@ -17,10 +17,10 @@
 
 **Purpose**: Project initialization and dependency setup
 
-- [ ] T001 Add Spectre.Console package reference (v0.48.0+) to src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj
-- [ ] T002 [P] Verify Google.Apis.Gmail.v1 (v1.67.0.3477+) and Google.Apis.Auth.OAuth2 (v1.67.0+) package references in src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj
-- [ ] T003 [P] Create src/TrashMailPanda/TrashMailPanda/Services/ directory structure for OAuth services
-- [ ] T004 [P] Create src/TrashMailPanda/TrashMailPanda/Models/ directory for OAuth models
+- [X] T001 Add Spectre.Console package reference (v0.48.0+) to src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj
+- [X] T002 [P] Verify Google.Apis.Gmail.v1 (v1.67.0.3477+) and Google.Apis.Auth.OAuth2 (v1.67.0+) package references in src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj
+- [X] T003 [P] Create src/TrashMailPanda/TrashMailPanda/Services/ directory structure for OAuth services
+- [X] T004 [P] Create src/TrashMailPanda/TrashMailPanda/Models/ directory for OAuth models
 
 ---
 
@@ -30,16 +30,16 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 [P] Create OAuthFlowResult record in src/TrashMailPanda/TrashMailPanda/Models/OAuthFlowResult.cs with AccessToken, RefreshToken, ExpiresInSeconds, IssuedUtc, Scopes, UserEmail properties and IsAccessTokenExpired() method
-- [ ] T006 [P] Create OAuthCallbackData record in src/TrashMailPanda/TrashMailPanda/Models/OAuthCallbackData.cs with Code, State, Error, ErrorDescription, ReceivedAt properties and IsError/IsValid methods
-- [ ] T007 [P] Create TokenValidationResult record in src/TrashMailPanda/TrashMailPanda/Models/TokenValidationResult.cs with TokensExist, IsAccessTokenExpired, HasRefreshToken, TimeUntilExpiry, Status, Message properties
-- [ ] T008 [P] Create TokenStatus enum in src/TrashMailPanda/TrashMailPanda/Models/TokenStatus.cs with Valid, ExpiredCanRefresh, RefreshTokenMissing, NotAuthenticated, RefreshTokenRevoked values
-- [ ] T009 [P] Create PKCEPair record in src/TrashMailPanda/TrashMailPanda/Models/PKCEPair.cs with CodeChallenge and CodeVerifier properties
-- [ ] T010 [P] Create OAuthConfiguration record in src/TrashMailPanda/TrashMailPanda/Models/OAuthConfiguration.cs with ClientId, ClientSecret, Scopes, RedirectUri, Timeout properties
-- [ ] T011 [P] Create IConsoleOAuthHandler interface in src/TrashMailPanda/TrashMailPanda/Services/IConsoleOAuthHandler.cs with AuthenticateAsync, RefreshTokenAsync, IsConfiguredAsync, ClearAuthenticationAsync methods
-- [ ] T012 [P] Create ITokenValidator interface in src/TrashMailPanda/TrashMailPanda/Services/ITokenValidator.cs with ValidateAsync, CanAutoRefreshAsync, LoadStoredTokensAsync methods
-- [ ] T013 [P] Create ILocalOAuthCallbackListener interface in src/TrashMailPanda/TrashMailPanda/Services/ILocalOAuthCallbackListener.cs with StartAsync, GetRedirectUri, WaitForCallbackAsync, StopAsync methods inheriting IAsyncDisposable
-- [ ] T014 Create PKCEGenerator utility class in src/TrashMailPanda/TrashMailPanda/Services/PKCEGenerator.cs with GeneratePKCEPair() method using SHA256 and Base64UrlEncode
+- [X] T005 [P] Create OAuthFlowResult record in src/TrashMailPanda/TrashMailPanda/Models/OAuthFlowResult.cs with AccessToken, RefreshToken, ExpiresInSeconds, IssuedUtc, Scopes, UserEmail properties and IsAccessTokenExpired() method
+- [X] T006 [P] Create OAuthCallbackData record in src/TrashMailPanda/TrashMailPanda/Models/OAuthCallbackData.cs with Code, State, Error, ErrorDescription, ReceivedAt properties and IsError/IsValid methods
+- [X] T007 [P] Create TokenValidationResult record in src/TrashMailPanda/TrashMailPanda/Models/TokenValidationResult.cs with TokensExist, IsAccessTokenExpired, HasRefreshToken, TimeUntilExpiry, Status, Message properties
+- [X] T008 [P] Create TokenStatus enum in src/TrashMailPanda/TrashMailPanda/Models/TokenStatus.cs with Valid, ExpiredCanRefresh, RefreshTokenMissing, NotAuthenticated, RefreshTokenRevoked values
+- [X] T009 [P] Create PKCEPair record in src/TrashMailPanda/TrashMailPanda/Models/PKCEPair.cs with CodeChallenge and CodeVerifier properties
+- [X] T010 [P] Create OAuthConfiguration record in src/TrashMailPanda/TrashMailPanda/Models/OAuthConfiguration.cs with ClientId, ClientSecret, Scopes, RedirectUri, Timeout properties
+- [X] T011 [P] Create IGoogleOAuthHandler interface in src/TrashMailPanda/TrashMailPanda/Services/IGoogleOAuthHandler.cs with AuthenticateAsync, RefreshTokenAsync, IsConfiguredAsync, ClearAuthenticationAsync methods
+- [X] T012 [P] Create IGoogleTokenValidator interface in src/TrashMailPanda/TrashMailPanda/Services/IGoogleTokenValidator.cs with ValidateAsync, CanAutoRefreshAsync, LoadStoredTokensAsync methods
+- [X] T013 [P] Create ILocalOAuthCallbackListener interface in src/TrashMailPanda/TrashMailPanda/Services/ILocalOAuthCallbackListener.cs with StartAsync, GetRedirectUri, WaitForCallbackAsync, StopAsync methods inheriting IAsyncDisposable
+- [X] T014 Create PKCEGenerator utility class in src/TrashMailPanda/TrashMailPanda/Services/PKCEGenerator.cs with GeneratePKCEPair() method using SHA256 and Base64UrlEncode
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -53,18 +53,18 @@
 
 ### Implementation for User Story 1
 
-- [ ] T015 [P] [US1] Create LocalOAuthCallbackListener implementation in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs implementing ILocalOAuthCallbackListener with StartAsync using System.Net.HttpListener on 127.0.0.1:0
-- [ ] T016 [P] [US1] Implement GetRedirectUri method in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs to return complete localhost callback URL with assigned port
-- [ ] T017 [US1] Implement WaitForCallbackAsync method in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs with timeout handling, state validation, query parameter parsing to return OAuthCallbackData
-- [ ] T018 [US1] Implement StopAsync and DisposeAsync methods in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs to clean up HttpListener resources
-- [ ] T019 [US1] Create ConsoleOAuthHandler partial class in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs implementing IConsoleOAuthHandler with constructor injecting ISecureStorageManager, ILogger, ILocalOAuthCallbackListener factory
-- [ ] T020 [US1] Implement AuthenticateAsync method in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs: generate PKCE pair using PKCEGenerator
-- [ ] T021 [US1] Add browser launch logic to AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs using Process.Start with platform detection (Windows UseShellExecute, macOS 'open', Linux 'xdg-open')
-- [ ] T022 [US1] Add OAuth callback wait and authorization code exchange in AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs using Google.Apis.Auth.OAuth2.Flows.GoogleAuthorizationCodeFlow with PKCE verifier
-- [ ] T023 [US1] Implement token storage in AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs using SecureStorageManager with GmailStorageKeys constants (GMAIL_ACCESS_TOKEN, GMAIL_REFRESH_TOKEN, GMAIL_TOKEN_EXPIRY, GMAIL_TOKEN_ISSUED_UTC, GMAIL_USER_EMAIL)
-- [ ] T024 [US1] Add Spectre.Console colored output to AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs: blue for "Opening browser", cyan spinner for "Waiting for authorization", green for success, red for errors
-- [ ] T025 [US1] Implement IsConfiguredAsync method in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs to check GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET exist in SecureStorageManager
-- [ ] T026 [US1] Implement ClearAuthenticationAsync method in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs to delete all OAuth tokens from SecureStorageManager
+- [X] T015 [P] [US1] Create LocalOAuthCallbackListener implementation in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs implementing ILocalOAuthCallbackListener with StartAsync using System.Net.HttpListener on 127.0.0.1:0
+- [X] T016 [P] [US1] Implement GetRedirectUri method in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs to return complete localhost callback URL with assigned port
+- [X] T017 [US1] Implement WaitForCallbackAsync method in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs with timeout handling, state validation, query parameter parsing to return OAuthCallbackData
+- [X] T018 [US1] Implement StopAsync and DisposeAsync methods in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs to clean up HttpListener resources
+- [X] T019 [US1] Create GoogleOAuthHandler partial class in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs implementing IGoogleOAuthHandler with constructor injecting ISecureStorageManager, ILogger, ILocalOAuthCallbackListener factory
+- [X] T020 [US1] Implement AuthenticateAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs: generate PKCE pair using PKCEGenerator
+- [X] T021 [US1] Add browser launch logic to AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs using Process.Start with platform detection (Windows UseShellExecute, macOS 'open', Linux 'xdg-open')
+- [X] T022 [US1] Add OAuth callback wait and authorization code exchange in AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs using Google.Apis.Auth.OAuth2.Flows.GoogleAuthorizationCodeFlow with PKCE verifier
+- [X] T023 [US1] Implement token storage in AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs using SecureStorageManager with GmailStorageKeys constants (GMAIL_ACCESS_TOKEN, GMAIL_REFRESH_TOKEN, GMAIL_TOKEN_EXPIRY, GMAIL_TOKEN_ISSUED_UTC, GMAIL_USER_EMAIL)
+- [X] T024 [US1] Add Spectre.Console colored output to AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs: blue for "Opening browser", cyan spinner for "Waiting for authorization", green for success, red for errors
+- [X] T025 [US1] Implement IsConfiguredAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs to check GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET exist in SecureStorageManager
+- [X] T026 [US1] Implement ClearAuthenticationAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs to delete all OAuth tokens from SecureStorageManager
 
 ### Integration Tests for User Story 1
 
@@ -84,13 +84,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T030 [P] [US2] Create TokenValidator implementation in src/TrashMailPanda/TrashMailPanda/Services/TokenValidator.cs implementing ITokenValidator with constructor injecting ISecureStorageManager and ILogger
-- [ ] T031 [US2] Implement LoadStoredTokensAsync method in src/TrashMailPanda/TrashMailPanda/Services/TokenValidator.cs to reconstruct OAuthFlowResult from SecureStorageManager (GMAIL_ACCESS_TOKEN, GMAIL_REFRESH_TOKEN, GMAIL_TOKEN_EXPIRY, GMAIL_TOKEN_ISSUED_UTC)
-- [ ] T032 [US2] Implement ValidateAsync method in src/TrashMailPanda/TrashMailPanda/Services/TokenValidator.cs to check token existence, calculate expiry (IssuedUtc + ExpiresInSeconds < Now), determine TokenStatus and return TokenValidationResult
-- [ ] T033 [US2] Implement CanAutoRefreshAsync method in src/TrashMailPanda/TrashMailPanda/Services/TokenValidator.cs to check if refresh token exists and tokens are stored
-- [ ] T034 [US2] Implement RefreshTokenAsync method in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs using Google.Apis.Auth.OAuth2.Flows.GoogleAuthorizationCodeFlow.RefreshTokenAsync with stored refresh token
-- [ ] T035 [US2] Add refresh token storage logic to RefreshTokenAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs to update access token, expiry, and issued time in SecureStorageManager
-- [ ] T036 [US2] Add Spectre.Console status spinner to RefreshTokenAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs with cyan "Refreshing access token..." message and green success confirmation
+- [X] T030 [P] [US2] Create GoogleTokenValidator implementation in src/TrashMailPanda/TrashMailPanda/Services/GoogleTokenValidator.cs implementing IGoogleTokenValidator with constructor injecting ISecureStorageManager and ILogger
+- [X] T031 [US2] Implement LoadStoredTokensAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleTokenValidator.cs to reconstruct OAuthFlowResult from SecureStorageManager (GMAIL_ACCESS_TOKEN, GMAIL_REFRESH_TOKEN, GMAIL_TOKEN_EXPIRY, GMAIL_TOKEN_ISSUED_UTC)
+- [X] T032 [US2] Implement ValidateAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleTokenValidator.cs to check token existence, calculate expiry (IssuedUtc + ExpiresInSeconds < Now), determine TokenStatus and return TokenValidationResult
+- [X] T033 [US2] Implement CanAutoRefreshAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleTokenValidator.cs to check if refresh token exists and tokens are stored
+- [X] T034 [US2] Implement RefreshTokenAsync method in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs using Google.Apis.Auth.OAuth2.Flows.GoogleAuthorizationCodeFlow.RefreshTokenAsync with stored refresh token
+- [X] T035 [US2] Add refresh token storage logic to RefreshTokenAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs to update access token, expiry, and issued time in SecureStorageManager
+- [X] T036 [US2] Add Spectre.Console status spinner to RefreshTokenAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs with cyan "Refreshing access token..." message and green success confirmation
 
 ### Integration Tests for User Story 2
 
@@ -110,14 +110,14 @@
 
 ### Implementation for User Story 3
 
-- [ ] T040 [P] [US3] Create OAuthErrorHandler utility class in src/TrashMailPanda/TrashMailPanda/Services/OAuthErrorHandler.cs with DisplayError method accepting Exception and allowRetry bool
-- [ ] T041 [US3] Implement error mapping logic in OAuthErrorHandler.DisplayError in src/TrashMailPanda/TrashMailPanda/Services/OAuthErrorHandler.cs to map exceptions to (userMessage, technicalDetails, isRetryable) tuples
-- [ ] T042 [US3] Add Spectre.Console formatting to OAuthErrorHandler.DisplayError in src/TrashMailPanda/TrashMailPanda/Services/OAuthErrorHandler.cs with bold red for errors, dim red for details, cyan for retry prompts
-- [ ] T043 [US3] Integrate OAuthErrorHandler into ConsoleOAuthHandler.AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs for browser launch failures, callback timeouts, token exchange errors
-- [ ] T044 [US3] Add fallback manual URL display to AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs when browser launch fails: display full authorization URL with yellow "Manual authentication required" message
-- [ ] T045 [US3] Implement invalid_grant detection in RefreshTokenAsync in src/TrashMailPanda/TrashMailPanda/Services/ConsoleOAuthHandler.cs to detect refresh token revoked, clear tokens via ClearAuthenticationAsync, display red "Refresh token revoked - re-authentication required" message
-- [ ] T046 [US3] Add timeout error handling to WaitForCallbackAsync in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs with yellow warning "Authentication timed out after 5 minutes" and cleanup of HttpListener
-- [ ] T047 [US3] Add user denial detection to WaitForCallbackAsync in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs parsing error=access_denied from callback, return OAuthCallbackData with error details
+- [X] T040 [P] [US3] Create OAuthErrorHandler utility class in src/TrashMailPanda/TrashMailPanda/Services/OAuthErrorHandler.cs with DisplayError method accepting Exception and allowRetry bool
+- [X] T041 [US3] Implement error mapping logic in OAuthErrorHandler.DisplayError in src/TrashMailPanda/TrashMailPanda/Services/OAuthErrorHandler.cs to map exceptions to (userMessage, technicalDetails, isRetryable) tuples
+- [X] T042 [US3] Add Spectre.Console formatting to OAuthErrorHandler.DisplayError in src/TrashMailPanda/TrashMailPanda/Services/OAuthErrorHandler.cs with bold red for errors, dim red for details, cyan for retry prompts
+- [X] T043 [US3] Integrate OAuthErrorHandler into GoogleOAuthHandler.AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs for browser launch failures, callback timeouts, token exchange errors
+- [X] T044 [US3] Add fallback manual URL display to AuthenticateAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs when browser launch fails: display full authorization URL with yellow "Manual authentication required" message
+- [X] T045 [US3] Implement invalid_grant detection in RefreshTokenAsync in src/TrashMailPanda/TrashMailPanda/Services/GoogleOAuthHandler.cs to detect refresh token revoked, clear tokens via ClearAuthenticationAsync, display red "Refresh token revoked - re-authentication required" message
+- [X] T046 [US3] Add timeout error handling to WaitForCallbackAsync in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs with yellow warning "Authentication timed out after 5 minutes" and cleanup of HttpListener
+- [X] T047 [US3] Add user denial detection to WaitForCallbackAsync in src/TrashMailPanda/TrashMailPanda/Services/LocalOAuthCallbackListener.cs parsing error=access_denied from callback, return OAuthCallbackData with error details
 
 ### Integration Tests for User Story 3
 
@@ -133,7 +133,7 @@
 
 **Purpose**: Improvements that affect multiple user stories and production readiness
 
-- [ ] T051 Register IConsoleOAuthHandler, ITokenValidator, ILocalOAuthCallbackListener in DI container in src/TrashMailPanda/TrashMailPanda/Program.cs or Startup.cs with appropriate lifetimes (Singleton/Transient)
+- [X] T051 Register IGoogleOAuthHandler, IGoogleTokenValidator, ILocalOAuthCallbackListener in DI container in src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs with appropriate lifetimes (Singleton/Transient)
 - [ ] T052 [P] Add application startup OAuth check logic in src/TrashMailPanda/TrashMailPanda/Program.cs using ITokenValidator.ValidateAsync to determine authentication state before main workflow
 - [ ] T053 [P] Update GmailEmailProvider health check in src/Providers/Email/TrashMailPanda.Providers.Email/GmailEmailProvider.cs to use ITokenValidator for token validation
 - [ ] T054 [P] Add OAuth credential configuration prompt in src/TrashMailPanda/TrashMailPanda/Program.cs or startup flow when IsConfiguredAsync returns false, using Spectre.Console prompts for ClientId and ClientSecret
