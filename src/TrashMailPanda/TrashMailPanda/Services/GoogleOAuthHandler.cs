@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Flows;
 using Google.Apis.Auth.OAuth2.Responses;
@@ -87,16 +89,8 @@ public class GoogleOAuthHandler : IGoogleOAuthHandler
             }
 
             // 5. Wait for OAuth callback
-            Result<OAuthCallbackData> callbackResult;
-
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .StartAsync("[cyan]Waiting for authorization...[/]", async ctx =>
-                {
-                    callbackResult = await listener.WaitForCallbackAsync(state, configuration.Timeout);
-                });
-
-            callbackResult = await listener.WaitForCallbackAsync(state, configuration.Timeout);
+            AnsiConsole.MarkupLine("[cyan]ℹ Waiting for authorization in browser...[/]");
+            var callbackResult = await listener.WaitForCallbackAsync(state, configuration.Timeout);
 
             if (!callbackResult.IsSuccess)
             {
@@ -368,7 +362,7 @@ public class GoogleOAuthHandler : IGoogleOAuthHandler
     }
 
     /// <summary>
-    /// Exchange authorization code for OAuth tokens
+    /// Exchange authorization code for OAuth tokens using direct HTTP POST to include PKCE code_verifier
     /// </summary>
     private async Task<Result<OAuthFlowResult>> ExchangeCodeForTokensAsync(
         string clientId,
@@ -380,41 +374,51 @@ public class GoogleOAuthHandler : IGoogleOAuthHandler
     {
         try
         {
-            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
-            {
-                ClientSecrets = new ClientSecrets
-                {
-                    ClientId = clientId,
-                    ClientSecret = clientSecret
-                }
-            });
+            // Use direct HTTP POST because the Google client library's ExchangeCodeForTokenAsync
+            // does not support passing the PKCE code_verifier parameter
+            using var httpClient = new HttpClient();
 
-            var tokenResponse = await flow.ExchangeCodeForTokenAsync(
-                "user",
-                authorizationCode,
-                redirectUri,
+            var parameters = new Dictionary<string, string>
+            {
+                ["code"] = authorizationCode,
+                ["client_id"] = clientId,
+                ["client_secret"] = clientSecret,
+                ["redirect_uri"] = redirectUri,
+                ["grant_type"] = "authorization_code",
+                ["code_verifier"] = codeVerifier
+            };
+
+            var response = await httpClient.PostAsync(
+                "https://oauth2.googleapis.com/token",
+                new FormUrlEncodedContent(parameters),
                 cancellationToken);
 
-            if (tokenResponse == null)
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
             {
+                _logger.LogError("Token exchange HTTP {Status}: {Body}", response.StatusCode, responseBody);
                 return Result<OAuthFlowResult>.Failure(
-                    new AuthenticationError("Token exchange failed - no response received"));
+                    new AuthenticationError($"Token exchange failed: {responseBody}"));
             }
 
-            // Get user email from token (if available in token response)
-            // Note: GoogleJsonWebSignature is not available in this context
-            // User email will be populated from Gmail API profile later if needed
-            string? userEmail = null;
+            var json = JsonDocument.Parse(responseBody).RootElement;
+
+            var accessToken = json.GetProperty("access_token").GetString() ?? string.Empty;
+            var refreshToken = json.TryGetProperty("refresh_token", out var rt) ? rt.GetString() ?? string.Empty : string.Empty;
+            var expiresIn = json.TryGetProperty("expires_in", out var exp) ? exp.GetInt64() : 3600;
+            var tokenType = json.TryGetProperty("token_type", out var tt) ? tt.GetString() ?? "Bearer" : "Bearer";
+            var scope = json.TryGetProperty("scope", out var sc) ? sc.GetString() ?? string.Empty : string.Empty;
 
             var result = new OAuthFlowResult
             {
-                AccessToken = tokenResponse.AccessToken,
-                RefreshToken = tokenResponse.RefreshToken ?? string.Empty,
-                ExpiresInSeconds = tokenResponse.ExpiresInSeconds ?? 3600,
-                IssuedUtc = tokenResponse.IssuedUtc,
-                Scopes = tokenResponse.Scope?.Split(' ') ?? Array.Empty<string>(),
-                UserEmail = userEmail,
-                TokenType = tokenResponse.TokenType ?? "Bearer"
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+                ExpiresInSeconds = expiresIn,
+                IssuedUtc = DateTime.UtcNow,
+                Scopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                UserEmail = null, // populated later from Gmail API profile if needed
+                TokenType = tokenType
             };
 
             _logger.LogDebug("Token exchange successful - expires in {Expiry} seconds", result.ExpiresInSeconds);

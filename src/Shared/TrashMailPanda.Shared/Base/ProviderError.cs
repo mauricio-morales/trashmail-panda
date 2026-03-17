@@ -112,6 +112,22 @@ public sealed record AuthenticationError(string Message, string? Details = null,
 }
 
 /// <summary>
+/// Error that occurs when OAuth token is missing required scopes
+/// </summary>
+public sealed record InsufficientScopesError(string Message, string? Details = null, Exception? InnerException = null)
+    : ProviderError(Message, Details, InnerException)
+{
+    public override string Category => "Authentication";
+    public override string ErrorCode => "INSUFFICIENT_SCOPES";
+    public override bool RequiresUserIntervention => true;
+
+    public override string GetUserFriendlyMessage()
+    {
+        return $"Insufficient permissions: {Message}. Please re-authorize to grant additional permissions.";
+    }
+}
+
+/// <summary>
 /// Error that occurs during network operations
 /// </summary>
 public sealed record NetworkError(string Message, string? Details = null, Exception? InnerException = null)

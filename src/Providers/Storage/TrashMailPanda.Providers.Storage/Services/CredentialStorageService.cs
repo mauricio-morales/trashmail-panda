@@ -106,8 +106,10 @@ public class CredentialStorageService : ICredentialStorageService
             Result<bool> saveResult;
             if (existingResult.Value != null)
             {
-                // Update existing credential
-                saveResult = await _repository.UpdateAsync(entity, cancellationToken);
+                // Update the tracked entity's properties in-place to avoid EF identity conflict
+                existingResult.Value.EncryptedValue = encryptedValue;
+                existingResult.Value.ExpiresAt = expiresAt;
+                saveResult = await _repository.UpdateAsync(existingResult.Value, cancellationToken);
                 _logger.LogDebug("Updated encrypted credential: {Key}", key);
             }
             else

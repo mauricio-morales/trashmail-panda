@@ -212,27 +212,34 @@ public class SecureStorageManager : ISecureStorageManager
         }
     }
 
-    public Task<SecureStorageResult<bool>> CredentialExistsAsync(string key)
+    public async Task<SecureStorageResult<bool>> CredentialExistsAsync(string key)
     {
         if (!_isInitialized)
         {
-            return Task.FromResult(SecureStorageResult<bool>.Failure("Secure storage not initialized", SecureStorageErrorType.ConfigurationError));
+            return SecureStorageResult<bool>.Failure("Secure storage not initialized", SecureStorageErrorType.ConfigurationError);
         }
 
         if (string.IsNullOrWhiteSpace(key))
         {
-            return Task.FromResult(SecureStorageResult<bool>.Failure("Credential key cannot be null or empty", SecureStorageErrorType.ConfigurationError));
+            return SecureStorageResult<bool>.Failure("Credential key cannot be null or empty", SecureStorageErrorType.ConfigurationError);
         }
 
         try
         {
-            var exists = _credentialCache.ContainsKey(key);
-            return Task.FromResult(SecureStorageResult<bool>.Success(exists));
+            // Check in-memory cache first (fast path)
+            if (_credentialCache.ContainsKey(key))
+            {
+                return SecureStorageResult<bool>.Success(true);
+            }
+
+            // Cache miss — check the database by attempting a retrieve
+            var retrieved = await RetrieveCredentialAsync(key);
+            return SecureStorageResult<bool>.Success(retrieved.IsSuccess && !string.IsNullOrEmpty(retrieved.Value));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception checking credential existence for key: {Key}", MaskKey(key));
-            return Task.FromResult(SecureStorageResult<bool>.Failure($"Existence check failed: {ex.Message}", SecureStorageErrorType.UnknownError));
+            return SecureStorageResult<bool>.Failure($"Existence check failed: {ex.Message}", SecureStorageErrorType.UnknownError);
         }
     }
 

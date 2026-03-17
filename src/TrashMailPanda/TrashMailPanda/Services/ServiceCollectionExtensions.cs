@@ -64,8 +64,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISecurityAuditLogger, SecurityAuditLogger>();
         services.AddSingleton<ITokenRotationService, TokenRotationService>();
 
-        // Register SecureTokenDataStore for OAuth token storage
-        services.AddSingleton<Google.Apis.Util.Store.IDataStore, SecureTokenDataStore>();
+        // Register SecureTokenDataStore for OAuth token storage with logger
+        services.AddSingleton<Google.Apis.Util.Store.IDataStore>(sp =>
+        {
+            var secureStorage = sp.GetRequiredService<ISecureStorageManager>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger<SecureTokenDataStore>();
+            return new SecureTokenDataStore(secureStorage, logger);
+        });
 
         return services;
     }
@@ -118,8 +124,15 @@ public static class ServiceCollectionExtensions
         //    Now delegates to domain services instead of direct database access
         services.AddSingleton<IStorageProvider, StorageProviderAdapter>();
 
-        // Email and LLM providers are NOT registered here
-        // They will be created by application services after secrets are captured through UI
+        // 7. Register Email provider dependencies
+        services.AddSingleton<TrashMailPanda.Providers.Email.Services.IGmailRateLimitHandler, TrashMailPanda.Providers.Email.Services.GmailRateLimitHandler>();
+
+        // 8. Register IEmailProvider (Gmail) - required for console startup flow
+        //    Uses options pattern for configuration from appsettings.json
+        services.AddSingleton<IEmailProvider, GmailEmailProvider>();
+        services.Configure<GmailProviderConfig>(services.BuildServiceProvider().GetRequiredService<IConfiguration>().GetSection("EmailProvider"));
+
+        // LLM provider is NOT registered here - will be added when AI features are implemented
 
         return services;
     }
@@ -147,6 +160,12 @@ public static class ServiceCollectionExtensions
         // Register factory for LocalOAuthCallbackListener
         services.AddSingleton<Func<ILocalOAuthCallbackListener>>(sp =>
             () => sp.GetRequiredService<ILocalOAuthCallbackListener>());
+
+        // Add console services (for console-first architecture)
+        services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStatusDisplay>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStartupOrchestrator>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ConfigurationWizard>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ModeSelectionMenu>();
 
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
