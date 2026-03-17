@@ -34,37 +34,19 @@ public class LocalOAuthCallbackListener : ILocalOAuthCallbackListener
                 return Result<int>.Failure(new ConfigurationError("HTTP listener already started"));
             }
 
+            // Find an available port first (HttpListener doesn't support port 0 directly)
+            _port = FindAvailablePort();
+
             _httpListener = new HttpListener();
 
-            // Try dynamic port allocation (port 0)
-            var prefix = $"http://127.0.0.1:0{callbackPath}/";
+            // Use the discovered port
+            var prefix = $"http://127.0.0.1:{_port}{callbackPath}/";
             _httpListener.Prefixes.Add(prefix);
 
             _logger.LogDebug("Starting HTTP listener with prefix: {Prefix}", prefix);
 
             _httpListener.Start();
             _isStarted = true;
-
-            // Extract assigned port from the listener
-            // Note: HttpListener doesn't expose the port directly when using port 0
-            // We need to extract it from the listening endpoint
-            var listenerPrefix = _httpListener.Prefixes.First();
-            var uri = new Uri(listenerPrefix);
-            _port = uri.Port;
-
-            if (_port == 0)
-            {
-                // If port is still 0, try to get it from the first available prefix
-                // For dynamic port allocation, we'll use a workaround
-                _httpListener.Stop();
-                _httpListener = new HttpListener();
-
-                // Use available port finder
-                _port = FindAvailablePort();
-                prefix = $"http://127.0.0.1:{_port}{callbackPath}/";
-                _httpListener.Prefixes.Add(prefix);
-                _httpListener.Start();
-            }
 
             _logger.LogInformation("HTTP listener started on port {Port}", _port);
 
