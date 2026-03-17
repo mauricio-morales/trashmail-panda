@@ -37,7 +37,7 @@ When a user runs the application for the first time without configured providers
 1. **Given** no provider configuration exists, **When** the application starts, **Then** a welcome message displays followed by "Setting up Storage provider..." as the first setup step
 2. **Given** Storage setup is complete, **When** the wizard continues, **Then** Gmail OAuth setup begins with clear instructions for the browser-based flow
 3. **Given** Gmail setup completes successfully, **When** the wizard continues, **Then** the user is prompted whether to configure optional OpenAI provider
-4. **Given** user completes or skips OpenAI setup, **When** wizard finishes, **Then** all configurations are saved and a restart prompt is displayed
+4. **Given** user completes Google setup, **When** wizard finishes, **Then** all configurations are saved to OS keychain and the application automatically begins provider initialization
 
 ---
 
@@ -51,9 +51,9 @@ As each provider initializes sequentially during startup, the system performs an
 
 **Acceptance Scenarios**:
 
-1. **Given** Storage provider is initializing, **When** initialization completes, **Then** a health check runs immediately and displays green ✓ "Storage Ready" before proceeding to Gmail
-2. **Given** Gmail provider initialization has expired OAuth tokens, **When** Gmail health check runs, **Then** bold red ✗ displays with "Gmail Authentication Failed" error and initialization stops
-3. **Given** OpenAI provider is not configured (optional), **When** OpenAI initialization step runs, **Then** yellow ⚠ displays "OpenAI Not Configured (Optional)" and initialization continues
+1. **Given** Storage provider is initializing, **When** initialization completes, **Then** a health check runs immediately and displays green ✓ "Storage Ready" before proceeding to Google
+2. **Given** Google provider initialization has expired OAuth tokens, **When** Google health check runs, **Then** bold red ✗ displays with "Google Authentication Failed" error and initialization stops
+3. **Given** Google provider has valid OAuth token but missing required scopes (e.g., app upgraded from Gmail-only to Gmail+Contacts), **When** Google health check runs, **Then** bold red ✗ displays with "INSUFFICIENT_SCOPES" error listing missing scopes and prompts user to re-authorize
 4. **Given** a required provider's health check fails, **When** failure is detected, **Then** initialization stops, error details display in red, and user is prompted to reconfigure or exit
 
 ---
@@ -70,7 +70,7 @@ When a required provider (Storage or Gmail) fails its health check during sequen
 
 1. **Given** Storage provider health check fails during startup, **When** failure is detected, **Then** initialization stops, displays "Cannot proceed without Storage" with error details, and offers "Reconfigure Storage" or "Exit"
 2. **Given** Gmail authentication fails during initialization, **When** failure is detected, **Then** initialization stops, displays authentication error with recovery steps, and offers "Reconfigure Gmail" or "Exit"
-3. **Given** user selects "Reconfigure Gmail" after failure, **When** reconfiguration wizard completes, **Then** startup sequence restarts from the beginning with the new configuration
+3. **Given** user selects "Reconfigure Google" after failure, **When** reconfiguration wizard completes, **Then** startup sequence automatically retries initialization with the new configuration
 
 ---
 
