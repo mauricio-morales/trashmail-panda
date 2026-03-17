@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using TrashMailPanda.Models.Console;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
@@ -21,6 +22,7 @@ public class ConsoleStartupOrchestrator
     private readonly ISecureStorageManager _secureStorage;
     private readonly ConsoleStatusDisplay _statusDisplay;
     private readonly ConsoleDisplayOptions _displayOptions;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ConsoleStartupOrchestrator> _logger;
 
     private StartupSequenceState? _sequenceState;
@@ -35,6 +37,7 @@ public class ConsoleStartupOrchestrator
         ISecureStorageManager secureStorage,
         ConsoleStatusDisplay statusDisplay,
         IOptions<ConsoleDisplayOptions> displayOptions,
+        IServiceProvider serviceProvider,
         ILogger<ConsoleStartupOrchestrator> logger)
     {
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
@@ -42,6 +45,7 @@ public class ConsoleStartupOrchestrator
         _secureStorage = secureStorage ?? throw new ArgumentNullException(nameof(secureStorage));
         _statusDisplay = statusDisplay ?? throw new ArgumentNullException(nameof(statusDisplay));
         _displayOptions = displayOptions?.Value ?? throw new ArgumentNullException(nameof(displayOptions));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -75,9 +79,39 @@ public class ConsoleStartupOrchestrator
             // Sequential initialization: Storage → Gmail
             await InitializeProviderAsync(_storageProvider, 0, _cancellationTokenSource.Token);
 
+            // Handle Storage provider failure (required)
+            if (_sequenceState.ProviderStates[0].Status != InitializationStatus.Ready &&
+                _sequenceState.ProviderStates[0].ProviderType == ProviderType.Required)
+            {
+                var handled = await HandleProviderFailureAsync(0, _cancellationTokenSource.Token);
+                if (!handled)
+                {
+                    // User chose to exit or failure unrecoverable
+                    _sequenceState.CompletionTime = DateTime.UtcNow;
+                    _sequenceState.OverallStatus = SequenceStatus.Failed;
+                    _statusDisplay.DisplayStartupSummary(_sequenceState);
+                    return _sequenceState;
+                }
+            }
+
             if (_sequenceState.ProviderStates[0].Status == InitializationStatus.Ready)
             {
                 await InitializeProviderAsync(_emailProvider, 1, _cancellationTokenSource.Token);
+
+                // Handle Gmail provider failure (required)
+                if (_sequenceState.ProviderStates[1].Status != InitializationStatus.Ready &&
+                    _sequenceState.ProviderStates[1].ProviderType == ProviderType.Required)
+                {
+                    var handled = await HandleProviderFailureAsync(1, _cancellationTokenSource.Token);
+                    if (!handled)
+                    {
+                        // User chose to exit or failure unrecoverable
+                        _sequenceState.CompletionTime = DateTime.UtcNow;
+                        _sequenceState.OverallStatus = SequenceStatus.Failed;
+                        _statusDisplay.DisplayStartupSummary(_sequenceState);
+                        return _sequenceState;
+                    }
+                }
             }
 
             // Determine overall status
@@ -323,6 +357,135 @@ public class ConsoleStartupOrchestrator
             _logger.LogError(ex, "Error checking provider configuration status");
             // If we can't verify configuration, assume wizard is needed for safety
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Handles provider initialization failure with error recovery options.
+    /// </summary>
+    /// <param name="providerIndex">Index of the failed provider.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if failure was handled and provider is now ready, false if unrecoverable or user chose to exit.</returns>
+    private async Task<bool> HandleProviderFailureAsync(int providerIndex, CancellationToken cancellationToken)
+    {
+        var state = _sequenceState!.ProviderStates[providerIndex];
+        var provider = providerIndex == 0 ? (object)_storageProvider : _emailProvider;
+
+        _logger.LogWarning("Handling failure for required provider: {ProviderName}", state.ProviderName);
+
+        // Display provider-specific error guidance
+        if (state.Error != null)
+        {
+            var (message, hint) = _statusDisplay.GetProviderSpecificErrorMessage(state.Error.ErrorCode, state.ProviderName);
+            Spectre.Console.AnsiConsole.WriteLine();
+            Spectre.Console.AnsiConsole.MarkupLine($"[bold yellow]⚠ {message}[/]");
+            Spectre.Console.AnsiConsole.MarkupLine($"[dim]{hint}[/]");
+        }
+
+        // Show error recovery menu
+        var choice = _statusDisplay.DisplayErrorRecoveryMenu(state.ProviderName);
+
+        if (choice.Contains("Retry"))
+        {
+            return await RetryProviderInitializationAsync(provider, providerIndex, cancellationToken);
+        }
+        else if (choice.Contains("Reconfigure"))
+        {
+            return await ReconfigureProviderAsync(providerIndex, cancellationToken);
+        }
+        else // Exit
+        {
+            _logger.LogInformation("User chose to exit after {ProviderName} failure", state.ProviderName);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Retries initialization for a specific provider.
+    /// </summary>
+    /// <param name="provider">The provider to retry.</param>
+    /// <param name="providerIndex">Index of the provider.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if retry succeeded, false otherwise.</returns>
+    private async Task<bool> RetryProviderInitializationAsync(
+        object provider,
+        int providerIndex,
+        CancellationToken cancellationToken)
+    {
+        var state = _sequenceState!.ProviderStates[providerIndex];
+        _logger.LogInformation("Retrying initialization for {ProviderName}", state.ProviderName);
+
+        Spectre.Console.AnsiConsole.WriteLine();
+        Spectre.Console.AnsiConsole.MarkupLine("[cyan]⟳[/] Retrying provider initialization...");
+        Spectre.Console.AnsiConsole.WriteLine();
+
+        // Reset state for retry
+        state.Status = InitializationStatus.NotStarted;
+        state.Error = null;
+        state.StartTime = null;
+        state.CompletionTime = null;
+
+        // Retry initialization
+        await InitializeProviderAsync(provider, providerIndex, cancellationToken);
+
+        if (state.Status == InitializationStatus.Ready)
+        {
+            _logger.LogInformation("Retry succeeded for {ProviderName}", state.ProviderName);
+            return true;
+        }
+
+        _logger.LogWarning("Retry failed for {ProviderName}", state.ProviderName);
+
+        // Offer another attempt
+        Spectre.Console.AnsiConsole.WriteLine();
+        if (Spectre.Console.AnsiConsole.Confirm("[yellow]Retry again?[/]", defaultValue: false))
+        {
+            return await RetryProviderInitializationAsync(provider, providerIndex, cancellationToken);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Re-invokes the configuration wizard for a specific provider.
+    /// </summary>
+    /// <param name="providerIndex">Index of the provider to reconfigure.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True if reconfiguration succeeded and provider is ready, false otherwise.</returns>
+    private async Task<bool> ReconfigureProviderAsync(int providerIndex, CancellationToken cancellationToken)
+    {
+        var state = _sequenceState!.ProviderStates[providerIndex];
+        _logger.LogInformation("Starting reconfiguration for {ProviderName}", state.ProviderName);
+
+        Spectre.Console.AnsiConsole.WriteLine();
+        Spectre.Console.AnsiConsole.MarkupLine($"[cyan]⚙[/] Reconfiguring [bold]{state.ProviderName}[/] provider...");
+        Spectre.Console.AnsiConsole.WriteLine();
+
+        try
+        {
+            // Get ConfigurationWizard from DI
+            var wizard = _serviceProvider.GetRequiredService<ConfigurationWizard>();
+
+            // Run wizard for specific provider
+            // For now, we run the full wizard - in future could add provider-specific methods
+            var wizardResult = await wizard.RunAsync(cancellationToken);
+
+            if (!wizardResult)
+            {
+                _logger.LogWarning("User cancelled reconfiguration for {ProviderName}", state.ProviderName);
+                return false;
+            }
+
+            // Configuration updated - retry initialization
+            _logger.LogInformation("Reconfiguration completed, retrying initialization for {ProviderName}", state.ProviderName);
+            var provider = providerIndex == 0 ? (object)_storageProvider : _emailProvider;
+            return await RetryProviderInitializationAsync(provider, providerIndex, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during reconfiguration for {ProviderName}", state.ProviderName);
+            Spectre.Console.AnsiConsole.MarkupLine($"[red]✗ Reconfiguration failed: {ex.Message}[/]");
+            return false;
         }
     }
 }

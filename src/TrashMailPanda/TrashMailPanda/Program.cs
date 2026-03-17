@@ -28,6 +28,7 @@ sealed class Program
             var orchestrator = host.Services.GetRequiredService<ConsoleStartupOrchestrator>();
             var statusDisplay = host.Services.GetRequiredService<ConsoleStatusDisplay>();
             var wizard = host.Services.GetRequiredService<ConfigurationWizard>();
+            var modeMenu = host.Services.GetRequiredService<ModeSelectionMenu>();
 
             // Display welcome banner
             statusDisplay.DisplayWelcomeBanner();
@@ -63,10 +64,25 @@ sealed class Program
                 Console.WriteLine();
                 Console.WriteLine("✓ Application ready!");
                 Console.WriteLine();
-                Console.WriteLine("Press Ctrl+C to exit...");
 
-                // Keep running until Ctrl+C
-                await Task.Delay(Timeout.Infinite, _cancellationTokenSource.Token);
+                // Display mode selection menu
+                var running = true;
+                while (running && !_cancellationTokenSource.Token.IsCancellationRequested)
+                {
+                    var selectedMode = await modeMenu.ShowAsync(_cancellationTokenSource.Token);
+
+                    if (selectedMode == OperationalMode.Exit)
+                    {
+                        running = false;
+                        break;
+                    }
+
+                    // Handle mode selection
+                    running = await HandleModeSelectionAsync(selectedMode, _cancellationTokenSource.Token);
+                }
+
+                Console.WriteLine();
+                Console.WriteLine("Application exiting...");
                 return 0;
             }
             else if (state.OverallStatus == SequenceStatus.Cancelled)
@@ -77,8 +93,10 @@ sealed class Program
             }
             else
             {
+                // Failed status means user chose to exit or all recovery attempts failed
                 Console.WriteLine();
-                Console.WriteLine("✗ Application startup failed.");
+                Console.WriteLine("Application startup incomplete.");
+                Console.WriteLine("Please resolve the provider issues before trying again.");
                 return 1;
             }
         }
@@ -130,5 +148,62 @@ sealed class Program
         Console.WriteLine();
         Console.WriteLine("Shutting down gracefully...");
         _cancellationTokenSource.Cancel();
+    }
+
+    /// <summary>
+    /// Handles mode selection with stub implementations.
+    /// </summary>
+    /// <param name="mode">Selected operational mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True to continue showing menu, false to exit.</returns>
+    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, CancellationToken cancellationToken)
+    {
+        await Task.CompletedTask; // Stub implementations are sync for now
+
+        Console.WriteLine();
+        Console.WriteLine($"Selected mode: {mode}");
+        Console.WriteLine();
+
+        switch (mode)
+        {
+            case OperationalMode.EmailTriage:
+                Spectre.Console.AnsiConsole.MarkupLine("[yellow]📧 Email Triage mode - Coming soon![/]");
+                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will launch the email triage workflow.[/]");
+                Spectre.Console.AnsiConsole.WriteLine();
+                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
+                Console.ReadLine();
+                return true;
+
+            case OperationalMode.BulkOperations:
+                Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚡ Bulk Operations mode - Coming soon![/]");
+                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow bulk email actions (delete, archive, label).[/]");
+                Spectre.Console.AnsiConsole.WriteLine();
+                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
+                Console.ReadLine();
+                return true;
+
+            case OperationalMode.ProviderSettings:
+                Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚙️  Provider Settings mode - Coming soon![/]");
+                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow reconfiguration of provider settings.[/]");
+                Spectre.Console.AnsiConsole.WriteLine();
+                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
+                Console.ReadLine();
+                return true;
+
+            case OperationalMode.UIMode:
+                Spectre.Console.AnsiConsole.MarkupLine("[yellow]🖥️  UI Mode - Coming soon![/]");
+                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will launch the Avalonia desktop UI.[/]");
+                Spectre.Console.AnsiConsole.WriteLine();
+                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
+                Console.ReadLine();
+                return true;
+
+            case OperationalMode.Exit:
+                return false;
+
+            default:
+                Spectre.Console.AnsiConsole.MarkupLine("[red]Unknown mode selected.[/]");
+                return true;
+        }
     }
 }

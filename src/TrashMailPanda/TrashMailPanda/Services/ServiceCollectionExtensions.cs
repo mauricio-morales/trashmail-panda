@@ -152,6 +152,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStatusDisplay>();
         services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStartupOrchestrator>();
         services.AddSingleton<TrashMailPanda.Services.Console.ConfigurationWizard>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ModeSelectionMenu>();
 
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();

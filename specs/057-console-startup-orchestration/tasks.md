@@ -124,13 +124,13 @@ description: "Task list for Console Startup Orchestration & Health Checks implem
 
 ### Implementation for User Story 4
 
-- [ ] T040 [P] [US4] Create error recovery menu in ConsoleStatusDisplay.DisplayErrorRecoveryMenu() using Spectre.Console SelectionPrompt with options: Reconfigure Provider, Retry Initialization, Exit
-- [ ] T041 [US4] Implement failure detection logic in ConsoleStartupOrchestrator.HandleProviderFailureAsync() to halt sequence when required providers fail
-- [ ] T042 [US4] Add error detail display in ConsoleStatusDisplay.DisplayProviderError() with three detail levels (Minimal, Standard, Verbose) based on ConsoleDisplayOptions.ErrorDetailLevel
-- [ ] T043 [US4] Implement retry logic in ConsoleStartupOrchestrator.RetryProviderInitializationAsync() when user selects "Retry Initialization"
-- [ ] T044 [US4] Integrate wizard re-invocation in ConsoleStartupOrchestrator.ReconfigureProviderAsync() when user selects "Reconfigure Provider"
-- [ ] T045 [US4] Add provider-specific error messages in ConsoleStatusDisplay for common failure scenarios (AUTH_TOKEN_EXPIRED, DB_LOCKED, NETWORK_ERROR, INSUFFICIENT_SCOPES)
-- [ ] T046 [US4] Implement graceful exit handling in Program.cs when user selects "Exit" from error recovery menu
+- [X] T040 [P] [US4] Create error recovery menu in ConsoleStatusDisplay.DisplayErrorRecoveryMenu() using Spectre.Console SelectionPrompt with options: Reconfigure Provider, Retry Initialization, Exit
+- [X] T041 [US4] Implement failure detection logic in ConsoleStartupOrchestrator.HandleProviderFailureAsync() to halt sequence when required providers fail
+- [X] T042 [US4] Add error detail display in ConsoleStatusDisplay.DisplayProviderError() with three detail levels (Minimal, Standard, Verbose) based on ConsoleDisplayOptions.ErrorDetailLevel
+- [X] T043 [US4] Implement retry logic in ConsoleStartupOrchestrator.RetryProviderInitializationAsync() when user selects "Retry Initialization"
+- [X] T044 [US4] Integrate wizard re-invocation in ConsoleStartupOrchestrator.ReconfigureProviderAsync() when user selects "Reconfigure Provider"
+- [X] T045 [US4] Add provider-specific error messages in ConsoleStatusDisplay for common failure scenarios (AUTH_TOKEN_EXPIRED, DB_LOCKED, NETWORK_ERROR, INSUFFICIENT_SCOPES)
+- [X] T046 [US4] Implement graceful exit handling in Program.cs when user selects "Exit" from error recovery menu
 
 **Checkpoint**: Required provider failures now halt startup with actionable recovery options
 
@@ -144,13 +144,13 @@ description: "Task list for Console Startup Orchestration & Health Checks implem
 
 ### Implementation for User Story 5
 
-- [ ] T047 [P] [US5] Create ModeSelectionMenu service in src/TrashMailPanda/TrashMailPanda/Services/Console/ModeSelectionMenu.cs with ShowAsync() method
-- [ ] T048 [US5] Implement provider status summary display in ModeSelectionMenu.DisplayProviderStatusAsync() showing health status and key metrics for each provider
-- [ ] T049 [US5] Implement mode selection prompt in ModeSelectionMenu.PromptForModeAsync() using Spectre.Console SelectionPrompt with operational modes (EmailTriage, BulkOperations, ProviderSettings, UIMode, Exit)
-- [ ] T050 [US5] Add mode availability filtering in ModeSelectionMenu.GetAvailableModesAsync() based on provider health status (all current modes require Storage + Gmail)
-- [ ] T051 [US5] Implement keyboard navigation handlers in ModeSelectionMenu for arrow keys, Enter (select), Q/Escape (exit)
-- [ ] T052 [US5] Add mode selection invocation in ConsoleStartupOrchestrator after successful initialization (when RequiredProvidersHealthy == true)
-- [ ] T053 [US5] Implement stub mode handlers in Program.cs for each operational mode (EmailTriage, BulkOperations, ProviderSettings, UIMode, Exit) with "Coming soon" messages
+- [X] T047 [P] [US5] Create ModeSelectionMenu service in src/TrashMailPanda/TrashMailPanda/Services/Console/ModeSelectionMenu.cs with ShowAsync() method
+- [X] T048 [US5] Implement provider status summary display in ModeSelectionMenu.DisplayProviderStatusAsync() showing health status and key metrics for each provider
+- [X] T049 [US5] Implement mode selection prompt in ModeSelectionMenu.PromptForModeAsync() using Spectre.Console SelectionPrompt with operational modes (EmailTriage, BulkOperations, ProviderSettings, UIMode, Exit)
+- [X] T050 [US5] Add mode availability filtering in ModeSelectionMenu.GetAvailableModesAsync() based on provider health status (all current modes require Storage + Gmail)
+- [X] T051 [US5] Implement keyboard navigation handlers in ModeSelectionMenu for arrow keys, Enter (select), Q/Escape (exit)
+- [X] T052 [US5] Add mode selection invocation in ConsoleStartupOrchestrator after successful initialization (when RequiredProvidersHealthy == true)
+- [X] T053 [US5] Implement stub mode handlers in Program.cs for each operational mode (EmailTriage, BulkOperations, ProviderSettings, UIMode, Exit) with "Coming soon" messages
 
 **Checkpoint**: All user stories should now be independently functional - startup completes and mode selection menu displays
 
@@ -160,14 +160,15 @@ description: "Task list for Console Startup Orchestration & Health Checks implem
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T054 [P] Add comprehensive XML documentation comments to all public methods in ConsoleStartupOrchestrator, ConfigurationWizard, ModeSelectionMenu, ConsoleStatusDisplay
+- [X] T054 [P] Add comprehensive XML documentation comments to all public methods in ConsoleStartupOrchestrator, ConfigurationWizard, ModeSelectionMenu, ConsoleStatusDisplay
 - [ ] T055 [P] Update quickstart.md with screenshots/examples of console output for all user scenarios
 - [ ] T056 [P] Update CLAUDE.md and .github/copilot-instructions.md with console startup patterns and Spectre.Console usage examples
 - [ ] T057 Add progress indicators (spinners, status displays) for long-running operations using Spectre.Console.Status() and Progress()
 - [ ] T058 Implement countdown timer display during timeout scenarios in ConsoleStatusDisplay.DisplayTimeoutWarning()
-- [ ] T059 [P] Add null reference validation and defensive coding in all console services (ConsoleStartupOrchestrator, ConfigurationWizard, ModeSelectionMenu)
+- [X] T059 [P] Add null reference validation and defensive coding in all console services (ConsoleStartupOrchestrator, ConfigurationWizard, ModeSelectionMenu)
 - [ ] T060 Optimize startup performance by reducing redundant configuration reads in ConsoleStartupOrchestrator
 - [ ] T061 Run quickstart.md validation to verify all documented scenarios work correctly
+- [X] T062 Verify dotnet format passes with no warnings across all new console code
 - [ ] T062 Verify dotnet format passes with no warnings across all new console code
 
 ---

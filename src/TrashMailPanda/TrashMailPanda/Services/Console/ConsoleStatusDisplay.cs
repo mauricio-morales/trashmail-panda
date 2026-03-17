@@ -232,4 +232,48 @@ public class ConsoleStatusDisplay
         var timestamp = _options.ShowTimestamps ? $"[dim]{DateTime.Now:HH:mm:ss}[/] " : "";
         AnsiConsole.MarkupLine($"{timestamp}[yellow]⚠[/] {message} ([bold]{remainingSeconds}s[/] remaining)");
     }
+
+    /// <summary>
+    /// Gets provider-specific error message and recovery hint for common error codes.
+    /// </summary>
+    /// <param name="errorCode">The error code from the provider error.</param>
+    /// <param name="providerName">Name of the failed provider.</param>
+    /// <returns>Tuple of (error message, recovery hint).</returns>
+    public (string Message, string RecoveryHint) GetProviderSpecificErrorMessage(string errorCode, string providerName)
+    {
+        return errorCode switch
+        {
+            "AUTH_ERROR" or "AUTH_TOKEN_EXPIRED" =>
+                ($"Authentication failed for {providerName}",
+                 "Your credentials may have expired. Try reconfiguring the provider."),
+
+            "INSUFFICIENT_SCOPES" =>
+                ($"OAuth permissions missing for {providerName}",
+                 "Your token is missing required permissions. You must re-authorize to grant additional access."),
+
+            "DB_LOCKED" or "STORAGE_ERROR" =>
+                ($"Database access error for {providerName}",
+                 "The database may be locked by another process. Close other instances and retry."),
+
+            "NET_ERROR" or "NETWORK_ERROR" =>
+                ($"Network connectivity issue with {providerName}",
+                 "Check your internet connection and firewall settings, then retry."),
+
+            "TIMEOUT" =>
+                ($"{providerName} operation timed out",
+                 "The operation took too long to complete. This may be a temporary issue - try again."),
+
+            "CONFIG_ERROR" or "VALIDATION_ERROR" =>
+                ($"Configuration error for {providerName}",
+                 "Your provider settings may be invalid. Try reconfiguring with correct values."),
+
+            "QUOTA_EXCEEDED" =>
+                ($"API quota exceeded for {providerName}",
+                 "You've exceeded your API usage limits. Wait for quota reset or upgrade your plan."),
+
+            _ =>
+                ($"Unknown error with {providerName}",
+                 "An unexpected error occurred. Check logs for details or try reconfiguring.")
+        };
+    }
 }
