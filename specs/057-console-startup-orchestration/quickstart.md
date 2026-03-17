@@ -53,7 +53,7 @@ dotnet run --project src/TrashMailPanda
 **Expected Output**:
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║             🐼 TrashMail Panda v1.0.0                        ║
+║             🦝 TrashMail Panda v1.0.0                        ║
 ║          AI-Powered Email Triage Assistant                  ║
 ╚══════════════════════════════════════════════════════════════╝
 

@@ -148,6 +148,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Func<ILocalOAuthCallbackListener>>(sp =>
             () => sp.GetRequiredService<ILocalOAuthCallbackListener>());
 
+        // Add console services (for console-first architecture)
+        services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStatusDisplay>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStartupOrchestrator>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ConfigurationWizard>();
+
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
 

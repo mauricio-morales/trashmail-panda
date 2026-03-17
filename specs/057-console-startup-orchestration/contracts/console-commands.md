@@ -22,7 +22,7 @@ This document defines the console UI contracts for startup orchestration, config
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
-║             🐼 TrashMail Panda v1.0.0                        ║
+║             🦝 TrashMail Panda v1.0.0                        ║
 ║          AI-Powered Email Triage Assistant                  ║
 ╚══════════════════════════════════════════════════════════════╝
 
@@ -301,7 +301,7 @@ Press any key to continue to mode selection...
 
 ```
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    🐼 TrashMail Panda Ready                          ║
+║                    🦝 TrashMail Panda Ready                          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 Provider Status:
