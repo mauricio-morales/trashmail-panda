@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +8,7 @@ using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
 using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Providers.Email;
+using TrashMailPanda.Providers.Email.Models;
 using TrashMailPanda.Providers.Storage;
 
 namespace TrashMailPanda.Services.Console;
@@ -20,6 +22,7 @@ public class ConsoleStartupOrchestrator
     private readonly IStorageProvider _storageProvider;
     private readonly IEmailProvider _emailProvider;
     private readonly ISecureStorageManager _secureStorage;
+    private readonly TrashMailPandaDbContext _dbContext;
     private readonly ConsoleStatusDisplay _statusDisplay;
     private readonly ConsoleDisplayOptions _displayOptions;
     private readonly IServiceProvider _serviceProvider;
@@ -35,6 +38,7 @@ public class ConsoleStartupOrchestrator
         IStorageProvider storageProvider,
         IEmailProvider emailProvider,
         ISecureStorageManager secureStorage,
+        TrashMailPandaDbContext dbContext,
         ConsoleStatusDisplay statusDisplay,
         IOptions<ConsoleDisplayOptions> displayOptions,
         IServiceProvider serviceProvider,
@@ -43,6 +47,7 @@ public class ConsoleStartupOrchestrator
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
         _emailProvider = emailProvider ?? throw new ArgumentNullException(nameof(emailProvider));
         _secureStorage = secureStorage ?? throw new ArgumentNullException(nameof(secureStorage));
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _statusDisplay = statusDisplay ?? throw new ArgumentNullException(nameof(statusDisplay));
         _displayOptions = displayOptions?.Value ?? throw new ArgumentNullException(nameof(displayOptions));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
@@ -75,6 +80,14 @@ public class ConsoleStartupOrchestrator
             };
 
             _logger.LogInformation("Starting provider initialization sequence");
+
+            // Run EF migrations first so the encrypted_credentials table (and all others) exist
+            // before CredentialEncryption tries to use them during SecureStorageManager.InitializeAsync().
+            await _dbContext.Database.MigrateAsync(_cancellationTokenSource!.Token);
+
+            // Ensure secure storage is initialized before reading Gmail credentials
+            // (idempotent — safe to call even if CheckProviderSetupNeeded already initialized it)
+            await _secureStorage.InitializeAsync();
 
             // Sequential initialization: Storage → Gmail
             await InitializeProviderAsync(_storageProvider, 0, _cancellationTokenSource.Token);
@@ -156,20 +169,63 @@ public class ConsoleStartupOrchestrator
             }
             else if (provider is IEmailProvider emailProvider)
             {
-                // IEmailProvider uses ConnectAsync() - returns Result<bool>
-                var connectResult = await emailProvider.ConnectAsync();
-
-                if (!connectResult.IsSuccess)
+                // GmailEmailProvider extends BaseProvider<GmailProviderConfig> and must have
+                // InitializeAsync(config) called to transition from Uninitialized → Ready before
+                // any operations (including ConnectAsync) can be accepted.
+                if (emailProvider is GmailEmailProvider gmailProvider)
                 {
-                    state.Status = InitializationStatus.Failed;
-                    state.Error = connectResult.Error;
-                    state.CompletionTime = DateTime.UtcNow;
+                    var clientIdResult = await _secureStorage.RetrieveCredentialAsync(GmailStorageKeys.CLIENT_ID);
+                    var clientSecretResult = await _secureStorage.RetrieveCredentialAsync(GmailStorageKeys.CLIENT_SECRET);
 
-                    _statusDisplay.DisplayProviderFailed(state);
-                    _logger.LogError("Provider {ProviderName} connection failed: {Error}",
-                        state.ProviderName, connectResult.Error?.Message);
+                    var clientId = clientIdResult.IsSuccess ? clientIdResult.Value : null;
+                    var clientSecret = clientSecretResult.IsSuccess ? clientSecretResult.Value : null;
 
-                    return;
+                    if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
+                    {
+                        state.Status = InitializationStatus.Failed;
+                        state.Error = new ConfigurationError("Gmail client credentials not found in secure storage. Please run the configuration wizard.");
+                        state.CompletionTime = DateTime.UtcNow;
+
+                        _statusDisplay.DisplayProviderFailed(state);
+                        _logger.LogError("Provider Gmail initialization failed: client credentials not configured");
+
+                        return;
+                    }
+
+                    var gmailConfig = GmailProviderConfig.CreateProductionConfig(clientId, clientSecret);
+
+                    var initResult = await gmailProvider.InitializeAsync(gmailConfig, linkedCts.Token);
+
+                    if (!initResult.IsSuccess)
+                    {
+                        state.Status = InitializationStatus.Failed;
+                        state.Error = initResult.Error;
+                        state.CompletionTime = DateTime.UtcNow;
+
+                        _statusDisplay.DisplayProviderFailed(state);
+                        _logger.LogError("Provider {ProviderName} initialization failed: {Error}",
+                            state.ProviderName, initResult.Error?.Message);
+
+                        return;
+                    }
+                }
+                else
+                {
+                    // Fallback for other IEmailProvider implementations
+                    var connectResult = await emailProvider.ConnectAsync();
+
+                    if (!connectResult.IsSuccess)
+                    {
+                        state.Status = InitializationStatus.Failed;
+                        state.Error = connectResult.Error;
+                        state.CompletionTime = DateTime.UtcNow;
+
+                        _statusDisplay.DisplayProviderFailed(state);
+                        _logger.LogError("Provider {ProviderName} connection failed: {Error}",
+                            state.ProviderName, connectResult.Error?.Message);
+
+                        return;
+                    }
                 }
             }
             else
@@ -321,6 +377,19 @@ public class ConsoleStartupOrchestrator
 
         try
         {
+            // Run EF migrations first so the encrypted_credentials table exists
+            // before CredentialEncryption tries to use it during SecureStorageManager.InitializeAsync().
+            await _dbContext.Database.MigrateAsync();
+
+            // Ensure secure storage is initialized — it must be ready before the wizard runs
+            // (same singleton instance is used by ConfigurationWizard for StoreCredentialAsync)
+            var storageInitResult = await _secureStorage.InitializeAsync();
+            if (!storageInitResult.IsSuccess)
+            {
+                _logger.LogError("Failed to initialize secure storage: {Error}", storageInitResult.ErrorMessage);
+                return true; // Can't verify config — treat as setup needed
+            }
+
             // Check if first-time setup has been completed
             var setupCompletedResult = await _secureStorage.CredentialExistsAsync("setup_completed");
 

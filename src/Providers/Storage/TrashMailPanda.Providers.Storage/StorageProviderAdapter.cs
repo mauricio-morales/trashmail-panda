@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using SQLitePCL;
 using TrashMailPanda.Providers.Storage.Services;
 using TrashMailPanda.Shared;
 
@@ -20,6 +22,7 @@ public class StorageProviderAdapter : IStorageProvider
     private readonly IClassificationHistoryService _classificationHistoryService;
     private readonly ICredentialStorageService _credentialStorageService;
     private readonly IConfigurationService _configurationService;
+    private readonly TrashMailPandaDbContext _dbContext;
     private readonly ILogger<StorageProviderAdapter> _logger;
 
     public StorageProviderAdapter(
@@ -28,6 +31,7 @@ public class StorageProviderAdapter : IStorageProvider
         IClassificationHistoryService classificationHistoryService,
         ICredentialStorageService credentialStorageService,
         IConfigurationService configurationService,
+        TrashMailPandaDbContext dbContext,
         ILogger<StorageProviderAdapter> logger)
     {
         _userRulesService = userRulesService ?? throw new ArgumentNullException(nameof(userRulesService));
@@ -35,16 +39,19 @@ public class StorageProviderAdapter : IStorageProvider
         _classificationHistoryService = classificationHistoryService ?? throw new ArgumentNullException(nameof(classificationHistoryService));
         _credentialStorageService = credentialStorageService ?? throw new ArgumentNullException(nameof(credentialStorageService));
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task InitAsync()
     {
-        _logger.LogInformation("Storage provider adapter initialized (using domain services)");
+        // Initialize SQLitePCLRaw with SQLCipher bundle before any database operations
+        Batteries_V2.Init();
 
-        // Initialization is handled by domain services and repository
-        // This is a no-op for the adapter
-        await Task.CompletedTask;
+        // Run EF migrations to create/update the database schema
+        await _dbContext.Database.MigrateAsync();
+
+        _logger.LogInformation("Storage provider adapter initialized (using domain services)");
     }
 
     #region User Rules
