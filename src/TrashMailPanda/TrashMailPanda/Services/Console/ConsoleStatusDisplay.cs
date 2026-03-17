@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Spectre.Console;
 using TrashMailPanda.Models.Console;
 using TrashMailPanda.Shared.Base;
@@ -16,9 +17,9 @@ public class ConsoleStatusDisplay
     /// Initializes a new instance of the <see cref="ConsoleStatusDisplay"/> class.
     /// </summary>
     /// <param name="options">Console display options for rendering control.</param>
-    public ConsoleStatusDisplay(ConsoleDisplayOptions options)
+    public ConsoleStatusDisplay(IOptions<ConsoleDisplayOptions> options)
     {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
     /// <summary>
