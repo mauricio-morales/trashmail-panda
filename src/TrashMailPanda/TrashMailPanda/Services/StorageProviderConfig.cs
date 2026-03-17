@@ -5,7 +5,7 @@ namespace TrashMailPanda.Services;
 /// </summary>
 public class StorageProviderConfig
 {
-    public string DatabasePath { get; set; } = "./data/transmail.db";
+    public string DatabasePath { get; set; } = "./data/app.db";
     public string EncryptionKey { get; set; } = string.Empty;
     public bool EnableWAL { get; set; } = true;
     public int CommandTimeoutSeconds { get; set; } = 30;
