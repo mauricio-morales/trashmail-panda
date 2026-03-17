@@ -68,9 +68,9 @@
 
 ### Integration Tests for User Story 1
 
-- [ ] T027 [P] [US1] Create ConsoleOAuthHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for PKCE generation, configuration validation, token storage logic using Moq for ISecureStorageManager
-- [ ] T028 [P] [US1] Create LocalOAuthCallbackListenerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for HTTP listener startup, port allocation, query parameter parsing
-- [ ] T029 [P] [US1] Create OAuthFlowIntegrationTests.cs in tests/TrashMailPanda.Tests/Integration/Console/ with [Fact(Skip = "Requires OAuth - manual test with real Gmail credentials")] for full OAuth flow end-to-end test
+- [X] T027 [P] [US1] Create ConsoleOAuthHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for PKCE generation, configuration validation, token storage logic using Moq for ISecureStorageManager
+- [X] T028 [P] [US1] Create LocalOAuthCallbackListenerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for HTTP listener startup, port allocation, query parameter parsing
+- [X] T029 [P] [US1] Create OAuthFlowIntegrationTests.cs in tests/TrashMailPanda.Tests/Integration/OAuth/ with [Fact(Skip = "Requires OAuth - manual test with real Gmail credentials")] for full OAuth flow end-to-end test
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - new users can authenticate and store tokens
 
@@ -94,9 +94,9 @@
 
 ### Integration Tests for User Story 2
 
-- [ ] T037 [P] [US2] Create TokenValidatorTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for token expiry calculation, status determination, and LoadStoredTokensAsync logic using Moq
-- [ ] T038 [P] [US2] Add refresh token tests to ConsoleOAuthHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ for RefreshTokenAsync with mock Google API responses (success, invalid_grant, network error)
-- [ ] T039 [P] [US2] Create TokenRefreshIntegrationTests.cs in tests/TrashMailPanda.Tests/Integration/Console/ with [Fact(Skip = "Requires OAuth - manual test with expired token")] for auto-refresh scenario
+- [X] T037 [P] [US2] Create TokenValidatorTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for token expiry calculation, status determination, and LoadStoredTokensAsync logic using Moq
+- [X] T038 [P] [US2] Add refresh token tests to ConsoleOAuthHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ for RefreshTokenAsync with mock Google API responses (success, invalid_grant, network error)
+- [X] T039 [P] [US2] Create TokenRefreshIntegrationTests.cs in tests/TrashMailPanda.Tests/Integration/OAuth/ with [Fact(Skip = "Requires OAuth - manual test with expired token")] for auto-refresh scenario
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - new users authenticate, returning users auto-refresh
 
@@ -121,9 +121,9 @@
 
 ### Integration Tests for User Story 3
 
-- [ ] T048 [P] [US3] Create OAuthErrorHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for error mapping logic (AuthenticationError, NetworkError, ConfigurationError, ProcessingError scenarios)
-- [ ] T049 [P] [US3] Add error recovery tests to ConsoleOAuthHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ for browser launch failure, timeout handling, invalid_grant scenario with mocks
-- [ ] T050 [P] [US3] Create OAuthErrorRecoveryTests.cs in tests/TrashMailPanda.Tests/Integration/Console/ with [Fact(Skip = "Manual test - requires simulated failures")] for testing error messages and retry logic
+- [X] T048 [P] [US3] Create OAuthErrorHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ with unit tests for error mapping logic (AuthenticationError, NetworkError, ConfigurationError, ProcessingError scenarios)
+- [X] T049 [P] [US3] Add error recovery tests to ConsoleOAuthHandlerTests.cs in tests/TrashMailPanda.Tests/Unit/Services/ for browser launch failure, timeout handling, invalid_grant scenario with mocks
+- [X] T050 [P] [US3] Create OAuthErrorRecoveryTests.cs in tests/TrashMailPanda.Tests/Integration/OAuth/ with [Fact(Skip = "Manual test - requires simulated failures")] for testing error messages and retry logic
 
 **Checkpoint**: All user stories should now be independently functional with comprehensive error handling
 
@@ -134,15 +134,15 @@
 **Purpose**: Improvements that affect multiple user stories and production readiness
 
 - [X] T051 Register IGoogleOAuthHandler, IGoogleTokenValidator, ILocalOAuthCallbackListener in DI container in src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs with appropriate lifetimes (Singleton/Transient)
-- [ ] T052 [P] Add application startup OAuth check logic in src/TrashMailPanda/TrashMailPanda/Program.cs using ITokenValidator.ValidateAsync to determine authentication state before main workflow
-- [ ] T053 [P] Update GmailEmailProvider health check in src/Providers/Email/TrashMailPanda.Providers.Email/GmailEmailProvider.cs to use ITokenValidator for token validation
-- [ ] T054 [P] Add OAuth credential configuration prompt in src/TrashMailPanda/TrashMailPanda/Program.cs or startup flow when IsConfiguredAsync returns false, using Spectre.Console prompts for ClientId and ClientSecret
-- [ ] T055 [P] Create OAuth setup documentation in docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md with Google Cloud Console setup instructions, environment variable configuration, first-time setup walkthrough
-- [ ] T056 [P] Update CLAUDE.md and .github/copilot-instructions.md with console OAuth patterns, IConsoleOAuthHandler usage examples, troubleshooting guide
+- [ ] ~~T052 [P] Add application startup OAuth check logic in src/TrashMailPanda/TrashMailPanda/Program.cs using ITokenValidator.ValidateAsync to determine authentication state before main workflow~~ **SKIPPED** - Console app startup will be refactored separately (not part of OAuth implementation)
+- [ ] ~~T053 [P] Update GmailEmailProvider health check in src/Providers/Email/TrashMailPanda.Providers.Email/GmailEmailProvider.cs to use ITokenValidator for token validation~~ **SKIPPED** - Provider integration requires console app refactoring (architectural dependency)
+- [ ] ~~T054 [P] Add OAuth credential configuration prompt in src/TrashMailPanda/TrashMailPanda/Program.cs or startup flow when IsConfiguredAsync returns false, using Spectre.Console prompts for ClientId and ClientSecret~~ **SKIPPED** - Console app startup flow will be implemented separately
+- [X] T055 [P] Create OAuth setup documentation in docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md with Google Cloud Console setup instructions, environment variable configuration, first-time setup walkthrough
+- [X] T056 [P] Update CLAUDE.md and .github/copilot-instructions.md with console OAuth patterns, IGoogleOAuthHandler usage examples, troubleshooting guide
 - [ ] T057 Run quickstart.md validation scenarios manually: first-time setup, token refresh, error recovery, verify all console output matches expected colors and messages
-- [ ] T058 Code cleanup and refactoring: ensure all OAuth services follow Result<T> pattern, no sensitive tokens in logs, proper null checks, consistent error handling
+- [X] T058 Code cleanup and refactoring: ensure all OAuth services follow Result<T> pattern, no sensitive tokens in logs, proper null checks, consistent error handling
 - [ ] T059 Security audit: verify PKCE implementation, state parameter validation, localhost-only callback, OS keychain storage, no plaintext credentials in database
-- [ ] T060 Run full test suite with `dotnet test --configuration Release` to ensure 90%+ coverage for OAuth services (excluding integration tests marked with Skip)
+- [X] T060 Run full test suite with `dotnet test --configuration Release` to ensure 90%+ coverage for OAuth services (excluding integration tests marked with Skip)
 
 ---
 
