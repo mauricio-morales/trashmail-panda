@@ -57,7 +57,6 @@ public sealed class TrainingEmailRepository : ITrainingEmailRepository
                     ON CONFLICT(EmailId) DO UPDATE SET
                         AccountId            = excluded.AccountId,
                         ThreadId             = excluded.ThreadId,
-                        FolderOrigin         = excluded.FolderOrigin,
                         IsRead               = excluded.IsRead,
                         IsReplied            = excluded.IsReplied,
                         IsForwarded          = excluded.IsForwarded,
@@ -68,7 +67,10 @@ public sealed class TrainingEmailRepository : ITrainingEmailRepository
                         RawLabelIds          = excluded.RawLabelIds,
                         LastSeenAt           = excluded.LastSeenAt,
                         UpdatedAt            = excluded.UpdatedAt
-                    -- ImportedAt is deliberately excluded to preserve the original import timestamp
+                    -- FolderOrigin and ImportedAt are deliberately excluded:
+                    -- FolderOrigin preserves the first-seen folder (highest-priority scan wins,
+                    --   e.g. SENT beats INBOX for self-sent emails).
+                    -- ImportedAt preserves the original import timestamp.
                     """;
 
                 foreach (var email in list)

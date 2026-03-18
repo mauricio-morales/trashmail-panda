@@ -59,19 +59,8 @@ public class ConfigurationWizard
             _state.CurrentStep = WizardStep.GmailSetup;
             if (gmailConfigured)
             {
-                _logger.LogInformation("Gmail already configured, offering skip option");
-                if (!await PromptReconfigureOrSkipAsync("Gmail"))
-                {
-                    _state.GmailConfigured = true;
-                }
-                else
-                {
-                    if (!await ConfigureGmailAsync(cancellationToken))
-                    {
-                        _logger.LogWarning("User cancelled configuration at Gmail setup");
-                        return false;
-                    }
-                }
+                _logger.LogInformation("Gmail already configured and healthy, skipping setup");
+                _state.GmailConfigured = true;
             }
             else
             {

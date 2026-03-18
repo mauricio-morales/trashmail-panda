@@ -23,15 +23,20 @@ namespace TrashMailPanda.Providers.Email.Services;
 /// </summary>
 public sealed class GmailTrainingDataService : IGmailTrainingDataService
 {
-    // Folder scan order: highest signal value first
+    // Folder scan order: highest signal value first.
+    // ARCHIVE uses a search query (not a label ID) because Gmail has no "ARCHIVE" system label —
+    // archived emails are simply those with no INBOX/SENT/TRASH/SPAM label.
     private static readonly (string LabelId, string FolderName)[] ScanFolderOrder =
     [
         ("SPAM",      "SPAM"),
         ("TRASH",     "TRASH"),
         ("SENT",      "SENT"),
-        ("ARCHIVE",   "ARCHIVE"),   // Gmail uses "mute" labels for archive; treated as not-Inbox
+        ("ARCHIVE",   "ARCHIVE"),
         ("INBOX",     "INBOX"),
     ];
+
+    // Gmail query used to fetch archived emails (everything that isn't inbox/sent/trash/spam).
+    private const string ArchiveQuery = "-in:inbox -in:trash -in:spam -in:sent";
 
     private const int PageSize = 100;
     private const int InterPageDelayMs = 50;
@@ -403,11 +408,15 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 return Result<FolderScanStats>.Failure(new StorageQuotaError("Storage quota reached"));
             }
 
-            // Fetch page of message IDs
+            // Fetch page of message IDs.
+            // Archive has no system label — use a search query instead of a label filter.
             var listResult = await _rateLimitHandler.ExecuteWithRetryAsync(async () =>
             {
                 var req = gmailService.Users.Messages.List(GmailApiConstants.USER_ID_ME);
-                req.LabelIds = labelId;
+                if (labelId == "ARCHIVE")
+                    req.Q = ArchiveQuery;
+                else
+                    req.LabelIds = labelId;
                 req.MaxResults = PageSize;
                 if (pageToken is not null) req.PageToken = pageToken;
                 return await req.ExecuteAsync(cancellationToken);
