@@ -34,6 +34,7 @@ sealed class Program
             var modeMenu = host.Services.GetRequiredService<ModeSelectionMenu>();
             var trainingScanCommand = host.Services.GetRequiredService<GmailTrainingScanCommand>();
             var scanProgressRepo = host.Services.GetRequiredService<IScanProgressRepository>();
+            var trainingConsoleService = host.Services.GetRequiredService<TrainingConsoleService>();
 
             // Display welcome banner
             statusDisplay.DisplayWelcomeBanner();
@@ -87,7 +88,7 @@ sealed class Program
                     }
 
                     // Handle mode selection
-                    running = await HandleModeSelectionAsync(selectedMode, trainingScanCommand, _cancellationTokenSource.Token);
+                    running = await HandleModeSelectionAsync(selectedMode, trainingConsoleService, _cancellationTokenSource.Token);
                 }
 
                 Console.WriteLine();
@@ -197,8 +198,9 @@ sealed class Program
         }
 
         // ———————————————————————————————————————————————————————
-        // Case 2: in-progress, paused, or interrupted → prompt to resume
-        // Case 3: null (never started)                → prompt to run initial scan
+        // Case 2: in-progress, paused, or interrupted → auto-resume
+        // Case 3: null (never started)                → auto-run initial scan
+        // Scan runs automatically on every startup until completed — no skip option.
         // ———————————————————————————————————————————————————————
         bool isResume = status is "InProgress" or "PausedStorageFull" or "Interrupted";
 
@@ -207,9 +209,9 @@ sealed class Program
             AnsiConsole.Write(
                 new Panel(
                     new Markup(
-                        "[yellow]A previous scan was interrupted[/] — some folders have not been fully scanned.\n" +
-                        "[dim]Resuming will continue from the last checkpoint.[/]"))
-                    .Header("[bold yellow]⚠  Incomplete Scan[/]")
+                        "[yellow]A previous scan was interrupted[/] — resuming from last checkpoint.\n" +
+                        "[dim]The initial scan must complete before Email Triage is available.[/]"))
+                    .Header("[bold yellow]⚠  Resuming Incomplete Scan[/]")
                     .BorderColor(Color.Yellow)
                     .Padding(1, 0));
         }
@@ -218,34 +220,17 @@ sealed class Program
             AnsiConsole.Write(
                 new Panel(
                     new Markup(
-                        "[yellow]No training data found[/] — ML features require an initial Gmail scan.\n" +
+                        "[yellow]No training data found[/] — running initial Gmail scan.\n" +
                         "[dim]This scans Spam → Trash → Sent → Archive → Inbox to build your dataset.\n" +
                         "It runs once and takes 1–5 minutes depending on mailbox size.[/]"))
-                    .Header("[bold yellow]⚠  Training Data Required[/]")
+                    .Header("[bold yellow]⚠  Initial Scan Required[/]")
                     .BorderColor(Color.Yellow)
                     .Padding(1, 0));
         }
 
         Console.WriteLine();
-
-        var actionLabel = isResume ? "→ Resume scan" : "→ Scan now";
-        var choice = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("How would you like to proceed?")
-                .AddChoices(actionLabel, "Skip for now"));
-
+        await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
         Console.WriteLine();
-
-        if (choice == actionLabel)
-        {
-            await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
-            Console.WriteLine();
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("[dim]Skipped. Email Triage and Bulk Operations will be available after scanning completes.[/]");
-            Console.WriteLine();
-        }
     }
 
     /// <summary>
@@ -254,7 +239,7 @@ sealed class Program
     /// <param name="mode">Selected operational mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True to continue showing menu, false to exit.</returns>
-    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, GmailTrainingScanCommand trainingScanCommand, CancellationToken cancellationToken)
+    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, TrainingConsoleService trainingConsoleService, CancellationToken cancellationToken)
     {
         Console.WriteLine();
         Console.WriteLine($"Selected mode: {mode}");
@@ -286,8 +271,8 @@ sealed class Program
                 Console.ReadLine();
                 return true;
 
-            case OperationalMode.TrainData:
-                await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+            case OperationalMode.TrainModel:
+                await trainingConsoleService.RunTrainingAsync("manual", cancellationToken);
                 Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
                 Console.ReadLine();
                 return true;

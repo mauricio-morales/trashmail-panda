@@ -1,0 +1,9 @@
+global using TrashMailPanda.Shared;
+global using TrashMailPanda.Shared.Base;
+global using TrashMailPanda.Shared.Models;
+global using TrashMailPanda.Providers.ML.Models;
+global using TrashMailPanda.Providers.ML.Config;
+global using Microsoft.ML;
+global using Microsoft.ML.Data;
+global using Microsoft.Extensions.Logging;
+global using Spectre.Console;
