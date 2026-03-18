@@ -23,6 +23,31 @@ public sealed class ScanProgressRepository : IScanProgressRepository
     }
 
     /// <inheritdoc />
+    public async Task<Result<ScanProgressEntity?>> GetLatestAsync(
+        string accountId,
+        CancellationToken cancellationToken = default)
+    {
+        await _databaseLock.WaitAsync(cancellationToken);
+        try
+        {
+            var entity = await _context.ScanProgress
+                .Where(s => s.AccountId == accountId)
+                .OrderByDescending(s => s.UpdatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return Result<ScanProgressEntity?>.Success(entity);
+        }
+        catch (Exception ex)
+        {
+            return Result<ScanProgressEntity?>.Failure(new StorageError("Failed to load scan progress", ex.Message, ex));
+        }
+        finally
+        {
+            _databaseLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<Result<ScanProgressEntity?>> GetActiveAsync(
         string accountId,
         CancellationToken cancellationToken = default)
@@ -34,6 +59,7 @@ public sealed class ScanProgressRepository : IScanProgressRepository
                 .Where(s => s.AccountId == accountId &&
                             (s.Status == "InProgress" ||
                              s.Status == "PausedStorageFull" ||
+                             s.Status == "Interrupted" ||
                              s.Status == "Completed"))
                 .OrderByDescending(s => s.UpdatedAt)
                 .FirstOrDefaultAsync(cancellationToken);

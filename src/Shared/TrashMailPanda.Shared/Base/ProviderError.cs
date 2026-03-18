@@ -330,6 +330,20 @@ public sealed record StorageQuotaError(string Message, string? Details = null, E
 }
 
 /// <summary>
+/// Error that represents a user-initiated cancellation of an operation.
+/// This is not a failure — it means the user chose to stop the operation cleanly.
+/// </summary>
+public sealed record OperationCancelledError(string Message, string? Details = null, Exception? InnerException = null)
+    : ProviderError(Message, Details, InnerException)
+{
+    public override string Category => "Operation";
+    public override string ErrorCode => "OPERATION_CANCELLED";
+    public override bool RequiresUserIntervention => false;
+
+    public override string GetUserFriendlyMessage() => Message;
+}
+
+/// <summary>
 /// Extension methods for working with provider errors
 /// </summary>
 public static class ProviderErrorExtensions
@@ -347,6 +361,7 @@ public static class ProviderErrorExtensions
 
         return exception switch
         {
+            OperationCanceledException => new OperationCancelledError(errorMessage, details, exception),
             ArgumentException => new ValidationError(errorMessage, details, exception),
             UnauthorizedAccessException => new UnauthorizedError(errorMessage, details, exception),
             TimeoutException => new TimeoutError(errorMessage, details, exception),

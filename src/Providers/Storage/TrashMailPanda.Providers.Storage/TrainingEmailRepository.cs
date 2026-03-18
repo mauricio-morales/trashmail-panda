@@ -214,4 +214,34 @@ public sealed class TrainingEmailRepository : ITrainingEmailRepository
             _databaseLock.Release();
         }
     }
+
+    /// <inheritdoc />
+    public async Task<bool> HasAnyAsync(string accountId, CancellationToken cancellationToken = default)
+    {
+        await _databaseLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await _context.TrainingEmails
+                .AnyAsync(e => e.AccountId == accountId, cancellationToken);
+        }
+        finally
+        {
+            _databaseLock.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountAsync(string accountId, CancellationToken cancellationToken = default)
+    {
+        await _databaseLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await _context.TrainingEmails
+                .CountAsync(e => e.AccountId == accountId, cancellationToken);
+        }
+        finally
+        {
+            _databaseLock.Release();
+        }
+    }
 }

@@ -4,7 +4,6 @@ using Spectre.Console;
 using TrashMailPanda.Models.Console;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.Storage;
-
 namespace TrashMailPanda.Services.Console;
 
 /// <summary>
@@ -14,6 +13,7 @@ public class ModeSelectionMenu
 {
     private readonly IStorageProvider _storageProvider;
     private readonly IEmailProvider _emailProvider;
+    private readonly IScanProgressRepository _scanProgressRepo;
     private readonly ConsoleStatusDisplay _statusDisplay;
     private readonly ConsoleDisplayOptions _displayOptions;
     private readonly ILogger<ModeSelectionMenu> _logger;
@@ -21,12 +21,14 @@ public class ModeSelectionMenu
     public ModeSelectionMenu(
         IStorageProvider storageProvider,
         IEmailProvider emailProvider,
+        IScanProgressRepository scanProgressRepo,
         ConsoleStatusDisplay statusDisplay,
         IOptions<ConsoleDisplayOptions> displayOptions,
         ILogger<ModeSelectionMenu> logger)
     {
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
         _emailProvider = emailProvider ?? throw new ArgumentNullException(nameof(emailProvider));
+        _scanProgressRepo = scanProgressRepo ?? throw new ArgumentNullException(nameof(scanProgressRepo));
         _statusDisplay = statusDisplay ?? throw new ArgumentNullException(nameof(statusDisplay));
         _displayOptions = displayOptions?.Value ?? throw new ArgumentNullException(nameof(displayOptions));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -123,10 +125,8 @@ public class ModeSelectionMenu
     /// <returns>List of available modes with display text.</returns>
     private async Task<List<(OperationalMode Mode, string DisplayText, bool Enabled)>> GetAvailableModesAsync()
     {
-        // Check provider health
-        // Storage is required and assumed healthy if we got here
+        // Check Gmail health
         var gmailHealthy = false;
-
         try
         {
             var gmailHealth = await _emailProvider.HealthCheckAsync();
@@ -137,16 +137,38 @@ public class ModeSelectionMenu
             gmailHealthy = false;
         }
 
+        // Gate email ops on a fully completed initial scan
+        var hasCompletedScan = false;
+        try
+        {
+            var latestResult = await _scanProgressRepo.GetLatestAsync("me");
+            hasCompletedScan = latestResult.IsSuccess && latestResult.Value?.Status == "Completed";
+        }
+        catch
+        {
+            hasCompletedScan = false;
+        }
+
+        var emailOpsEnabled = gmailHealthy && hasCompletedScan;
+        var emailOpsLabel = !gmailHealthy ? " [dim](Requires Gmail)[/]"
+                          : !hasCompletedScan ? " [dim](Requires training data)[/]"
+                          : string.Empty;
+
         var modes = new List<(OperationalMode, string, bool)>
         {
-            // Email Triage - requires Storage + Gmail
+            // Email Triage - requires Storage + Gmail + training data
             (OperationalMode.EmailTriage,
-             gmailHealthy ? "📧 Email Triage" : "📧 Email Triage [dim](Requires Gmail)[/]",
-             gmailHealthy),
+             $"📧 Email Triage{emailOpsLabel}",
+             emailOpsEnabled),
 
-            // Bulk Operations - requires Storage + Gmail
+            // Bulk Operations - requires Storage + Gmail + training data
             (OperationalMode.BulkOperations,
-             gmailHealthy ? "⚡ Bulk Operations" : "⚡ Bulk Operations [dim](Requires Gmail)[/]",
+             $"⚡ Bulk Operations{emailOpsLabel}",
+             emailOpsEnabled),
+
+            // Training Data Scan - requires Gmail
+            (OperationalMode.TrainData,
+             gmailHealthy ? "🤖 Build Training Data" : "🤖 Build Training Data [dim](Requires Gmail)[/]",
              gmailHealthy),
 
             // Provider Settings - always available

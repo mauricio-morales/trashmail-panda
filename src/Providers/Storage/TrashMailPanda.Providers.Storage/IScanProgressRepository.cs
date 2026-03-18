@@ -12,7 +12,14 @@ namespace TrashMailPanda.Providers.Storage;
 public interface IScanProgressRepository
 {
     /// <summary>
-    /// Returns the active (InProgress or PausedStorageFull) scan for the account, or null if none exists.
+    /// Returns the most recent scan record for the account regardless of status,
+    /// or null if no scan has ever been started.
+    /// </summary>
+    Task<Result<ScanProgressEntity?>> GetLatestAsync(string accountId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the resumable scan for the account (InProgress, PausedStorageFull, Interrupted, or Completed),
+    /// ordered by most recent. Returns null if no such record exists.
     /// </summary>
     Task<Result<ScanProgressEntity?>> GetActiveAsync(string accountId, CancellationToken cancellationToken = default);
 

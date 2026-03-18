@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Spectre.Console;
+using TrashMailPanda.Providers.Storage;
+using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Services;
 using TrashMailPanda.Services.Console;
 using TrashMailPanda.Models.Console;
@@ -29,6 +32,8 @@ sealed class Program
             var statusDisplay = host.Services.GetRequiredService<ConsoleStatusDisplay>();
             var wizard = host.Services.GetRequiredService<ConfigurationWizard>();
             var modeMenu = host.Services.GetRequiredService<ModeSelectionMenu>();
+            var trainingScanCommand = host.Services.GetRequiredService<GmailTrainingScanCommand>();
+            var scanProgressRepo = host.Services.GetRequiredService<IScanProgressRepository>();
 
             // Display welcome banner
             statusDisplay.DisplayWelcomeBanner();
@@ -62,8 +67,12 @@ sealed class Program
             if (state.OverallStatus == SequenceStatus.Completed)
             {
                 Console.WriteLine();
-                Console.WriteLine("✓ Application ready!");
+                AnsiConsole.MarkupLine("[green]✓ Application ready![/]");
                 Console.WriteLine();
+
+                // Sync training data: resume/run initial scan or auto-sync history changes
+                await HandleStartupTrainingSyncAsync(
+                    scanProgressRepo, trainingScanCommand, _cancellationTokenSource.Token);
 
                 // Display mode selection menu
                 var running = true;
@@ -78,7 +87,7 @@ sealed class Program
                     }
 
                     // Handle mode selection
-                    running = await HandleModeSelectionAsync(selectedMode, _cancellationTokenSource.Token);
+                    running = await HandleModeSelectionAsync(selectedMode, trainingScanCommand, _cancellationTokenSource.Token);
                 }
 
                 Console.WriteLine();
@@ -141,7 +150,6 @@ sealed class Program
             {
                 logging.ClearProviders();
                 logging.AddConsole();
-                logging.AddDebug();
             });
 
     private static void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
@@ -153,15 +161,101 @@ sealed class Program
     }
 
     /// <summary>
+    /// Checks whether training data exists and, if not, prompts the user to run an
+    /// initial Gmail scan before entering the main menu.
+    /// </summary>
+    /// <summary>
+    /// Called after providers are ready. Determines the correct training data action:
+    /// - No scan ever / interrupted → prompt to run initial scan
+    /// - In-progress / paused       → prompt to resume initial scan
+    /// - Completed                  → auto-run incremental History sync (silent, every startup)
+    /// </summary>
+    private static async Task HandleStartupTrainingSyncAsync(
+        IScanProgressRepository scanProgressRepo,
+        GmailTrainingScanCommand trainingScanCommand,
+        CancellationToken cancellationToken)
+    {
+        ScanProgressEntity? latest = null;
+        try
+        {
+            var result = await scanProgressRepo.GetLatestAsync("me", cancellationToken);
+            latest = result.IsSuccess ? result.Value : (ScanProgressEntity?)null;
+        }
+        catch { return; }
+
+        var status = latest?.Status;
+
+        // ———————————————————————————————————————————————————————
+        // Case 1: completed initial scan → auto-sync history changes, no prompt needed
+        // ———————————————————————————————————————————————————————
+        if (status == "Completed")
+        {
+            AnsiConsole.MarkupLine("[dim]→ Syncing new email changes...[/]");
+            await trainingScanCommand.RunIncrementalScanAsync("me", cancellationToken);
+            Console.WriteLine();
+            return;
+        }
+
+        // ———————————————————————————————————————————————————————
+        // Case 2: in-progress, paused, or interrupted → prompt to resume
+        // Case 3: null (never started)                → prompt to run initial scan
+        // ———————————————————————————————————————————————————————
+        bool isResume = status is "InProgress" or "PausedStorageFull" or "Interrupted";
+
+        if (isResume)
+        {
+            AnsiConsole.Write(
+                new Panel(
+                    new Markup(
+                        "[yellow]A previous scan was interrupted[/] — some folders have not been fully scanned.\n" +
+                        "[dim]Resuming will continue from the last checkpoint.[/]"))
+                    .Header("[bold yellow]⚠  Incomplete Scan[/]")
+                    .BorderColor(Color.Yellow)
+                    .Padding(1, 0));
+        }
+        else
+        {
+            AnsiConsole.Write(
+                new Panel(
+                    new Markup(
+                        "[yellow]No training data found[/] — ML features require an initial Gmail scan.\n" +
+                        "[dim]This scans Spam → Trash → Sent → Archive → Inbox to build your dataset.\n" +
+                        "It runs once and takes 1–5 minutes depending on mailbox size.[/]"))
+                    .Header("[bold yellow]⚠  Training Data Required[/]")
+                    .BorderColor(Color.Yellow)
+                    .Padding(1, 0));
+        }
+
+        Console.WriteLine();
+
+        var actionLabel = isResume ? "→ Resume scan" : "→ Scan now";
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("How would you like to proceed?")
+                .AddChoices(actionLabel, "Skip for now"));
+
+        Console.WriteLine();
+
+        if (choice == actionLabel)
+        {
+            await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+            Console.WriteLine();
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[dim]Skipped. Email Triage and Bulk Operations will be available after scanning completes.[/]");
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>
     /// Handles mode selection with stub implementations.
     /// </summary>
     /// <param name="mode">Selected operational mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True to continue showing menu, false to exit.</returns>
-    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, CancellationToken cancellationToken)
+    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, GmailTrainingScanCommand trainingScanCommand, CancellationToken cancellationToken)
     {
-        await Task.CompletedTask; // Stub implementations are sync for now
-
         Console.WriteLine();
         Console.WriteLine($"Selected mode: {mode}");
         Console.WriteLine();
@@ -188,6 +282,12 @@ sealed class Program
                 Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚙️  Provider Settings mode - Coming soon![/]");
                 Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow reconfiguration of provider settings.[/]");
                 Spectre.Console.AnsiConsole.WriteLine();
+                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
+                Console.ReadLine();
+                return true;
+
+            case OperationalMode.TrainData:
+                await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
                 Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
                 Console.ReadLine();
                 return true;

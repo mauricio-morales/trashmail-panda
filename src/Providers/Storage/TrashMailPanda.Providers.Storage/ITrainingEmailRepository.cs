@@ -45,4 +45,15 @@ public interface ITrainingEmailRepository
     /// Returns a single training email by its Gmail message ID, or null if not found.
     /// </summary>
     Task<TrainingEmailEntity?> GetByEmailIdAsync(string emailId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns true if at least one training email exists for the given account.
+    /// Used at startup to determine whether the initial scan has been run.
+    /// </summary>
+    Task<bool> HasAnyAsync(string accountId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the total number of training emails stored for the given account.
+    /// </summary>
+    Task<int> CountAsync(string accountId, CancellationToken cancellationToken = default);
 }

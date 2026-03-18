@@ -90,19 +90,15 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<TrashMailPandaDbContext>((serviceProvider, options) =>
         {
             var config = serviceProvider.GetRequiredService<IConfiguration>();
-            var secureStorage = serviceProvider.GetService<ISecureStorageManager>();
 
-            // Prefer secure-storage override, else fall back to OS-standard path
-            string? databasePath = null;
-            if (secureStorage != null)
-            {
-                var storedResult = secureStorage.RetrieveCredentialAsync("storage_database_path").GetAwaiter().GetResult();
-                if (storedResult.IsSuccess && !string.IsNullOrWhiteSpace(storedResult.Value))
-                    databasePath = storedResult.Value;
-            }
-
-            if (string.IsNullOrWhiteSpace(databasePath))
-                databasePath = StorageProviderConfig.GetOsDefaultPath();
+            // NOTE: Do NOT call GetService<ISecureStorageManager>() here — it creates a circular
+            // dependency: DbContext factory → SecureStorageManager → CredentialEncryption →
+            // IStorageProvider → StorageProviderAdapter → TrashMailPandaDbContext → factory again.
+            // Use the OS-standard path directly. The path can be overridden via appsettings.json.
+            var configuredPath = config.GetSection("StorageProvider:DatabasePath").Value;
+            var databasePath = !string.IsNullOrWhiteSpace(configuredPath)
+                ? configuredPath
+                : StorageProviderConfig.GetOsDefaultPath();
 
             // Ensure the directory exists before opening the connection
             var directory = Path.GetDirectoryName(databasePath);

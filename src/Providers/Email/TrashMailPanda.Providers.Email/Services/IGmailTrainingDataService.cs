@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TrashMailPanda.Providers.Email.Models;
@@ -18,8 +19,12 @@ public interface IGmailTrainingDataService
     /// </summary>
     /// <param name="accountId">The user's Gmail account identifier.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="progress">Optional progress reporter; receives updates after each batch and folder completion.</param>
     /// <returns>A summary of the completed scan.</returns>
-    Task<Result<ScanSummary>> RunInitialScanAsync(string accountId, CancellationToken cancellationToken);
+    Task<Result<ScanSummary>> RunInitialScanAsync(
+        string accountId,
+        CancellationToken cancellationToken,
+        IProgress<ScanProgressUpdate>? progress = null);
 
     /// <summary>
     /// Runs an incremental scan using the Gmail History API to process only changes

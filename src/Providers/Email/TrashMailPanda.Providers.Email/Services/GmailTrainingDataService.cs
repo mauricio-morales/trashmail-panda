@@ -69,7 +69,10 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
     }
 
     /// <inheritdoc />
-    public async Task<Result<ScanSummary>> RunInitialScanAsync(string accountId, CancellationToken cancellationToken)
+    public async Task<Result<ScanSummary>> RunInitialScanAsync(
+        string accountId,
+        CancellationToken cancellationToken,
+        IProgress<ScanProgressUpdate>? scanProgress = null)
     {
         var gmailService = _emailProvider.GetGmailService();
         if (gmailService is null)
@@ -78,6 +81,8 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         var startedAt = DateTime.UtcNow;
         int totalProcessed = 0, autoDeleteCount = 0, autoArchiveCount = 0;
         int lowConfidenceCount = 0, excludedCount = 0, labelsImported = 0;
+        // Declared outside try so the cancellation catch can mark it interrupted
+        ScanProgressEntity? progress = null;
 
         try
         {
@@ -88,13 +93,18 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
             // Load or create scan progress (T041, T043)
             var progressResult = await _scanProgressRepo.GetActiveAsync(accountId);
-            ScanProgressEntity progress;
             Dictionary<string, FolderProgress> folderProgress;
 
             if (progressResult.IsSuccess && progressResult.Value is not null &&
-                (progressResult.Value.Status == ScanStatus.InProgress || progressResult.Value.Status == ScanStatus.PausedStorageFull))
+                (progressResult.Value.Status == ScanStatus.InProgress ||
+                 progressResult.Value.Status == ScanStatus.PausedStorageFull ||
+                 progressResult.Value.Status == ScanStatus.Interrupted))
             {
                 progress = progressResult.Value;
+                // Mark back to InProgress so the checkpoint is live again
+                progress.Status = ScanStatus.InProgress;
+                progress.UpdatedAt = DateTime.UtcNow;
+                await _scanProgressRepo.UpdateFolderProgressAsync(progress.Id, progress.FolderProgressJson);
                 folderProgress = DeserializeFolderProgress(progress.FolderProgressJson);
                 _logger.LogInformation("Resuming scan for {AccountId} from saved checkpoint.", accountId);
             }
@@ -135,6 +145,12 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 if (fp.Status == ScanStatus.Completed)
                 {
                     _logger.LogDebug("Skipping completed folder {Folder}.", folderName);
+                    // Notify the UI so it can mark the row as done rather than spinning forever
+                    scanProgress?.Report(new ScanProgressUpdate(
+                        folderName,
+                        fp.ProcessedCount,
+                        FolderCompleted: true,
+                        totalProcessed));
                     continue;
                 }
 
@@ -143,7 +159,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
                 var folderResult = await ScanFolderAsync(
                     gmailService, accountId, labelId, folderName, fp,
-                    folderProgress, progress, cancellationToken);
+                    folderProgress, progress, scanProgress, cancellationToken);
 
                 if (folderResult.IsSuccess)
                 {
@@ -156,6 +172,17 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
                     fp.Status = ScanStatus.Completed;
                     folderProgress[labelId] = fp;
+
+                    // Persist the Completed status immediately so a cancel/restart skips this folder
+                    await _scanProgressRepo.UpdateFolderProgressAsync(
+                        progress.Id, SerializeFolderProgress(folderProgress));
+
+                    // Notify folder complete
+                    scanProgress?.Report(new ScanProgressUpdate(
+                        folderName,
+                        stats.TotalProcessed,
+                        FolderCompleted: true,
+                        totalProcessed));
                 }
                 else if (folderResult.Error is StorageQuotaError)
                 {
@@ -191,6 +218,13 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
             return Result<ScanSummary>.Success(new ScanSummary(
                 totalProcessed, autoDeleteCount, autoArchiveCount,
                 lowConfidenceCount, excludedCount, labelsImported, duration));
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Initial scan cancelled by user for account {AccountId}.", accountId);
+            // Best-effort: mark as interrupted so the next launch prompts to resume.
+            try { await _scanProgressRepo.MarkInterruptedAsync(progress?.Id ?? 0); } catch { /* ignore */ }
+            return Result<ScanSummary>.Failure(new OperationCancelledError("Scan cancelled."));
         }
         catch (Exception ex)
         {
@@ -317,6 +351,11 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 totalProcessed, autoDeleteCount, autoArchiveCount,
                 lowConfidenceCount, excludedCount, labelsImported, duration));
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Incremental scan cancelled by user for account {AccountId}.", accountId);
+            return Result<ScanSummary>.Failure(new OperationCancelledError("Scan cancelled."));
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Incremental scan failed for account {AccountId}.", accountId);
@@ -336,9 +375,11 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         FolderProgress fp,
         Dictionary<string, FolderProgress> folderProgress,
         ScanProgressEntity progress,
+        IProgress<ScanProgressUpdate>? progressCallback,
         CancellationToken cancellationToken)
     {
-        int totalProcessed = 0, autoDeleteCount = 0, autoArchiveCount = 0;
+        // Seed from previously saved count so the display counter continues from where it left off
+        int totalProcessed = fp.ProcessedCount, autoDeleteCount = 0, autoArchiveCount = 0;
         int lowConfidenceCount = 0, excludedCount = 0;
         string? pageToken = fp.PageToken; // Resume from saved cursor (T043)
 
@@ -430,6 +471,13 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 lowConfidenceCount += counts.lowConfidence;
                 excludedCount += counts.excluded;
                 emails.Clear();
+
+                // Report per-batch progress (folder not yet complete)
+                progressCallback?.Report(new ScanProgressUpdate(
+                    folderName,
+                    EmailsProcessedInFolder: totalProcessed,
+                    FolderCompleted: false,
+                    TotalEmailsProcessed: totalProcessed));
             }
 
             // Save checkpoint after each page (T041)
