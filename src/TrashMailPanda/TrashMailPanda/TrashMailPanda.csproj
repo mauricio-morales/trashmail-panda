@@ -52,5 +52,6 @@
     <ProjectReference Include="..\..\Providers\Email\TrashMailPanda.Providers.Email\TrashMailPanda.Providers.Email.csproj" />
     <ProjectReference Include="..\..\Providers\LLM\TrashMailPanda.Providers.LLM\TrashMailPanda.Providers.LLM.csproj" />
     <ProjectReference Include="..\..\Providers\Storage\TrashMailPanda.Providers.Storage\TrashMailPanda.Providers.Storage.csproj" />
+    <ProjectReference Include="..\..\Providers\ML\TrashMailPanda.Providers.ML\TrashMailPanda.Providers.ML.csproj" />
   </ItemGroup>
 </Project>

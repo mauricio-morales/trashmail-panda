@@ -34,6 +34,7 @@ sealed class Program
             var modeMenu = host.Services.GetRequiredService<ModeSelectionMenu>();
             var trainingScanCommand = host.Services.GetRequiredService<GmailTrainingScanCommand>();
             var scanProgressRepo = host.Services.GetRequiredService<IScanProgressRepository>();
+            var trainingConsoleService = host.Services.GetRequiredService<TrainingConsoleService>();
 
             // Display welcome banner
             statusDisplay.DisplayWelcomeBanner();
@@ -87,7 +88,7 @@ sealed class Program
                     }
 
                     // Handle mode selection
-                    running = await HandleModeSelectionAsync(selectedMode, trainingScanCommand, _cancellationTokenSource.Token);
+                    running = await HandleModeSelectionAsync(selectedMode, trainingScanCommand, trainingConsoleService, _cancellationTokenSource.Token);
                 }
 
                 Console.WriteLine();
@@ -254,7 +255,7 @@ sealed class Program
     /// <param name="mode">Selected operational mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True to continue showing menu, false to exit.</returns>
-    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, GmailTrainingScanCommand trainingScanCommand, CancellationToken cancellationToken)
+    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, GmailTrainingScanCommand trainingScanCommand, TrainingConsoleService trainingConsoleService, CancellationToken cancellationToken)
     {
         Console.WriteLine();
         Console.WriteLine($"Selected mode: {mode}");
@@ -288,6 +289,12 @@ sealed class Program
 
             case OperationalMode.TrainData:
                 await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
+                Console.ReadLine();
+                return true;
+
+            case OperationalMode.TrainModel:
+                await trainingConsoleService.RunTrainingAsync("manual", cancellationToken);
                 Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
                 Console.ReadLine();
                 return true;

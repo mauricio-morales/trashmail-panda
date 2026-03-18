@@ -4,10 +4,16 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.ML;
 using System.IO;
 using System.Threading;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.LLM;
+using TrashMailPanda.Providers.ML;
+using TrashMailPanda.Providers.ML.Classification;
+using TrashMailPanda.Providers.ML.Config;
+using TrashMailPanda.Providers.ML.Training;
+using TrashMailPanda.Providers.ML.Versioning;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
@@ -166,6 +172,10 @@ public static class ServiceCollectionExtensions
             TrashMailPanda.Providers.Email.Services.GmailTrainingDataService>();
         services.AddSingleton<TrashMailPanda.Services.GmailTrainingScanCommand>();
 
+        // 11. Register ML model infrastructure (feature #059)
+        services.AddMLServices();
+        services.AddSingleton<TrainingConsoleService>();
+
         // LLM provider is NOT registered here - will be added when AI features are implemented
 
         return services;
@@ -245,6 +255,54 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddStartupOrchestration(this IServiceCollection services)
     {
         services.AddHostedService<StartupHostedService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Register ML.NET model training and classification services (feature #059).
+    /// </summary>
+    private static IServiceCollection AddMLServices(this IServiceCollection services)
+    {
+        // Shared MLContext — deterministic seed for reproducible results
+        services.AddSingleton<MLContext>(_ => new MLContext(seed: 42));
+
+        // Raw SqliteConnection for ModelVersionRepository (ADO.NET, not EF Core)
+        services.AddSingleton<SqliteConnection>(sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var configuredPath = config.GetSection("StorageProvider:DatabasePath").Value;
+            var databasePath = !string.IsNullOrWhiteSpace(configuredPath)
+                ? configuredPath
+                : StorageProviderConfig.GetOsDefaultPath();
+
+            var password = config.GetSection("StorageProvider:Password").Value
+                           ?? "TrashMailPanda-DefaultKey";
+
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Password = password,
+            }.ToString();
+
+            var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            return connection;
+        });
+
+        // Core ML infrastructure
+        services.AddSingleton<FeaturePipelineBuilder>();
+        services.AddSingleton<ActionModelTrainer>();
+        services.AddSingleton<ActionClassifier>();
+        services.AddSingleton<ModelVersionRepository>();
+        services.AddSingleton<ModelVersionPruner>();
+        services.AddSingleton<IncrementalUpdateService>();
+
+        // ML model provider and training pipeline
+        services.AddSingleton(sp => new MLModelProviderConfig());
+        services.AddOptions<MLModelProviderConfig>().ValidateDataAnnotations();
+        services.AddSingleton<IMLModelProvider, MLModelProvider>();
+        services.AddTransient<IModelTrainingPipeline, ModelTrainingPipeline>();
+
         return services;
     }
 }

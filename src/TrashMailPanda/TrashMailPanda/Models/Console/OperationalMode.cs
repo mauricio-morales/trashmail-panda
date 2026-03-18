@@ -26,6 +26,11 @@ public enum OperationalMode
     TrainData,
 
     /// <summary>
+    /// Train the ML action classifier using the collected email feature data.
+    /// </summary>
+    TrainModel,
+
+    /// <summary>
     /// Launch Avalonia UI application mode (requires Storage and Gmail).
     /// </summary>
     UIMode,

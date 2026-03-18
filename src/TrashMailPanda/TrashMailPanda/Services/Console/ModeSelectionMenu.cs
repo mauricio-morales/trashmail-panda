@@ -171,6 +171,11 @@ public class ModeSelectionMenu
              gmailHealthy ? "🤖 Build Training Data" : "🤖 Build Training Data [dim](Requires Gmail)[/]",
              gmailHealthy),
 
+            // Train Action Model - requires completed scan
+            (OperationalMode.TrainModel,
+             hasCompletedScan ? "🧠 Train Action Model" : "🧠 Train Action Model [dim](Requires training data)[/]",
+             hasCompletedScan),
+
             // Provider Settings - always available
             (OperationalMode.ProviderSettings,
              "⚙️  Provider Settings",
