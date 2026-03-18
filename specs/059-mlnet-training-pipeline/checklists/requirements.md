@@ -32,6 +32,6 @@
 ## Notes
 
 - All checklist items pass. Spec is ready to proceed to `/speckit.plan`.
-- Action model (SC-001, P1) and label model (SC-002, P2) have distinct measurable F1 targets.
+- Action model (SC-001, P1) is the focus; label suggestion deferred to issue #77 (LLM mini model approach).
 - Dependencies on #54 (feature engineering schema) and #55 (data storage) are recorded in Assumptions — this spec does not re-specify those systems.
 - FR-012 (schema version compatibility check) guard-rails the integration boundary between #54/#55 and this feature.
