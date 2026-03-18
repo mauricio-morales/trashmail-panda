@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Shared\TrashMailPanda.Shared\TrashMailPanda.Shared.csproj" />
+    <ProjectReference Include="..\..\..\Providers\Storage\TrashMailPanda.Providers.Storage\TrashMailPanda.Providers.Storage.csproj" />
   </ItemGroup>
 
 </Project>

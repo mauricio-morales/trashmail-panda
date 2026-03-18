@@ -21,6 +21,11 @@ public enum OperationalMode
     ProviderSettings,
 
     /// <summary>
+    /// Run Gmail training data scan to build the ML dataset (requires Gmail).
+    /// </summary>
+    TrainData,
+
+    /// <summary>
     /// Launch Avalonia UI application mode (requires Storage and Gmail).
     /// </summary>
     UIMode,

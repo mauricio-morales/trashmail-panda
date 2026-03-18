@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.IO;
 using System.Threading;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.LLM;
@@ -89,7 +90,21 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<TrashMailPandaDbContext>((serviceProvider, options) =>
         {
             var config = serviceProvider.GetRequiredService<IConfiguration>();
-            var databasePath = config.GetSection("StorageProvider:DatabasePath").Value ?? "./data/app.db";
+
+            // NOTE: Do NOT call GetService<ISecureStorageManager>() here — it creates a circular
+            // dependency: DbContext factory → SecureStorageManager → CredentialEncryption →
+            // IStorageProvider → StorageProviderAdapter → TrashMailPandaDbContext → factory again.
+            // Use the OS-standard path directly. The path can be overridden via appsettings.json.
+            var configuredPath = config.GetSection("StorageProvider:DatabasePath").Value;
+            var databasePath = !string.IsNullOrWhiteSpace(configuredPath)
+                ? configuredPath
+                : StorageProviderConfig.GetOsDefaultPath();
+
+            // Ensure the directory exists before opening the connection
+            var directory = Path.GetDirectoryName(databasePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
             var password = config.GetSection("StorageProvider:Password").Value ?? "TrashMailPanda-DefaultKey";
 
             var connectionString = new SqliteConnectionStringBuilder
@@ -130,7 +145,26 @@ public static class ServiceCollectionExtensions
         // 8. Register IEmailProvider (Gmail) - required for console startup flow
         //    Uses options pattern for configuration from appsettings.json
         services.AddSingleton<IEmailProvider, GmailEmailProvider>();
+        services.AddSingleton<GmailEmailProvider>(sp =>
+            (GmailEmailProvider)sp.GetRequiredService<IEmailProvider>());
         services.Configure<GmailProviderConfig>(services.BuildServiceProvider().GetRequiredService<IConfiguration>().GetSection("EmailProvider"));
+
+        // 9. Register training-data repositories (US1, US2, US3, US4)
+        services.AddSingleton<TrashMailPanda.Providers.Storage.ITrainingEmailRepository,
+            TrashMailPanda.Providers.Storage.TrainingEmailRepository>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.ILabelTaxonomyRepository,
+            TrashMailPanda.Providers.Storage.LabelTaxonomyRepository>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.ILabelAssociationRepository,
+            TrashMailPanda.Providers.Storage.LabelAssociationRepository>();
+        services.AddSingleton<TrashMailPanda.Providers.Storage.IScanProgressRepository,
+            TrashMailPanda.Providers.Storage.ScanProgressRepository>();
+
+        // 10. Register training-data service (US1) and scan command
+        services.AddSingleton<TrashMailPanda.Shared.Base.ITrainingSignalAssigner,
+            TrashMailPanda.Providers.Email.Services.TrainingSignalAssigner>();
+        services.AddSingleton<TrashMailPanda.Providers.Email.Services.IGmailTrainingDataService,
+            TrashMailPanda.Providers.Email.Services.GmailTrainingDataService>();
+        services.AddSingleton<TrashMailPanda.Services.GmailTrainingScanCommand>();
 
         // LLM provider is NOT registered here - will be added when AI features are implemented
 

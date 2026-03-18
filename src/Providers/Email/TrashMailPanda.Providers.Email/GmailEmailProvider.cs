@@ -307,6 +307,12 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     #region IEmailProvider Implementation
 
     /// <summary>
+    /// Returns the initialized GmailService instance, or null if the provider has not been initialized.
+    /// Used by training-data services in the same assembly that need direct API access.
+    /// </summary>
+    internal GmailService? GetGmailService() => _gmailService;
+
+    /// <summary>
     /// Connect to Gmail using OAuth2 authentication
     /// </summary>
     /// <returns>A result indicating success or failure</returns>
