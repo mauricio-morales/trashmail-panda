@@ -166,11 +166,6 @@ public class ModeSelectionMenu
              $"⚡ Bulk Operations{emailOpsLabel}",
              emailOpsEnabled),
 
-            // Training Data Scan - requires Gmail
-            (OperationalMode.TrainData,
-             gmailHealthy ? "🤖 Build Training Data" : "🤖 Build Training Data [dim](Requires Gmail)[/]",
-             gmailHealthy),
-
             // Train Action Model - requires completed scan
             (OperationalMode.TrainModel,
              hasCompletedScan ? "🧠 Train Action Model" : "🧠 Train Action Model [dim](Requires training data)[/]",

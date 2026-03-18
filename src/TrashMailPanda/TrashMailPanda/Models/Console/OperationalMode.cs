@@ -21,11 +21,6 @@ public enum OperationalMode
     ProviderSettings,
 
     /// <summary>
-    /// Run Gmail training data scan to build the ML dataset (requires Gmail).
-    /// </summary>
-    TrainData,
-
-    /// <summary>
     /// Train the ML action classifier using the collected email feature data.
     /// </summary>
     TrainModel,
