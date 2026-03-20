@@ -45,6 +45,12 @@ public class GmailRateLimitHandler : IGmailRateLimitHandler
                 var result = await operation();
                 return Result<T>.Success(result);
             }
+            catch (GoogleApiException gex) when (gex.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return Result<T>.Failure(new NotFoundError(
+                    $"Gmail API resource not found: {gex.Message}",
+                    gex.Error?.ToString(), gex));
+            }
             catch (Exception ex)
             {
                 return Result<T>.Failure(ex.ToProviderError());
@@ -92,8 +98,9 @@ public class GmailRateLimitHandler : IGmailRateLimitHandler
                 // Check if this is a retryable error
                 if (!ShouldRetryError(result.Error, attempt, maxAttempts))
                 {
-                    _logger.LogWarning("Gmail API operation failed with non-retryable error: {Error}",
-                        result.Error.GetDetailedDescription());
+                    if (result.Error is not NotFoundError)
+                        _logger.LogWarning("Gmail API operation failed with non-retryable error: {Error}",
+                            result.Error.GetDetailedDescription());
                     return result;
                 }
 

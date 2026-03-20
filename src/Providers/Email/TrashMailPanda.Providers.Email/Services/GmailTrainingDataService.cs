@@ -265,6 +265,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
             string? pageToken = null;
             var emails = new List<TrainingEmailEntity>();
+            int fetchAttempts = 0, notFoundCount = 0;
 
             do
             {
@@ -301,8 +302,13 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 {
                     if (cancellationToken.IsCancellationRequested) break;
 
+                    fetchAttempts++;
                     var msgResult = await FetchMessageAsync(gmailService, msgId, cancellationToken);
-                    if (!msgResult.IsSuccess) continue;
+                    if (!msgResult.IsSuccess)
+                    {
+                        if (msgResult.Error is NotFoundError) notFoundCount++;
+                        continue;
+                    }
 
                     var msg = msgResult.Value;
                     var entity = BuildTrainingEmail(accountId, msg);
@@ -338,6 +344,18 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 lowConfidenceCount += counts.lowConfidence;
                 excludedCount += counts.excluded;
             }
+
+            // Log 404 summary: only warn when >50% of fetches failed (indicates a real problem,
+            // not the normal case of a handful of post-history-event deletions).
+            if (fetchAttempts > 0 && notFoundCount > fetchAttempts / 2)
+                _logger.LogWarning(
+                    "Incremental scan for account {AccountId}: {NotFound}/{Total} message fetches returned 404. " +
+                    "The saved historyId may be stale — consider running a full scan.",
+                    accountId, notFoundCount, fetchAttempts);
+            else if (notFoundCount > 0)
+                _logger.LogDebug(
+                    "Incremental scan for account {AccountId}: {NotFound}/{Total} messages were already deleted (normal).",
+                    accountId, notFoundCount, fetchAttempts);
 
             // Back-correction and signal re-derivation
             await _trainingEmailRepo.RunBackCorrectionAsync(accountId, cancellationToken);

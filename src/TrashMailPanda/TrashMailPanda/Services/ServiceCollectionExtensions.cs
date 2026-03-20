@@ -310,8 +310,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IncrementalUpdateService>();
 
         // ML model provider and training pipeline
-        services.AddSingleton(sp => new MLModelProviderConfig());
-        services.AddOptions<MLModelProviderConfig>().ValidateDataAnnotations();
+        services.AddSingleton(sp => new MLModelProviderConfig { Name = "MLModelProvider" });
+        services.AddOptions<MLModelProviderConfig>()
+            .Configure(c => c.Name = "MLModelProvider")
+            .ValidateDataAnnotations();
         services.AddSingleton<IMLModelProvider, MLModelProvider>();
         services.AddTransient<IModelTrainingPipeline, ModelTrainingPipeline>();
 
