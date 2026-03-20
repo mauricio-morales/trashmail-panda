@@ -88,7 +88,7 @@ public class ConfigurationWizard
         {
             _logger.LogError(ex, "Configuration wizard failed with exception");
             _state.Errors.Add($"Unexpected error: {ex.Message}");
-            AnsiConsole.MarkupLine("[red]✗ Configuration failed. Please try again.[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.ErrorText}✗ Configuration failed. Please try again.{ConsoleColors.Close}");
             return false;
         }
     }
@@ -116,17 +116,17 @@ public class ConfigurationWizard
         // Gmail status
         if (gmailConfigured)
         {
-            AnsiConsole.MarkupLine("  [green]✓[/] [cyan]1.[/] Gmail integration [dim](already configured)[/]");
+            AnsiConsole.MarkupLine($"  {ConsoleColors.Success}✓{ConsoleColors.Close} {ConsoleColors.Highlight}1.{ConsoleColors.Close} Gmail integration {ConsoleColors.Dim}(already configured){ConsoleColors.Close}");
         }
         else
         {
-            AnsiConsole.MarkupLine("  [cyan]1.[/] Gmail integration (OAuth authentication)");
+            AnsiConsole.MarkupLine($"  {ConsoleColors.Highlight}1.{ConsoleColors.Close} Gmail integration (OAuth authentication)");
         }
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[dim]Storage is configured automatically — no setup required.[/]");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Dim}Storage is configured automatically — no setup required.{ConsoleColors.Close}");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[dim]Press Enter to continue...[/]");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Dim}Press Enter to continue...{ConsoleColors.Close}");
 
         System.Console.ReadLine();
         await Task.CompletedTask;
@@ -177,8 +177,8 @@ public class ConfigurationWizard
             clientId = existingClientId.Value!;
             clientSecret = existingClientSecret.Value!;
 
-            AnsiConsole.MarkupLine("[green]✓[/] Using existing OAuth client credentials");
-            AnsiConsole.MarkupLine($"[dim]Client ID:[/] {clientId.Substring(0, Math.Min(20, clientId.Length))}...");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓{ConsoleColors.Close} Using existing OAuth client credentials");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Dim}Client ID:{ConsoleColors.Close} {clientId.Substring(0, Math.Min(20, clientId.Length))}...");
             AnsiConsole.WriteLine();
 
             _logger.LogInformation("Using existing OAuth credentials for authentication");
@@ -188,13 +188,13 @@ public class ConfigurationWizard
             // No existing credentials - show setup instructions and prompt
             AnsiConsole.MarkupLine("[bold]To configure Gmail access, you need OAuth 2.0 credentials:[/]");
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[dim]1. Go to[/] [link=https://console.cloud.google.com/]Google Cloud Console[/]");
-            AnsiConsole.MarkupLine("[dim]2. Create a new project or select existing one[/]");
-            AnsiConsole.MarkupLine("[dim]3. Enable the Gmail API[/]");
-            AnsiConsole.MarkupLine("[dim]4. Create OAuth 2.0 credentials (Desktop application type)[/]");
-            AnsiConsole.MarkupLine("[dim]5. Download the client ID and client secret[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Dim}1. Go to{ConsoleColors.Close} [link=https://console.cloud.google.com/]Google Cloud Console[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Dim}2. Create a new project or select existing one{ConsoleColors.Close}");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Dim}3. Enable the Gmail API{ConsoleColors.Close}");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Dim}4. Create OAuth 2.0 credentials (Desktop application type){ConsoleColors.Close}");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Dim}5. Download the client ID and client secret{ConsoleColors.Close}");
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[yellow]For detailed setup instructions, see:[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Warning}For detailed setup instructions, see:{ConsoleColors.Close}");
             AnsiConsole.MarkupLine("[link]docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md[/]");
             AnsiConsole.WriteLine();
 
@@ -205,17 +205,17 @@ public class ConfigurationWizard
             await _secureStorage.StoreCredentialAsync("gmail_client_secret", clientSecret);
 
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[green]✓ OAuth credentials stored securely[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓ OAuth credentials stored securely{ConsoleColors.Close}");
             AnsiConsole.WriteLine();
         }
 
         // Perform OAuth flow to get access tokens
         AnsiConsole.MarkupLine("[bold cyan]Initiating OAuth authentication flow...[/]");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[dim]A browser window will open for you to authorize TrashMail Panda.[/]");
-        AnsiConsole.MarkupLine("[dim]After authorization, you'll be redirected back to this application.[/]");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Dim}A browser window will open for you to authorize TrashMail Panda.{ConsoleColors.Close}");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Dim}After authorization, you'll be redirected back to this application.{ConsoleColors.Close}");
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[yellow]Press Enter to open your browser...[/]");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Warning}Press Enter to open your browser...{ConsoleColors.Close}");
         System.Console.ReadLine();
 
         // Build OAuth configuration
@@ -233,11 +233,11 @@ public class ConfigurationWizard
         if (!authResult.IsSuccess)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[red]✗ OAuth authentication failed: {authResult.Error.Message}[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.ErrorText}✗ OAuth authentication failed: {authResult.Error.Message}{ConsoleColors.Close}");
             _logger.LogError("OAuth authentication failed: {Error}", authResult.Error.Message);
             _state.Errors.Add($"Gmail OAuth: {authResult.Error.Message}");
 
-            var retry = AnsiConsole.Confirm("[yellow]Would you like to retry?[/]", defaultValue: true);
+            var retry = AnsiConsole.Confirm($"{ConsoleColors.Warning}Would you like to retry?{ConsoleColors.Close}", defaultValue: true);
             if (retry)
             {
                 return await ConfigureGmailAsync(cancellationToken);
@@ -248,7 +248,7 @@ public class ConfigurationWizard
         // Display authenticated account
         var userEmail = authResult.Value.UserEmail ?? "Unknown";
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine($"[green]✓ Successfully authenticated as:[/] [bold]{userEmail}[/]");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓ Successfully authenticated as:{ConsoleColors.Close} [bold]{userEmail}[/]");
 
         _state.GmailConfigured = true;
         _logger.LogInformation("Gmail configured successfully for user: {Email}", userEmail);
@@ -274,16 +274,16 @@ public class ConfigurationWizard
         AnsiConsole.MarkupLine("[bold]The following providers have been configured:[/]");
         AnsiConsole.WriteLine();
 
-        AnsiConsole.MarkupLine("  [green]✓[/] Storage Provider [dim](auto-configured)[/]");
+        AnsiConsole.MarkupLine($"  {ConsoleColors.Success}✓{ConsoleColors.Close} Storage Provider {ConsoleColors.Dim}(auto-configured){ConsoleColors.Close}");
 
         // Gmail status
         if (_state.GmailConfigured)
         {
-            AnsiConsole.MarkupLine("  [green]✓[/] Gmail Provider");
+            AnsiConsole.MarkupLine($"  {ConsoleColors.Success}✓{ConsoleColors.Close} Gmail Provider");
         }
         else
         {
-            AnsiConsole.MarkupLine("  [red]✗[/] Gmail Provider");
+            AnsiConsole.MarkupLine($"  {ConsoleColors.ErrorText}✗{ConsoleColors.Close} Gmail Provider");
         }
 
         AnsiConsole.WriteLine();
@@ -355,12 +355,12 @@ public class ConfigurationWizard
         AnsiConsole.Write(rule);
         AnsiConsole.WriteLine();
 
-        AnsiConsole.MarkupLine($"[green]✓[/] {providerName} provider is already configured.");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓{ConsoleColors.Close} {providerName} provider is already configured.");
         AnsiConsole.WriteLine();
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
-                .Title($"[cyan]What would you like to do?[/]")
+                .Title($"{ConsoleColors.Highlight}What would you like to do?{ConsoleColors.Close}")
                 .AddChoices(
                     "Skip (keep current configuration)",
                     "Reconfigure (replace existing configuration)"));
@@ -377,7 +377,7 @@ public class ConfigurationWizard
     {
         // Prompt for Client ID
         var clientId = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Gmail OAuth Client ID:[/]")
+            new TextPrompt<string>($"{ConsoleColors.Highlight}Gmail OAuth Client ID:{ConsoleColors.Close}")
                 .Validate(id =>
                 {
                     if (string.IsNullOrWhiteSpace(id))
@@ -393,7 +393,7 @@ public class ConfigurationWizard
 
         // Prompt for Client Secret
         var clientSecret = AnsiConsole.Prompt(
-            new TextPrompt<string>("[cyan]Gmail OAuth Client Secret:[/]")
+            new TextPrompt<string>($"{ConsoleColors.Highlight}Gmail OAuth Client Secret:{ConsoleColors.Close}")
                 .Secret()
                 .Validate(secret =>
                 {

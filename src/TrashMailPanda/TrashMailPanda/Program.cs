@@ -35,6 +35,9 @@ sealed class Program
             var trainingScanCommand = host.Services.GetRequiredService<GmailTrainingScanCommand>();
             var scanProgressRepo = host.Services.GetRequiredService<IScanProgressRepository>();
             var trainingConsoleService = host.Services.GetRequiredService<TrainingConsoleService>();
+            var triageConsoleService = host.Services.GetRequiredService<IEmailTriageConsoleService>();
+            var bulkConsoleService = host.Services.GetRequiredService<IBulkOperationConsoleService>();
+            var settingsConsoleService = host.Services.GetRequiredService<IProviderSettingsConsoleService>();
 
             // Display welcome banner
             statusDisplay.DisplayWelcomeBanner();
@@ -88,7 +91,7 @@ sealed class Program
                     }
 
                     // Handle mode selection
-                    running = await HandleModeSelectionAsync(selectedMode, trainingConsoleService, _cancellationTokenSource.Token);
+                    running = await HandleModeSelectionAsync(selectedMode, trainingConsoleService, triageConsoleService, bulkConsoleService, settingsConsoleService, _cancellationTokenSource.Token);
                 }
 
                 Console.WriteLine();
@@ -239,36 +242,28 @@ sealed class Program
     /// <param name="mode">Selected operational mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True to continue showing menu, false to exit.</returns>
-    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, TrainingConsoleService trainingConsoleService, CancellationToken cancellationToken)
+    private static async Task<bool> HandleModeSelectionAsync(
+        OperationalMode mode,
+        TrainingConsoleService trainingConsoleService,
+        IEmailTriageConsoleService triageConsoleService,
+        IBulkOperationConsoleService bulkConsoleService,
+        IProviderSettingsConsoleService settingsConsoleService,
+        CancellationToken cancellationToken)
     {
-        Console.WriteLine();
-        Console.WriteLine($"Selected mode: {mode}");
         Console.WriteLine();
 
         switch (mode)
         {
             case OperationalMode.EmailTriage:
-                Spectre.Console.AnsiConsole.MarkupLine("[yellow]📧 Email Triage mode - Coming soon![/]");
-                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will launch the email triage workflow.[/]");
-                Spectre.Console.AnsiConsole.WriteLine();
-                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
-                Console.ReadLine();
+                await triageConsoleService.RunAsync("me", cancellationToken);
                 return true;
 
             case OperationalMode.BulkOperations:
-                Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚡ Bulk Operations mode - Coming soon![/]");
-                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow bulk email actions (delete, archive, label).[/]");
-                Spectre.Console.AnsiConsole.WriteLine();
-                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
-                Console.ReadLine();
+                await bulkConsoleService.RunAsync(cancellationToken);
                 return true;
 
             case OperationalMode.ProviderSettings:
-                Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚙️  Provider Settings mode - Coming soon![/]");
-                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow reconfiguration of provider settings.[/]");
-                Spectre.Console.AnsiConsole.WriteLine();
-                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
-                Console.ReadLine();
+                await settingsConsoleService.RunAsync(cancellationToken);
                 return true;
 
             case OperationalMode.TrainModel:

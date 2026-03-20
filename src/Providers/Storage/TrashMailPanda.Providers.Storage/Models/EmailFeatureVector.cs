@@ -347,4 +347,18 @@ public class EmailFeatureVector
     [Required]
     [Range(0, 1)]
     public int UserCorrected { get; init; }
+
+    // ============================================================
+    // TRIAGE LABEL
+    // ============================================================
+
+    /// <summary>
+    /// Explicit triage decision stored by the triage service after a successful Gmail action.
+    /// One of: "Keep", "Archive", "Delete", "Spam".
+    /// <c>NULL</c> means the email has not been manually triaged yet; the training pipeline
+    /// infers the label from feature flags (WasInSpam, WasInTrash, IsInInbox, IsArchived)
+    /// via <c>ITrainingSignalAssigner</c>.  Non-null values take precedence over inference.
+    /// </summary>
+    [StringLength(20)]
+    public string? TrainingLabel { get; set; }
 }

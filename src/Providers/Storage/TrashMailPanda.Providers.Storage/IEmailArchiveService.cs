@@ -180,6 +180,37 @@ public interface IEmailArchiveService
         CancellationToken cancellationToken = default);
 
     // ============================================================
+    // Triage Queue & Training Labels
+    // ============================================================
+
+    /// <summary>
+    /// Sets the explicit training label for the given email's feature vector.
+    /// Also sets <c>UserCorrected = 1</c> when the user overrode an AI recommendation.
+    /// Returns <c>Success(false)</c> if no feature vector exists for the email ID.
+    /// MUST only be called after the corresponding Gmail action has succeeded.
+    /// </summary>
+    Task<Result<bool>> SetTrainingLabelAsync(
+        string emailId,
+        string label,
+        bool userCorrected,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the count of feature vectors with an explicit training label.
+    /// Used to seed <c>EmailTriageSession.LabeledCount</c> at session start.
+    /// </summary>
+    Task<Result<int>> CountLabeledAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a page of feature vectors with <c>training_label IS NULL</c> (untriaged queue).
+    /// Ordered by <c>ExtractedAt</c> descending (most recently scanned first).
+    /// </summary>
+    Task<Result<IReadOnlyList<EmailFeatureVector>>> GetUntriagedAsync(
+        int pageSize,
+        int offset,
+        CancellationToken ct = default);
+
+    // ============================================================
     // Automatic Cleanup
     // ============================================================
 

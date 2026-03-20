@@ -828,4 +828,114 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
             _ = await GetStorageUsageAsync(cancellationToken);
         }
     }
+
+    // ============================================================
+    // Triage Queue & Training Labels
+    // ============================================================
+
+    public async Task<Result<bool>> SetTrainingLabelAsync(
+        string emailId,
+        string label,
+        bool userCorrected,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(emailId))
+            return Result<bool>.Failure(new ValidationError("EmailId is required"));
+        if (string.IsNullOrWhiteSpace(label))
+            return Result<bool>.Failure(new ValidationError("Label is required"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                int rows;
+                if (userCorrected)
+                {
+                    rows = await _context.Database.ExecuteSqlRawAsync(
+                        "UPDATE email_features SET training_label = {0}, user_corrected = 1 WHERE email_id = {1}",
+                        label, emailId);
+                }
+                else
+                {
+                    rows = await _context.Database.ExecuteSqlRawAsync(
+                        "UPDATE email_features SET training_label = {0} WHERE email_id = {1}",
+                        label, emailId);
+                }
+
+                // Detach any cached entity so future queries reflect the DB update
+                var tracked = _context.EmailFeatures.Local.FirstOrDefault(f => f.EmailId == emailId);
+                if (tracked != null)
+                    _context.Entry(tracked).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+
+                return Result<bool>.Success(rows > 0);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError($"Failed to set training label for {emailId}", ex.Message, ex));
+        }
+    }
+
+    public async Task<Result<int>> CountLabeledAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                var count = await _context.EmailFeatures
+                    .CountAsync(f => f.TrainingLabel != null, ct);
+                return Result<int>.Success(count);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure(new StorageError("Failed to count labeled features", ex.Message, ex));
+        }
+    }
+
+    public async Task<Result<IReadOnlyList<EmailFeatureVector>>> GetUntriagedAsync(
+        int pageSize,
+        int offset,
+        CancellationToken ct = default)
+    {
+        if (pageSize <= 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Page size must be greater than zero"));
+        if (offset < 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Offset must be non-negative"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                var results = await _context.EmailFeatures
+                    .Where(f => f.TrainingLabel == null)
+                    .OrderByDescending(f => f.ExtractedAt)
+                    .Skip(offset)
+                    .Take(pageSize)
+                    .ToListAsync(ct);
+
+                return Result<IReadOnlyList<EmailFeatureVector>>.Success(results);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(
+                new StorageError("Failed to get untriaged features", ex.Message, ex));
+        }
+    }
 }
