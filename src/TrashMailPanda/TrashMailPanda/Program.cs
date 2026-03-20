@@ -74,9 +74,11 @@ sealed class Program
                 AnsiConsole.MarkupLine("[green]✓ Application ready![/]");
                 Console.WriteLine();
 
+                var archiveService = host.Services.GetRequiredService<IEmailArchiveService>();
+
                 // Sync training data: resume/run initial scan or auto-sync history changes
                 await HandleStartupTrainingSyncAsync(
-                    scanProgressRepo, trainingScanCommand, _cancellationTokenSource.Token);
+                    scanProgressRepo, trainingScanCommand, archiveService, _cancellationTokenSource.Token);
 
                 // Display mode selection menu
                 var running = true;
@@ -177,6 +179,7 @@ sealed class Program
     private static async Task HandleStartupTrainingSyncAsync(
         IScanProgressRepository scanProgressRepo,
         GmailTrainingScanCommand trainingScanCommand,
+        IEmailArchiveService archiveService,
         CancellationToken cancellationToken)
     {
         ScanProgressEntity? latest = null;
@@ -194,6 +197,22 @@ sealed class Program
         // ———————————————————————————————————————————————————————
         if (status == "Completed")
         {
+            // If the scan completed but email_features is empty, the scan ran before
+            // feature extraction was wired up.  Reset progress to trigger a full re-scan
+            // so the triage queue gets populated.
+            var featureCountResult = await archiveService.CountLabeledAsync(cancellationToken);
+            var totalFeaturesResult = await archiveService.GetStorageUsageAsync(cancellationToken);
+            bool featuresEmpty = totalFeaturesResult.IsSuccess && totalFeaturesResult.Value.FeatureCount == 0;
+
+            if (featuresEmpty && latest is not null)
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Triage queue is empty — re-scanning to populate email features...[/]");
+                Console.WriteLine();
+                await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+                Console.WriteLine();
+                return;
+            }
+
             AnsiConsole.MarkupLine("[dim]→ Syncing new email changes...[/]");
             await trainingScanCommand.RunIncrementalScanAsync("me", cancellationToken);
             Console.WriteLine();

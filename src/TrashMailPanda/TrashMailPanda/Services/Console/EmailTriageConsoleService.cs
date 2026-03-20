@@ -84,9 +84,20 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             var batch = batchResult.Value;
             if (batch.Count == 0)
             {
-                _console.MarkupLine(
-                    $"{ConsoleColors.Success}✓{ConsoleColors.Close} " +
-                    $"All emails in queue have been labeled.");
+                // Distinguish between "no emails imported yet" and "all labeled"
+                if (session.LabeledCount == 0 && session.SessionProcessedCount == 0)
+                {
+                    _console.MarkupLine(
+                        $"{ConsoleColors.Warning}⚠{ConsoleColors.Close} " +
+                        $"{ConsoleColors.Warning}No emails in triage queue yet. " +
+                        $"The Gmail scan may still be running, or try restarting the app.{ConsoleColors.Close}");
+                }
+                else
+                {
+                    _console.MarkupLine(
+                        $"{ConsoleColors.Success}✓{ConsoleColors.Close} " +
+                        $"All emails in queue have been labeled.");
+                }
                 break;
             }
 
