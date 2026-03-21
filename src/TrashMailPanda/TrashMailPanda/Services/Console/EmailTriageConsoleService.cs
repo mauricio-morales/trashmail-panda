@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -69,23 +71,74 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         while (!cancellationToken.IsCancellationRequested && !exitRequested)
         {
-            // Always fetch from offset=0 because labeled emails are excluded by the query
-            // (WHERE training_label IS NULL), so the pool naturally shrinks.
-            var batchResult = await _triageService.GetNextBatchAsync(PageSize, 0, cancellationToken);
-            if (!batchResult.IsSuccess)
+            // ── Fetch the next page ──────────────────────────────────────────
+            // In re-triage phase: interleaved old-untriaged + recently-archived relabels.
+            // In normal phase: untriaged emails ordered Inbox→Archive→most recent first.
+            IReadOnlyList<EmailFeatureVector> batch;
+
+            if (session.IsRetriagedPhase)
             {
-                _console.MarkupLine(
-                    $"{ConsoleColors.Error}✗{ConsoleColors.Close} " +
-                    $"{ConsoleColors.ErrorText}Failed to load emails: " +
-                    $"{Markup.Escape(batchResult.Error.Message)}{ConsoleColors.Close}");
-                break;
+                _logger.LogDebug("Triage loop: fetching re-triage batch (isRetriagedPhase=true)");
+                var retriageResult = await _triageService.GetRetriageQueueAsync(PageSize, cancellationToken);
+                if (!retriageResult.IsSuccess)
+                {
+                    _console.MarkupLine(
+                        $"{ConsoleColors.Error}✗{ConsoleColors.Close} " +
+                        $"{ConsoleColors.ErrorText}Failed to load re-triage emails: " +
+                        $"{Markup.Escape(retriageResult.Error.Message)}{ConsoleColors.Close}");
+                    break;
+                }
+                batch = retriageResult.Value;
+            }
+            else
+            {
+                // Always fetch from offset=0 because labeled emails are excluded by the query
+                // (WHERE training_label IS NULL), so the pool naturally shrinks.
+                _logger.LogDebug("Triage loop: fetching normal batch (isRetriagedPhase=false)");
+                var batchResult = await _triageService.GetNextBatchAsync(PageSize, 0, cancellationToken);
+                if (!batchResult.IsSuccess)
+                {
+                    _console.MarkupLine(
+                        $"{ConsoleColors.Error}✗{ConsoleColors.Close} " +
+                        $"{ConsoleColors.ErrorText}Failed to load emails: " +
+                        $"{Markup.Escape(batchResult.Error.Message)}{ConsoleColors.Close}");
+                    break;
+                }
+                batch = batchResult.Value;
+
+                // Check if the oldest available untriaged email has crossed the 5-year threshold.
+                // When batch[0] (the most recent untriaged) is 5+ years old, no newer emails remain.
+                // Trigger the re-triage transition: mix old unlabeled with archived re-evaluations.
+                if (batch.Count > 0
+                    && batch[0].EmailAgeDays > EmailTriageService.OldEmailThresholdDays
+                    && !session.IsRetriagedPhase)
+                {
+                    session.IsRetriagedPhase = true;
+                    await ShowRetriageTransitionNoticeAsync(cancellationToken);
+
+                    // Re-fetch as a properly mixed re-triage batch for this pass
+                    var retriageResult = await _triageService.GetRetriageQueueAsync(PageSize, cancellationToken);
+                    if (!retriageResult.IsSuccess)
+                    {
+                        _console.MarkupLine(
+                            $"{ConsoleColors.Error}✗{ConsoleColors.Close} " +
+                            $"{ConsoleColors.ErrorText}Failed to load re-triage emails: " +
+                            $"{Markup.Escape(retriageResult.Error.Message)}{ConsoleColors.Close}");
+                        break;
+                    }
+                    batch = retriageResult.Value;
+                }
             }
 
-            var batch = batchResult.Value;
             if (batch.Count == 0)
             {
-                // Distinguish between "no emails imported yet" and "all labeled"
-                if (session.LabeledCount == 0 && session.SessionProcessedCount == 0)
+                if (session.IsRetriagedPhase)
+                {
+                    _console.MarkupLine(
+                        $"{ConsoleColors.Success}✓{ConsoleColors.Close} " +
+                        $"All emails reviewed — re-triage complete.");
+                }
+                else if (session.LabeledCount == 0 && session.SessionProcessedCount == 0)
                 {
                     _console.MarkupLine(
                         $"{ConsoleColors.Warning}⚠{ConsoleColors.Close} " +
@@ -106,23 +159,68 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                 if (cancellationToken.IsCancellationRequested || exitRequested)
                     break;
 
-                // T039 — Get AI recommendation (null in ColdStart)
+                bool isRetriage = feature.TrainingLabel is not null;
+
+                _logger.LogDebug("Displaying email #{Seq}: [{EmailId}] subject={Subject} EmailAgeDays={Age} isRetriage={IsRetriage} isArchived={IsArchived} isInInbox={IsInInbox}",
+                    session.SessionProcessedCount + 1,
+                    feature.EmailId,
+                    feature.SubjectText,
+                    feature.EmailAgeDays,
+                    isRetriage,
+                    feature.IsArchived,
+                    feature.IsInInbox);
+
+                // T039 — Get AI recommendation (null in ColdStart, null for re-triage items)
                 ActionPrediction? prediction = null;
-                if (session.Mode == TriageMode.AiAssisted)
+                if (!isRetriage && session.Mode == TriageMode.AiAssisted)
                 {
                     var recResult = await _triageService.GetAiRecommendationAsync(feature, cancellationToken);
                     prediction = recResult.IsSuccess ? recResult.Value : null;
                 }
 
+                // Fetch live email details (From header, ThreadId, body) with a brief spinner.
+                // Failure is non-fatal — card renders with the stored feature data as fallback.
+                EmailTriageDetails? details = null;
+                await _console.Status()
+                    .Spinner(Spinner.Known.Dots)
+                    .StartAsync("[dim]Loading...[/]", async _ =>
+                    {
+                        var fetchResult = await _triageService.FetchEmailDetailsAsync(
+                            feature.EmailId, cancellationToken);
+                        if (fetchResult.IsSuccess)
+                            details = fetchResult.Value;
+                    });
+
                 // T033 — Render email card
-                RenderEmailCard(feature, prediction, session);
+                bool expanded = false;
+                RenderEmailCard(feature, details, prediction, session, expanded, isRetriage);
 
                 // T034 — Key reading loop for this email
                 var decided = false;
                 while (!decided && !cancellationToken.IsCancellationRequested && !exitRequested)
                 {
                     var keyInfo = _readKey();
-                    var outcome = await HandleKeyAsync(keyInfo, feature, prediction, session, cancellationToken);
+                    var upper = char.ToUpperInvariant(keyInfo.KeyChar);
+
+                    // E — toggle expanded body
+                    if (upper == 'E')
+                    {
+                        expanded = !expanded;
+                        RenderEmailCard(feature, details, prediction, session, expanded, isRetriage);
+                        continue;
+                    }
+
+                    // O — open in browser
+                    if (upper == 'O')
+                    {
+                        var threadId = details?.ThreadId ?? feature.EmailId;
+                        OpenBrowserToEmail(threadId);
+                        _console.MarkupLine(
+                            $"  {ConsoleColors.Info}ℹ Opened in browser{ConsoleColors.Close}");
+                        continue;
+                    }
+
+                    var outcome = await HandleKeyAsync(keyInfo, feature, prediction, session, isRetriage, cancellationToken);
 
                     switch (outcome)
                     {
@@ -135,7 +233,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                             break;
                         case KeyHandleResult.Reprompt:
                             // Help was shown — re-render the action hint
-                            RenderActionHint(session.Mode, prediction);
+                            RenderActionHint(session.Mode, prediction, isRetriage);
                             break;
                             // KeyHandleResult.Retry: fall through to re-read key (card already re-rendered)
                     }
@@ -164,24 +262,39 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
     private void RenderEmailCard(
         EmailFeatureVector feature,
+        EmailTriageDetails? details,
         ActionPrediction? prediction,
-        EmailTriageSession session)
+        EmailTriageSession session,
+        bool expanded = false,
+        bool isRetriage = false)
     {
         _console.WriteLine();
 
-        var rule = new Rule($"[bold]Email #{session.SessionProcessedCount + 1}[/]")
+        var ruleTitle = isRetriage
+            ? $"[bold]Re-evaluate #{session.SessionProcessedCount + 1}[/]"
+            : $"[bold]Email #{session.SessionProcessedCount + 1}[/]";
+        var rule = new Rule(ruleTitle)
             .LeftJustified()
-            .RuleStyle("dim");
+            .RuleStyle(isRetriage ? "yellow dim" : "dim");
         _console.Write(rule);
 
-        // Sender & subject
-        var sender = string.IsNullOrWhiteSpace(feature.SenderDomain)
-            ? "(unknown sender)"
-            : feature.SenderDomain;
+        // Re-triage badge: show previous label and re-evaluate prompt
+        if (isRetriage)
+        {
+            _console.MarkupLine(
+                $"  {ConsoleColors.Warning}↩ Previously: [bold]{Markup.Escape(feature.TrainingLabel!)}[/]  " +
+                $"— This email was archived {feature.EmailAgeDays}d ago. " +
+                $"Is it still worth keeping?{ConsoleColors.Close}");
+        }
+
+        // From: prefer live-fetched full header; fall back to stored domain
+        var sender = !string.IsNullOrWhiteSpace(details?.From)
+            ? details.From
+            : (!string.IsNullOrWhiteSpace(feature.SenderDomain) ? feature.SenderDomain : "(unknown sender)");
+
         var subject = string.IsNullOrWhiteSpace(feature.SubjectText)
             ? "(no subject)"
             : feature.SubjectText;
-        var snippet = feature.BodyTextShort;
 
         _console.MarkupLine($"  {ConsoleColors.Dim}From:{ConsoleColors.Close}    {Markup.Escape(sender)}");
         _console.MarkupLine($"  {ConsoleColors.Dim}Subject:{ConsoleColors.Close} [bold]{Markup.Escape(subject)}[/]");
@@ -189,11 +302,21 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                             $"{(feature.IsStarred == 1 ? "⭐ Starred  · " : string.Empty)}" +
                             $"{(feature.HasAttachments == 1 ? "📎 Attachment  · " : string.Empty)}" +
                             $"{(feature.HasListUnsubscribe == 1 ? "📧 Mailing list  · " : string.Empty)}" +
-                            $"{ConsoleColors.Dim}domain freq: {feature.SenderFrequency}{ConsoleColors.Close}");
+                            $"{ConsoleColors.Dim}domain freq: {feature.SenderFrequency}  ·  " +
+                            $"id: …{feature.EmailId[^Math.Min(6, feature.EmailId.Length)..]}{ConsoleColors.Close}");
 
-        if (!string.IsNullOrWhiteSpace(snippet))
+        // Body: expanded shows up to 2 000 chars; collapsed shows the stored snippet
+        if (expanded && !string.IsNullOrWhiteSpace(details?.BodyText))
         {
-            var truncated = snippet.Length > 120 ? snippet[..120] + "…" : snippet;
+            var body = details.BodyText.Length > 2000
+                ? details.BodyText[..2000] + "\n…"
+                : details.BodyText;
+            _console.MarkupLine($"  {ConsoleColors.Dim}{Markup.Escape(body)}{ConsoleColors.Close}");
+        }
+        else if (!string.IsNullOrWhiteSpace(feature.BodyTextShort))
+        {
+            var snippet = feature.BodyTextShort;
+            var truncated = snippet.Length > 160 ? snippet[..160] + "…" : snippet;
             _console.MarkupLine($"  {ConsoleColors.Dim}{Markup.Escape(truncated)}{ConsoleColors.Close}");
         }
 
@@ -222,12 +345,28 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         }
 
         _console.WriteLine();
-        RenderActionHint(session.Mode, prediction);
+        RenderActionHint(session.Mode, prediction, isRetriage);
     }
 
-    private void RenderActionHint(TriageMode mode, ActionPrediction? prediction)
+    private void RenderActionHint(TriageMode mode, ActionPrediction? prediction, bool isRetriage = false)
     {
-        if (mode == TriageMode.AiAssisted && prediction != null)
+        if (isRetriage)
+        {
+            // Re-triage hint: Enter/Y confirms the previous label, K/A/D/S overrides it.
+            _console.MarkupLine(
+                $"  {ConsoleColors.ActionHint}Enter/Y{ConsoleColors.Close}=Confirm  " +
+                $"{ConsoleColors.ActionHint}K{ConsoleColors.Close}=Keep  " +
+                $"{ConsoleColors.ActionHint}A{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}D{ConsoleColors.Close}=Delete  " +
+                $"{ConsoleColors.ActionHint}S{ConsoleColors.Close}=Spam  " +
+                $"{ConsoleColors.ActionHint}1{ConsoleColors.Close}=Arch→30d  " +
+                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→1y  " +
+                $"{ConsoleColors.ActionHint}E{ConsoleColors.Close}=Expand  " +
+                $"{ConsoleColors.ActionHint}O{ConsoleColors.Close}=Open  " +
+                $"{ConsoleColors.ActionHint}Q{ConsoleColors.Close}=Exit  " +
+                $"{ConsoleColors.ActionHint}?{ConsoleColors.Close}=Help");
+        }
+        else if (mode == TriageMode.AiAssisted && prediction != null)
         {
             _console.MarkupLine(
                 $"  {ConsoleColors.ActionHint}Enter/Y{ConsoleColors.Close}=Accept  " +
@@ -235,6 +374,10 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                 $"{ConsoleColors.ActionHint}A{ConsoleColors.Close}=Archive  " +
                 $"{ConsoleColors.ActionHint}D{ConsoleColors.Close}=Delete  " +
                 $"{ConsoleColors.ActionHint}S{ConsoleColors.Close}=Spam  " +
+                $"{ConsoleColors.ActionHint}1{ConsoleColors.Close}=Arch→30d  " +
+                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→1y  " +
+                $"{ConsoleColors.ActionHint}E{ConsoleColors.Close}=Expand  " +
+                $"{ConsoleColors.ActionHint}O{ConsoleColors.Close}=Open  " +
                 $"{ConsoleColors.ActionHint}Q{ConsoleColors.Close}=Exit  " +
                 $"{ConsoleColors.ActionHint}?{ConsoleColors.Close}=Help");
         }
@@ -245,8 +388,27 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                 $"{ConsoleColors.ActionHint}A{ConsoleColors.Close}=Archive  " +
                 $"{ConsoleColors.ActionHint}D{ConsoleColors.Close}=Delete  " +
                 $"{ConsoleColors.ActionHint}S{ConsoleColors.Close}=Spam  " +
+                $"{ConsoleColors.ActionHint}1{ConsoleColors.Close}=Arch→30d  " +
+                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→1y  " +
+                $"{ConsoleColors.ActionHint}E{ConsoleColors.Close}=Expand  " +
+                $"{ConsoleColors.ActionHint}O{ConsoleColors.Close}=Open  " +
                 $"{ConsoleColors.ActionHint}Q{ConsoleColors.Close}=Exit  " +
                 $"{ConsoleColors.ActionHint}?{ConsoleColors.Close}=Help");
+        }
+    }
+
+    private static void OpenBrowserToEmail(string threadId)
+    {
+        var url = $"https://mail.google.com/mail/#all/{threadId}";
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // Fallback for environments where shell execute fails (e.g. some Linux setups)
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                Process.Start("xdg-open", url);
         }
     }
 
@@ -259,6 +421,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         EmailFeatureVector feature,
         ActionPrediction? prediction,
         EmailTriageSession session,
+        bool isRetriage,
         CancellationToken cancellationToken)
     {
         var key = char.ToUpperInvariant(keyInfo.KeyChar);
@@ -286,6 +449,12 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             action = "Delete";
         else if (key == 'S')
             action = "Spam";
+        else if (key == '1')
+            action = "archive-then-delete-30d";
+        else if (key == '2')
+            action = "archive-then-delete-1y";
+        else if ((key == 'Y' || consoleKey == ConsoleKey.Enter) && isRetriage && feature.TrainingLabel is not null)
+            action = feature.TrainingLabel; // Confirm previous label during re-triage
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter)
                  && session.Mode == TriageMode.AiAssisted
                  && prediction != null)
@@ -295,9 +464,12 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             return KeyHandleResult.Reprompt; // Unknown key — reprompt
 
         // Apply decision (dual-write: Gmail first, then training label)
-        var aiRec = prediction?.PredictedLabel;
+        // For re-triage items: forceUserCorrected=true so the email leaves the re-triage
+        // pool regardless of whether the user confirmed or changed the previous label.
+        // For re-triage: aiRec is the previous label (acts as the baseline recommendation).
+        var aiRec = isRetriage ? feature.TrainingLabel : prediction?.PredictedLabel;
         var decisionResult = await _triageService.ApplyDecisionAsync(
-            feature.EmailId, action, aiRec, cancellationToken);
+            feature.EmailId, action, aiRec, forceUserCorrected: isRetriage, cancellationToken);
 
         if (decisionResult.IsSuccess)
         {
@@ -336,6 +508,29 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
             return KeyHandleResult.Decided;
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Re-triage transition notice
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private Task ShowRetriageTransitionNoticeAsync(CancellationToken cancellationToken)
+    {
+        _console.WriteLine();
+        _console.Write(new Rule().RuleStyle("yellow"));
+        _console.MarkupLine(
+            $"  {ConsoleColors.Warning}⏳ You've reached emails older than 5 years.{ConsoleColors.Close}");
+        _console.MarkupLine($"  [bold]Switching to Re-Triage mode:[/]");
+        _console.MarkupLine($"  {ConsoleColors.Dim}· Continuing to label any remaining old emails{ConsoleColors.Close}");
+        _console.MarkupLine(
+            $"  {ConsoleColors.Dim}· Also surfacing archived emails from the last 3 years{ConsoleColors.Close}");
+        _console.MarkupLine(
+            $"  {ConsoleColors.Dim}  that may now be worth deleting as their content ages{ConsoleColors.Close}");
+        _console.Write(new Rule().RuleStyle("yellow"));
+        _console.WriteLine();
+        _console.MarkupLine($"  {ConsoleColors.Dim}Press any key to continue…{ConsoleColors.Close}");
+        _readKey();
+        return Task.CompletedTask;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -413,6 +608,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         table.AddRow("Keep", $"[green]{summary.KeepCount}[/]");
         table.AddRow("Archive", summary.ArchiveCount.ToString());
+        table.AddRow("Archive→30d", summary.ArchiveThenDelete30dCount.ToString());
+        table.AddRow("Archive→1y", summary.ArchiveThenDelete1yCount.ToString());
         table.AddRow("Delete", summary.DeleteCount.ToString());
         table.AddRow("Spam", summary.SpamCount.ToString());
         table.AddRow("[dim]─────[/]", "[dim]────[/]");
@@ -438,6 +635,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
     {
         session.ActionCounts.TryGetValue("Keep", out var keep);
         session.ActionCounts.TryGetValue("Archive", out var archive);
+        session.ActionCounts.TryGetValue("archive-then-delete-30d", out var archiveThenDelete30d);
+        session.ActionCounts.TryGetValue("archive-then-delete-1y", out var archiveThenDelete1y);
         session.ActionCounts.TryGetValue("Delete", out var delete);
         session.ActionCounts.TryGetValue("Spam", out var spam);
 
@@ -445,6 +644,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             TotalProcessed: session.SessionProcessedCount,
             KeepCount: keep,
             ArchiveCount: archive,
+            ArchiveThenDelete30dCount: archiveThenDelete30d,
+            ArchiveThenDelete1yCount: archiveThenDelete1y,
             DeleteCount: delete,
             SpamCount: spam,
             OverrideCount: session.SessionOverrideCount,

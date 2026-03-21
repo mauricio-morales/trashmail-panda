@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TrashMailPanda.Providers.Storage.Models;
 
@@ -19,6 +20,7 @@ public class EmailArchiveEntry
     /// </summary>
     [Required]
     [StringLength(500)]
+    [Column("email_id")]
     public string EmailId { get; init; } = string.Empty;
 
     // ============================================================
@@ -30,6 +32,7 @@ public class EmailArchiveEntry
     /// Null if provider lacks threading support.
     /// </summary>
     [StringLength(500)]
+    [Column("thread_id")]
     public string? ThreadId { get; init; }
 
     /// <summary>
@@ -38,6 +41,7 @@ public class EmailArchiveEntry
     /// </summary>
     [Required]
     [StringLength(50)]
+    [Column("provider_type")]
     public string ProviderType { get; init; } = string.Empty;
 
     /// <summary>
@@ -45,6 +49,7 @@ public class EmailArchiveEntry
     /// Must be valid JSON object.
     /// </summary>
     [Required]
+    [Column("headers_json")]
     public string HeadersJson { get; init; } = "{}";
 
     // ============================================================
@@ -55,12 +60,14 @@ public class EmailArchiveEntry
     /// Plain text email body.
     /// At least one of BodyText or BodyHtml must be non-null.
     /// </summary>
+    [Column("body_text")]
     public string? BodyText { get; init; }
 
     /// <summary>
     /// Sanitized HTML email body.
     /// At least one of BodyText or BodyHtml must be non-null.
     /// </summary>
+    [Column("body_html")]
     public string? BodyHtml { get; init; }
 
     // ============================================================
@@ -72,6 +79,7 @@ public class EmailArchiveEntry
     /// Must be valid JSON array.
     /// </summary>
     [Required]
+    [Column("folder_tags_json")]
     public string FolderTagsJson { get; init; } = "[]";
 
     /// <summary>
@@ -80,6 +88,7 @@ public class EmailArchiveEntry
     /// </summary>
     [Required]
     [StringLength(50)]
+    [Column("source_folder")]
     public string SourceFolder { get; init; } = string.Empty;
 
     // ============================================================
@@ -91,18 +100,21 @@ public class EmailArchiveEntry
     /// </summary>
     [Required]
     [Range(1, long.MaxValue)]
+    [Column("size_estimate")]
     public long SizeEstimate { get; init; }
 
     /// <summary>
     /// ISO8601 original received timestamp.
     /// </summary>
     [Required]
+    [Column("received_date")]
     public DateTime ReceivedDate { get; init; }
 
     /// <summary>
     /// ISO8601 local archive timestamp.
     /// </summary>
     [Required]
+    [Column("archived_at")]
     public DateTime ArchivedAt { get; init; }
 
     // ============================================================
@@ -113,6 +125,7 @@ public class EmailArchiveEntry
     /// Email preview text (max 200 chars).
     /// </summary>
     [StringLength(200)]
+    [Column("snippet")]
     public string? Snippet { get; init; }
 
     // ============================================================
@@ -124,5 +137,6 @@ public class EmailArchiveEntry
     /// </summary>
     [Required]
     [Range(0, 1)]
+    [Column("user_corrected")]
     public int UserCorrected { get; init; }
 }

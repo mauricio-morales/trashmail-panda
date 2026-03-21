@@ -203,9 +203,27 @@ public interface IEmailArchiveService
 
     /// <summary>
     /// Returns a page of feature vectors with <c>training_label IS NULL</c> (untriaged queue).
-    /// Ordered by <c>ExtractedAt</c> descending (most recently scanned first).
+    /// Only includes Inbox and Archive emails — Sent and Trash folders are excluded because
+    /// they represent definitive user intent and should not be re-triaged.
+    /// Ordered by: Inbox first (priority 1), Archive second (priority 2),
+    /// then by email recency (<c>EmailAgeDays ASC</c>, most recent first within each group).
     /// </summary>
     Task<Result<IReadOnlyList<EmailFeatureVector>>> GetUntriagedAsync(
+        int pageSize,
+        int offset,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a page of archived, already-labeled emails where
+    /// <c>user_corrected = 0</c> and <c>EmailAgeDays &lt;= maxAgeDays</c>,
+    /// eligible for re-triage. These are emails whose archive label was assigned
+    /// (by the AI or a previous user pass) but may now be worth deleting given
+    /// the passage of time.
+    /// Ordered by <c>EmailAgeDays ASC</c> (most recently archived first).
+    /// The pool naturally shrinks as each reviewed email is marked <c>user_corrected = 1</c>.
+    /// </summary>
+    Task<Result<IReadOnlyList<EmailFeatureVector>>> GetRetriagedCandidatesAsync(
+        int maxAgeDays,
         int pageSize,
         int offset,
         CancellationToken ct = default);

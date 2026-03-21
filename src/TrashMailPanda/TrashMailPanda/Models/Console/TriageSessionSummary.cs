@@ -8,6 +8,8 @@ public sealed record TriageSessionSummary(
     int TotalProcessed,
     int KeepCount,
     int ArchiveCount,
+    int ArchiveThenDelete30dCount,
+    int ArchiveThenDelete1yCount,
     int DeleteCount,
     int SpamCount,
     int OverrideCount,

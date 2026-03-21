@@ -52,16 +52,16 @@ public sealed class LabelTaxonomyRepository : ILabelTaxonomyRepository
                 // ExecuteUpdate. A read-before-write per label would create an N+1 problem.
                 const string sql = """
                     INSERT INTO label_taxonomy
-                        (LabelId, AccountId, Name, Color, LabelType, UsageCount, CreatedAt, UpdatedAt)
+                        (label_id, account_id, name, color, label_type, usage_count, created_at, updated_at)
                     VALUES
                         (@LabelId, @AccountId, @Name, @Color, @LabelType, @UsageCount, @CreatedAt, @UpdatedAt)
-                    ON CONFLICT(LabelId) DO UPDATE SET
-                        AccountId  = excluded.AccountId,
-                        Name       = excluded.Name,
-                        Color      = excluded.Color,
-                        LabelType  = excluded.LabelType,
-                        UpdatedAt  = excluded.UpdatedAt
-                    -- UsageCount and CreatedAt are preserved
+                    ON CONFLICT(label_id) DO UPDATE SET
+                        account_id = excluded.account_id,
+                        name       = excluded.name,
+                        color      = excluded.color,
+                        label_type = excluded.label_type,
+                        updated_at = excluded.updated_at
+                    -- usage_count and created_at are preserved
                     """;
 
                 foreach (var label in list)
@@ -128,12 +128,12 @@ public sealed class LabelTaxonomyRepository : ILabelTaxonomyRepository
             // statements, which is expensive for large taxonomies.
             const string sql = """
                 UPDATE label_taxonomy
-                SET UsageCount = (
+                SET usage_count = (
                     SELECT COUNT(*) FROM label_associations
-                    WHERE label_associations.LabelId = label_taxonomy.LabelId
+                    WHERE label_associations.label_id = label_taxonomy.label_id
                 ),
-                UpdatedAt = @Now
-                WHERE AccountId = @AccountId
+                updated_at = @Now
+                WHERE account_id = @AccountId
                 """;
 
             await _context.Database.ExecuteSqlRawAsync(sql,

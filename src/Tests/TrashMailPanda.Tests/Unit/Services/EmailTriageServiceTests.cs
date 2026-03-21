@@ -342,4 +342,109 @@ public class EmailTriageServiceTests
         Assert.Contains("INBOX", captured!.RemoveLabelIds ?? []);
         Assert.Null(captured.AddLabelIds);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GetRetriageQueueAsync — interleaved re-triage batch
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetRetriageQueueAsync_InterleavesBothPools()
+    {
+        // Arrange — 2 old untriaged + 2 re-triage candidates
+        var untriaged = new List<EmailFeatureVector>
+        {
+            new() { EmailId = "old-1", EmailAgeDays = 2000 },
+            new() { EmailId = "old-2", EmailAgeDays = 2100 },
+        };
+        var retriage = new List<EmailFeatureVector>
+        {
+            new() { EmailId = "retriage-1", EmailAgeDays = 100, TrainingLabel = "Keep" },
+            new() { EmailId = "retriage-2", EmailAgeDays = 200, TrainingLabel = "Archive" },
+        };
+
+        _archiveService.Setup(x => x.GetUntriagedAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(untriaged));
+        _archiveService.Setup(x => x.GetRetriagedCandidatesAsync(
+                It.IsAny<int>(), It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(retriage));
+
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.GetRetriageQueueAsync(pageSize: 4);
+
+        // Assert — interleaved: old-1, retriage-1, old-2, retriage-2
+        Assert.True(result.IsSuccess);
+        Assert.Equal(4, result.Value.Count);
+        Assert.Equal("old-1", result.Value[0].EmailId);
+        Assert.Equal("retriage-1", result.Value[1].EmailId);
+        Assert.Equal("old-2", result.Value[2].EmailId);
+        Assert.Equal("retriage-2", result.Value[3].EmailId);
+    }
+
+    [Fact]
+    public async Task GetRetriageQueueAsync_WhenOnlyOldUntriagedAvailable_ReturnsThoseOnly()
+    {
+        // Arrange
+        var untriaged = new List<EmailFeatureVector>
+        {
+            new() { EmailId = "old-1", EmailAgeDays = 2000 },
+        };
+
+        _archiveService.Setup(x => x.GetUntriagedAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(untriaged));
+        _archiveService.Setup(x => x.GetRetriagedCandidatesAsync(
+                It.IsAny<int>(), It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.GetRetriageQueueAsync(pageSize: 4);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Single(result.Value);
+        Assert.Equal("old-1", result.Value[0].EmailId);
+    }
+
+    [Fact]
+    public async Task GetRetriageQueueAsync_WhenBothPoolsEmpty_ReturnsEmptyList()
+    {
+        // Arrange
+        _archiveService.Setup(x => x.GetUntriagedAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+        _archiveService.Setup(x => x.GetRetriagedCandidatesAsync(
+                It.IsAny<int>(), It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.GetRetriageQueueAsync(pageSize: 4);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value);
+    }
+
+    [Fact]
+    public async Task GetRetriageQueueAsync_WhenArchiveServiceFails_ReturnsFailure()
+    {
+        // Arrange
+        _archiveService.Setup(x => x.GetUntriagedAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Failure(
+                new StorageError("DB read failed")));
+
+        var sut = CreateSut();
+
+        // Act
+        var result = await sut.GetRetriageQueueAsync(pageSize: 4);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+    }
 }

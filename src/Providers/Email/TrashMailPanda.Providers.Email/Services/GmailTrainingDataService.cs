@@ -507,7 +507,17 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                     .ToList();
 
                 if (features.Count > 0)
+                {
+                    var zeroAgeCount = features.Count(f => f.EmailAgeDays == 0);
+                    if (zeroAgeCount > 0)
+                        _logger.LogWarning(
+                            "Folder {Folder}: {ZeroCount}/{Total} feature(s) have EmailAgeDays=0 (Date header missing or unparseable)",
+                            folderName, zeroAgeCount, features.Count);
+                    else
+                        _logger.LogDebug("Folder {Folder}: built {Total} feature vectors, age range {Min}-{Max}d",
+                            folderName, features.Count, features.Min(f => f.EmailAgeDays), features.Max(f => f.EmailAgeDays));
                     await _archiveService.StoreFeaturesBatchAsync(features, cancellationToken);
+                }
 
                 var counts = CountSignals(emails);
                 totalProcessed += emails.Count;
@@ -653,7 +663,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
     /// when the user trains a model.  <c>TrainingLabel</c> is intentionally left
     /// <see langword="null"/> so the row appears in <c>GetUntriagedAsync</c>.
     /// </summary>
-    private static EmailFeatureVector? BuildFeatureVector(Message msg, string folderName)
+    private EmailFeatureVector? BuildFeatureVector(Message msg, string folderName)
     {
         try
         {
@@ -680,12 +690,29 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
             if (emailMatch.Success)
                 senderDomain = emailMatch.Groups[1].Value.ToLowerInvariant();
 
-            // Estimate age in days from the Date header (fallback to 0)
+            // Estimate age in days.
+            // Prefer InternalDate (always-present Unix ms timestamp from Gmail API) over
+            // the Date header, which can be absent, spoofed, or in non-standard formats
+            // like "Thu, 20 Mar 2024 09:45:02 +0000 (Coordinated Universal Time)" that
+            // DateTimeOffset.TryParse chokes on.
             var emailAgeDays = 0;
-            if (!string.IsNullOrEmpty(dateStr) &&
-                DateTimeOffset.TryParse(dateStr, out var parsed))
+            if (msg.InternalDate.HasValue)
             {
-                emailAgeDays = Math.Max(0, (int)(DateTimeOffset.UtcNow - parsed).TotalDays);
+                var internalDate = DateTimeOffset.FromUnixTimeMilliseconds(msg.InternalDate.Value);
+                emailAgeDays = Math.Max(0, (int)(DateTimeOffset.UtcNow - internalDate).TotalDays);
+                _logger.LogDebug("Message {MessageId}: InternalDate={InternalDate:yyyy-MM-dd} → EmailAgeDays={Age}d",
+                    msg.Id, internalDate, emailAgeDays);
+            }
+            else if (!string.IsNullOrEmpty(dateStr) && DateTimeOffset.TryParse(dateStr, out var parsedDate))
+            {
+                emailAgeDays = Math.Max(0, (int)(DateTimeOffset.UtcNow - parsedDate).TotalDays);
+                _logger.LogDebug("Message {MessageId}: Date header '{DateStr}' → EmailAgeDays={Age}d (InternalDate absent)",
+                    msg.Id, dateStr, emailAgeDays);
+            }
+            else
+            {
+                _logger.LogWarning("Message {MessageId}: No InternalDate and Date header missing/unparseable ('{DateStr}') — EmailAgeDays will be 0",
+                    msg.Id, dateStr ?? "(null)");
             }
 
             // msg.Snippet is populated by the Gmail API even with format=METADATA
@@ -717,8 +744,9 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 TrainingLabel = null,  // null → appears in GetUntriagedAsync
             };
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "BuildFeatureVector failed for message {MessageId}", msg?.Id);
             return null;
         }
     }

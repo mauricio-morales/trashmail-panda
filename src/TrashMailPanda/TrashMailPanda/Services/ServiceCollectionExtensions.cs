@@ -137,7 +137,8 @@ public static class ServiceCollectionExtensions
         {
             var context = serviceProvider.GetRequiredService<TrashMailPandaDbContext>();
             var semaphore = serviceProvider.GetRequiredService<SemaphoreSlim>();
-            return new EmailArchiveService(context, semaphore);
+            var logger = serviceProvider.GetRequiredService<ILogger<EmailArchiveService>>();
+            return new EmailArchiveService(context, semaphore, logger);
         });
 
         // 6. Legacy IStorageProvider for backward compatibility (uses StorageProviderAdapter)

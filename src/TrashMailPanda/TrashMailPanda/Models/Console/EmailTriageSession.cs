@@ -34,6 +34,8 @@ public sealed class EmailTriageSession
     {
         ["Keep"] = 0,
         ["Archive"] = 0,
+        ["archive-then-delete-30d"] = 0,
+        ["archive-then-delete-1y"] = 0,
         ["Delete"] = 0,
         ["Spam"] = 0,
     };
@@ -42,4 +44,14 @@ public sealed class EmailTriageSession
 
     /// <summary>SQL offset for the current page of untriaged emails (local DB paging).</summary>
     public int CurrentOffset { get; set; }
+
+    /// <summary>
+    /// True once the triage queue has entered the re-triage phase.
+    /// This is triggered when the oldest available untriaged email exceeds
+    /// <see cref="EmailTriageService.OldEmailThresholdDays"/> (5 years), meaning
+    /// no newer unlabeled emails remain. In this phase the queue is mixed:
+    /// very old untriaged emails are interleaved with recently-archived, previously-labeled
+    /// emails that may now warrant a different decision.
+    /// </summary>
+    public bool IsRetriagedPhase { get; set; }
 }

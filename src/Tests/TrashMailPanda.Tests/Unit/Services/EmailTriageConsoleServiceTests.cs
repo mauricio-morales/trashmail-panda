@@ -90,7 +90,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         // K = Keep, then loop terminates on empty batch
@@ -120,7 +120,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -151,7 +151,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         // Two K presses + one key to dismiss threshold prompt + Q to stop the second batch loop
@@ -191,7 +191,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Archive", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Archive", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Archive", false)));
 
         // Enter = accept AI recommendation
@@ -227,7 +227,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Archive", false)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -242,6 +242,7 @@ public sealed class EmailTriageConsoleServiceTests
             It.IsAny<string>(),
             "Archive",         // chosenAction matches AI recommendation
             "Archive",         // aiRecommendation passed through
+            It.IsAny<bool>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -264,7 +265,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", isOverride: true)));
 
         // K = Keep (override — AI suggested Archive)
@@ -280,6 +281,7 @@ public sealed class EmailTriageConsoleServiceTests
             It.IsAny<string>(),
             "Keep",            // user's choice (different from AI)
             "Archive",         // AI recommendation passed through for training signal
+            It.IsAny<bool>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -302,7 +304,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", "Archive", It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", "Archive", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", isOverride: true)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -330,5 +332,158 @@ public sealed class EmailTriageConsoleServiceTests
         }
 
         return count;
+    }
+
+    // ── Re-triage phase tests ─────────────────────────────────────────────────
+
+    /// <summary>When the oldest untriaged email exceeds 5 years, GetRetriageQueueAsync is called.</summary>
+    [Fact]
+    public async Task RunAsync_EntersRetriagePhase_WhenBatchExceedsOldEmailThreshold()
+    {
+        // A feature with EmailAgeDays > 1825 triggers the re-triage transition.
+        var oldFeature = new EmailFeatureVector
+        {
+            EmailId = "old-email",
+            SenderDomain = "example.com",
+            SubjectText = "Old Email",
+            EmailAgeDays = 1826, // just over the 5-year threshold
+        };
+        var retriageFeature = new EmailFeatureVector
+        {
+            EmailId = "retriage-email",
+            SenderDomain = "example.com",
+            SubjectText = "Re-triage Email",
+            EmailAgeDays = 100,
+            TrainingLabel = "Keep",
+        };
+
+        var triage = new Mock<IEmailTriageService>();
+        triage.Setup(t => t.GetSessionInfoAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageSessionInfo>.Success(ColdStartInfo()));
+
+        // Normal batch returns old email → triggers threshold detection
+        triage.Setup(t => t.GetNextBatchAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector> { oldFeature }));
+
+        // Re-triage batch: first call returns retriage item, second call returns empty (done)
+        triage.SetupSequence(t => t.GetRetriageQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector> { retriageFeature }))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+
+        triage.Setup(t => t.ApplyDecisionAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
+
+        // Keys: one for the transition notice "press any key", one K to process the retriage item
+        var keys = new Queue<ConsoleKeyInfo>([
+            new ConsoleKeyInfo(' ', ConsoleKey.Spacebar, false, false, false), // dismiss notice
+            new ConsoleKeyInfo('K', ConsoleKey.K, false, false, false),        // action on retriage item
+        ]);
+
+        var (svc, writer) = CreateService(triage, keys);
+        await svc.RunAsync("me");
+
+        // GetRetriageQueueAsync must have been called (at least twice: once for the
+        // threshold re-fetch, once for the next empty loop iteration)
+        triage.Verify(t => t.GetRetriageQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce);
+
+        var output = writer.ToString();
+        Assert.Contains("Re-Triage", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>When IsRetriagedPhase and queue is empty, the completion message is shown.</summary>
+    [Fact]
+    public async Task RunAsync_RetriageComplete_ShowsCompletionMessage()
+    {
+        var oldFeature = new EmailFeatureVector
+        {
+            EmailId = "old-complete",
+            SenderDomain = "example.com",
+            SubjectText = "Old",
+            EmailAgeDays = 1826,
+        };
+
+        var triage = new Mock<IEmailTriageService>();
+        triage.Setup(t => t.GetSessionInfoAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageSessionInfo>.Success(ColdStartInfo(labeled: 50)));
+
+        triage.Setup(t => t.GetNextBatchAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector> { oldFeature }));
+
+        // Both re-triage fetches return empty immediately
+        triage.Setup(t => t.GetRetriageQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+
+        // Key for dismissing transition notice
+        var keys = new Queue<ConsoleKeyInfo>([
+            new ConsoleKeyInfo(' ', ConsoleKey.Spacebar, false, false, false),
+        ]);
+
+        var (svc, writer) = CreateService(triage, keys);
+        await svc.RunAsync("me");
+
+        var output = writer.ToString();
+        Assert.Contains("re-triage complete", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Pressing Enter on a re-triage item (has TrainingLabel) confirms the previous label.</summary>
+    [Fact]
+    public async Task RunAsync_RetriagedItem_EnterKeyConfirmsPreviousLabel()
+    {
+        const string previousLabel = "Archive";
+        var oldFeature = new EmailFeatureVector
+        {
+            EmailId = "old-for-enter-test",
+            SenderDomain = "example.com",
+            SubjectText = "Old",
+            EmailAgeDays = 1826,
+        };
+        var retriageFeature = new EmailFeatureVector
+        {
+            EmailId = "retriage-enter",
+            SenderDomain = "example.com",
+            SubjectText = "Re-evaluated",
+            EmailAgeDays = 90,
+            TrainingLabel = previousLabel, // previously labeled "Archive"
+        };
+
+        var triage = new Mock<IEmailTriageService>();
+        triage.Setup(t => t.GetSessionInfoAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageSessionInfo>.Success(ColdStartInfo(labeled: 50)));
+
+        triage.Setup(t => t.GetNextBatchAsync(It.IsAny<int>(), 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector> { oldFeature }));
+
+        triage.SetupSequence(t => t.GetRetriageQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector> { retriageFeature }))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+
+        triage.Setup(t => t.ApplyDecisionAsync(
+                "retriage-enter", previousLabel, previousLabel, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision(previousLabel, false)));
+
+        // Space = dismiss notice, Enter = confirm previous label
+        var keys = new Queue<ConsoleKeyInfo>([
+            new ConsoleKeyInfo(' ', ConsoleKey.Spacebar, false, false, false),
+            new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false),
+        ]);
+
+        var (svc, writer) = CreateService(triage, keys);
+        await svc.RunAsync("me");
+
+        // Verify ApplyDecisionAsync was called with the previous label and forceUserCorrected=true
+        triage.Verify(t => t.ApplyDecisionAsync(
+            "retriage-enter", previousLabel, previousLabel, true, It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 }

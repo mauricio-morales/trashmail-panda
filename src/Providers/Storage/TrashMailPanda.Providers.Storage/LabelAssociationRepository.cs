@@ -64,10 +64,10 @@ public sealed class LabelAssociationRepository : ILabelAssociationRepository
                     bool isSystem = IsSystemLabel(labelId);
                     const string insertSql = """
                         INSERT INTO label_associations
-                            (EmailId, LabelId, IsTrainingSignal, IsContextFeature, CreatedAt)
+                            (email_id, label_id, is_training_signal, is_context_feature, created_at)
                         VALUES
                             (@EmailId, @LabelId, @IsTrainingSignal, @IsContextFeature, @CreatedAt)
-                        ON CONFLICT(EmailId, LabelId) DO NOTHING
+                        ON CONFLICT(email_id, label_id) DO NOTHING
                         """;
 
                     await _context.Database.ExecuteSqlRawAsync(insertSql,
@@ -84,7 +84,7 @@ public sealed class LabelAssociationRepository : ILabelAssociationRepository
                 {
                     const string deleteSql = """
                         DELETE FROM label_associations
-                        WHERE EmailId = @EmailId AND LabelId = @LabelId
+                        WHERE email_id = @EmailId AND label_id = @LabelId
                         """;
 
                     await _context.Database.ExecuteSqlRawAsync(deleteSql,

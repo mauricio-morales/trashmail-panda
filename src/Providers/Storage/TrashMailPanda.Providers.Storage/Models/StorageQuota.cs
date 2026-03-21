@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TrashMailPanda.Providers.Storage.Models;
 
@@ -19,6 +20,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(1, 1)]
+    [Column("id")]
     public int Id { get; set; } = 1;
 
     /// <summary>
@@ -27,6 +29,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(1, long.MaxValue)]
+    [Column("limit_bytes")]
     public long LimitBytes { get; set; }
 
     /// <summary>
@@ -34,6 +37,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
+    [Column("current_bytes")]
     public long CurrentBytes { get; set; }
 
     /// <summary>
@@ -41,6 +45,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
+    [Column("feature_bytes")]
     public long FeatureBytes { get; set; }
 
     /// <summary>
@@ -48,6 +53,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
+    [Column("archive_bytes")]
     public long ArchiveBytes { get; set; }
 
     /// <summary>
@@ -55,6 +61,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
+    [Column("feature_count")]
     public long FeatureCount { get; set; }
 
     /// <summary>
@@ -62,6 +69,7 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
+    [Column("archive_count")]
     public long ArchiveCount { get; set; }
 
     /// <summary>
@@ -69,17 +77,20 @@ public class StorageQuota
     /// </summary>
     [Required]
     [Range(0, long.MaxValue)]
+    [Column("user_corrected_count")]
     public long UserCorrectedCount { get; set; }
 
     /// <summary>
     /// ISO8601 timestamp of last cleanup execution.
     /// Null if never executed.
     /// </summary>
+    [Column("last_cleanup_at")]
     public DateTime? LastCleanupAt { get; set; }
 
     /// <summary>
     /// ISO8601 timestamp of last monitoring check.
     /// </summary>
     [Required]
+    [Column("last_monitored_at")]
     public DateTime LastMonitoredAt { get; set; }
 }

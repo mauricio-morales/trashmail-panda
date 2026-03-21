@@ -47,30 +47,30 @@ public sealed class TrainingEmailRepository : ITrainingEmailRepository
                 // an N+1 problem for batches of hundreds of messages.
                 const string sql = """
                     INSERT INTO training_emails
-                        (EmailId, AccountId, ThreadId, FolderOrigin, IsRead, IsReplied, IsForwarded,
-                         SubjectPrefix, ClassificationSignal, SignalConfidence, IsValid,
-                         RawLabelIds, LastSeenAt, ImportedAt, UpdatedAt)
+                        (email_id, account_id, thread_id, folder_origin, is_read, is_replied, is_forwarded,
+                         subject_prefix, classification_signal, signal_confidence, is_valid,
+                         raw_label_ids, last_seen_at, imported_at, updated_at)
                     VALUES
                         (@EmailId, @AccountId, @ThreadId, @FolderOrigin, @IsRead, @IsReplied, @IsForwarded,
                          @SubjectPrefix, @ClassificationSignal, @SignalConfidence, @IsValid,
                          @RawLabelIds, @LastSeenAt, @ImportedAt, @UpdatedAt)
-                    ON CONFLICT(EmailId) DO UPDATE SET
-                        AccountId            = excluded.AccountId,
-                        ThreadId             = excluded.ThreadId,
-                        IsRead               = excluded.IsRead,
-                        IsReplied            = excluded.IsReplied,
-                        IsForwarded          = excluded.IsForwarded,
-                        SubjectPrefix        = excluded.SubjectPrefix,
-                        ClassificationSignal = excluded.ClassificationSignal,
-                        SignalConfidence      = excluded.SignalConfidence,
-                        IsValid              = excluded.IsValid,
-                        RawLabelIds          = excluded.RawLabelIds,
-                        LastSeenAt           = excluded.LastSeenAt,
-                        UpdatedAt            = excluded.UpdatedAt
-                    -- FolderOrigin and ImportedAt are deliberately excluded:
-                    -- FolderOrigin preserves the first-seen folder (highest-priority scan wins,
+                    ON CONFLICT(email_id) DO UPDATE SET
+                        account_id            = excluded.account_id,
+                        thread_id             = excluded.thread_id,
+                        is_read               = excluded.is_read,
+                        is_replied            = excluded.is_replied,
+                        is_forwarded          = excluded.is_forwarded,
+                        subject_prefix        = excluded.subject_prefix,
+                        classification_signal = excluded.classification_signal,
+                        signal_confidence     = excluded.signal_confidence,
+                        is_valid              = excluded.is_valid,
+                        raw_label_ids         = excluded.raw_label_ids,
+                        last_seen_at          = excluded.last_seen_at,
+                        updated_at            = excluded.updated_at
+                    -- folder_origin and imported_at are deliberately excluded:
+                    -- folder_origin preserves the first-seen folder (highest-priority scan wins,
                     --   e.g. SENT beats INBOX for self-sent emails).
-                    -- ImportedAt preserves the original import timestamp.
+                    -- imported_at preserves the original import timestamp.
                     """;
 
                 foreach (var email in list)
@@ -116,31 +116,31 @@ public sealed class TrainingEmailRepository : ITrainingEmailRepository
             // Step 1: mark IsReplied on all non-SENT emails sharing a ThreadId with a SENT message
             const string repliedSql = """
                 UPDATE training_emails
-                SET IsReplied = 1,
-                    UpdatedAt = @Now
-                WHERE AccountId = @AccountId
-                  AND FolderOrigin != 'SENT'
-                  AND IsReplied = 0
-                  AND ThreadId IN (
-                      SELECT ThreadId FROM training_emails
-                      WHERE AccountId = @AccountId
-                        AND FolderOrigin = 'SENT'
+                SET is_replied = 1,
+                    updated_at = @Now
+                WHERE account_id = @AccountId
+                  AND folder_origin != 'SENT'
+                  AND is_replied = 0
+                  AND thread_id IN (
+                      SELECT thread_id FROM training_emails
+                      WHERE account_id = @AccountId
+                        AND folder_origin = 'SENT'
                   )
                 """;
 
             // Step 2: mark IsForwarded on non-SENT emails whose thread has a SENT message with Fwd: prefix
             const string forwardedSql = """
                 UPDATE training_emails
-                SET IsForwarded = 1,
-                    UpdatedAt = @Now
-                WHERE AccountId = @AccountId
-                  AND FolderOrigin != 'SENT'
-                  AND IsForwarded = 0
-                  AND ThreadId IN (
-                      SELECT ThreadId FROM training_emails
-                      WHERE AccountId = @AccountId
-                        AND FolderOrigin = 'SENT'
-                        AND SubjectPrefix IN ('Fwd:', 'FW: ', 'Fw: ', 'FW:', 'Fw:')
+                SET is_forwarded = 1,
+                    updated_at = @Now
+                WHERE account_id = @AccountId
+                  AND folder_origin != 'SENT'
+                  AND is_forwarded = 0
+                  AND thread_id IN (
+                      SELECT thread_id FROM training_emails
+                      WHERE account_id = @AccountId
+                        AND folder_origin = 'SENT'
+                        AND subject_prefix IN ('Fwd:', 'FW: ', 'Fw: ', 'FW:', 'Fw:')
                   )
                 """;
 

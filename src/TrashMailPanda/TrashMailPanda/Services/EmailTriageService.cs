@@ -13,6 +13,7 @@ using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Services;
 
@@ -29,6 +30,13 @@ public sealed class EmailTriageService : IEmailTriageService
     private readonly IEmailArchiveService _archiveService;
     private readonly MLModelProviderConfig _mlConfig;
     private readonly ILogger<EmailTriageService> _logger;
+
+    /// Emails older than 5 years trigger entry into the re-triage phase.
+    internal const int OldEmailThresholdDays = 5 * 365;   // 1825
+
+    /// Re-triage candidates are archived emails labeled within the last 3 years
+    /// (i.e., EmailAgeDays ≤ 1095 at extraction time).
+    internal const int RetriagedWindowDays = 3 * 365;     // 1095
 
     public EmailTriageService(
         IEmailProvider emailProvider,
@@ -74,7 +82,60 @@ public sealed class EmailTriageService : IEmailTriageService
         int offset,
         CancellationToken cancellationToken = default)
     {
-        return await _archiveService.GetUntriagedAsync(pageSize, offset, cancellationToken);
+        var result = await _archiveService.GetUntriagedAsync(pageSize, offset, cancellationToken);
+        if (result.IsSuccess)
+        {
+            var batch = result.Value;
+            if (batch.Count > 0)
+                _logger.LogDebug("GetNextBatchAsync: returned {Count} emails. Age range {MinAge}-{MaxAge}d. First: [{EmailId}] {Subject}",
+                    batch.Count,
+                    batch.Min(f => f.EmailAgeDays),
+                    batch.Max(f => f.EmailAgeDays),
+                    batch[0].EmailId,
+                    batch[0].SubjectText);
+            else
+                _logger.LogDebug("GetNextBatchAsync: queue empty (pageSize={PageSize}, offset={Offset})", pageSize, offset);
+        }
+        return result;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // GetRetriageQueueAsync — mixed re-triage batch
+    // ──────────────────────────────────────────────────────────────────────────
+
+    public async Task<Result<IReadOnlyList<EmailFeatureVector>>> GetRetriageQueueAsync(
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var halfPage = Math.Max(1, pageSize / 2);
+
+        // Old untriaged emails (Inbox/Archive, EmailAgeDays naturally high by now)
+        var untriagedResult = await _archiveService.GetUntriagedAsync(halfPage, 0, cancellationToken);
+        if (!untriagedResult.IsSuccess)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(untriagedResult.Error);
+
+        // Recently archived emails labeled previously but not yet user-reviewed
+        var retriageResult = await _archiveService.GetRetriagedCandidatesAsync(
+            RetriagedWindowDays, halfPage, 0, cancellationToken);
+        if (!retriageResult.IsSuccess)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(retriageResult.Error);
+
+        var untriaged = untriagedResult.Value;
+        var retriage = retriageResult.Value;
+
+        // Interleave: alternate one from each pool so the user sees a mix.
+        // One old unlabeled email followed by one re-evaluation candidate.
+        var mixed = new List<EmailFeatureVector>(untriaged.Count + retriage.Count);
+        var maxLen = Math.Max(untriaged.Count, retriage.Count);
+        for (var i = 0; i < maxLen; i++)
+        {
+            if (i < untriaged.Count) mixed.Add(untriaged[i]);
+            if (i < retriage.Count) mixed.Add(retriage[i]);
+        }
+
+        _logger.LogDebug("GetRetriageQueueAsync: {OldCount} old-untriaged + {RetriagedCount} re-triage candidates → {Total} mixed",
+            untriaged.Count, retriage.Count, mixed.Count);
+        return Result<IReadOnlyList<EmailFeatureVector>>.Success(mixed);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -111,8 +172,12 @@ public sealed class EmailTriageService : IEmailTriageService
         string emailId,
         string chosenAction,
         string? aiRecommendation,
+        bool forceUserCorrected = false,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] action={Action} aiRec={AiRec} forceUserCorrected={ForceUserCorrected}",
+            emailId, chosenAction, aiRecommendation ?? "none", forceUserCorrected);
+
         // Step 1: Execute Gmail action FIRST.
         // On failure: return error — training_label is NOT stored (no false training signal).
         var actionResult = await ExecuteGmailActionAsync(emailId, chosenAction, cancellationToken);
@@ -124,7 +189,10 @@ public sealed class EmailTriageService : IEmailTriageService
         }
 
         // Step 2: Store training label only on Gmail success.
-        var isOverride = aiRecommendation is not null && chosenAction != aiRecommendation;
+        // forceUserCorrected = true for re-triage items: even if the chosen action matches
+        // the previous label, we mark user_corrected=1 so the email leaves the re-triage pool.
+        var isOverride = forceUserCorrected ||
+                         (aiRecommendation is not null && chosenAction != aiRecommendation);
         var labelResult = await _archiveService.SetTrainingLabelAsync(emailId, chosenAction, isOverride, cancellationToken);
         if (!labelResult.IsSuccess)
         {
@@ -133,6 +201,8 @@ public sealed class EmailTriageService : IEmailTriageService
             // Non-fatal: Gmail action already succeeded; training label failure is a best-effort
         }
 
+        _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] stored label={Action} isOverride={IsOverride}",
+            emailId, chosenAction, isOverride);
         return Result<TriageDecision>.Success(new TriageDecision(
             EmailId: emailId,
             ChosenAction: chosenAction,
@@ -140,6 +210,33 @@ public sealed class EmailTriageService : IEmailTriageService
             ConfidenceScore: null,
             IsOverride: isOverride,
             DecidedAtUtc: DateTime.UtcNow
+        ));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // T031b — FetchEmailDetailsAsync
+    // ──────────────────────────────────────────────────────────────────────────
+
+    public async Task<Result<EmailTriageDetails>> FetchEmailDetailsAsync(
+        string emailId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _emailProvider.GetAsync(emailId);
+        if (!result.IsSuccess)
+        {
+            _logger.LogDebug("Could not fetch live email details for {EmailId}: {Error}",
+                emailId, result.Error.Message);
+            return Result<EmailTriageDetails>.Failure(result.Error);
+        }
+
+        var email = result.Value;
+        email.Headers.TryGetValue("From", out var from);
+        var body = email.BodyText ?? (email.Snippet.Length > 0 ? email.Snippet : null);
+
+        return Result<EmailTriageDetails>.Success(new EmailTriageDetails(
+            From: from ?? string.Empty,
+            ThreadId: email.ThreadId,
+            BodyText: body
         ));
     }
 
@@ -156,6 +253,8 @@ public sealed class EmailTriageService : IEmailTriageService
         {
             "Keep" => await ApplyKeepAsync(emailId, cancellationToken),
             "Archive" => await ApplyArchiveAsync(emailId, cancellationToken),
+            "archive-then-delete-30d" => await ApplyArchiveAsync(emailId, cancellationToken),
+            "archive-then-delete-1y" => await ApplyArchiveAsync(emailId, cancellationToken),
             "Delete" => await ApplyDeleteAsync(emailId, cancellationToken),
             "Spam" => await _emailProvider.ReportSpamAsync(emailId),
             _ => Result<bool>.Failure(new ValidationError($"Unknown triage action: '{action}'"))

@@ -2,6 +2,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
+using System.IO;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -152,10 +155,23 @@ sealed class Program
                 // Add console-specific services (already registered in AddTrashMailPandaServices)
                 services.Configure<ConsoleDisplayOptions>(context.Configuration.GetSection("ConsoleDisplayOptions"));
             })
-            .ConfigureLogging(logging =>
+            .UseSerilog((_, _, loggerConfig) =>
             {
-                logging.ClearProviders();
-                logging.AddConsole();
+                var logDir = Path.Combine("data", "logs");
+                Directory.CreateDirectory(logDir);
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var logPath = Path.Combine(logDir, $"trashmail-panda-{timestamp}.log");
+
+                loggerConfig
+                    .MinimumLevel.Debug()
+                    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                    .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+                    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+                    .MinimumLevel.Override("System", LogEventLevel.Warning)
+                    .MinimumLevel.Override("Google", LogEventLevel.Warning)
+                    .WriteTo.File(
+                        logPath,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}");
             });
 
     private static void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)

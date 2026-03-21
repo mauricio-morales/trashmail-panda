@@ -1269,7 +1269,17 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
     /// </summary>
     private static EmailFull MapToEmailFull(Message message)
     {
-        var headers = message.Payload?.Headers?.ToDictionary(h => h.Name, h => h.Value) ?? new Dictionary<string, string>();
+        // Build a case-insensitive dictionary that tolerates duplicate header names
+        // (e.g. multiple "Received:" headers).  Last-writer-wins for duplicates.
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (message.Payload?.Headers != null)
+        {
+            foreach (var h in message.Payload.Headers)
+            {
+                if (!string.IsNullOrEmpty(h.Name))
+                    headers[h.Name] = h.Value ?? string.Empty;
+            }
+        }
         var bodyText = GetBodyText(message.Payload);
         var bodyHtml = GetBodyHtml(message.Payload);
         var attachments = GetAttachments(message.Payload);
