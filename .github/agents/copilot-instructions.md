@@ -1,6 +1,6 @@
 # trashmail-panda Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-19
+Auto-generated from all feature plans. Last updated: 2026-03-21
 
 ## Active Technologies
 - SQLite + SQLCipher (existing encrypted storage), extended for email feature vectors and full email archive (054-ml-architecture-design)
@@ -12,6 +12,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-19
 - SQLite with SQLCipher encryption via Microsoft.Data.Sqlite (057-console-startup-orchestration)
 - .NET 9.0 / C# 12 (nullable reference types enabled) + Spectre.Console 0.48.0, Microsoft.Extensions.Hosting/DI/Logging v9.0.8, CommunityToolkit.Mvvm 8.2.1, TrashMailPanda.Providers.ML, TrashMailPanda.Providers.Email, TrashMailPanda.Providers.Storage (060-console-tui-spectre)
 - SQLite via EF Core (`TrashMailPandaDbContext`); `email_features` column migration (`training_label TEXT NULL`); `IEmailArchiveService` for training signals + queue (add `SetTrainingLabelAsync`, `CountLabeledAsync`, `GetUntriagedAsync`) (060-console-tui-spectre)
+- C# 12 / .NET 9.0 (`net9.0`) + Microsoft.Extensions.Hosting/DI/Logging, Spectre.Console 0.48, CommunityToolkit.Mvvm 8.2, Avalonia 11.3 (conditionally), ML.NET, Serilog (061-backend-ui-abstraction)
+- SQLite with SQLCipher via EF Core + Microsoft.Data.Sqlite (061-backend-ui-abstraction)
 
 - .NET 9.0 / C# 12+ + ML.NET (planned), existing provider framework (`IProvider<TConfig>`, `BaseProvider<TConfig>`), Microsoft.Extensions.DI/Logging (054-ml-architecture-design)
 
@@ -31,9 +33,9 @@ tests/
 .NET 9.0 / C# 12+: Follow standard conventions
 
 ## Recent Changes
+- 061-backend-ui-abstraction: Added C# 12 / .NET 9.0 (`net9.0`) + Microsoft.Extensions.Hosting/DI/Logging, Spectre.Console 0.48, CommunityToolkit.Mvvm 8.2, Avalonia 11.3 (conditionally), ML.NET, Serilog
 - 060-console-tui-spectre: Added .NET 9.0 / C# 12 (nullable reference types enabled) + Spectre.Console 0.48.0, Microsoft.Extensions.Hosting/DI/Logging v9.0.8, CommunityToolkit.Mvvm 8.2.1, TrashMailPanda.Providers.ML, TrashMailPanda.Providers.Email, TrashMailPanda.Providers.Storage
 - 060-console-tui-spectre: Added .NET 9.0 / C# 12 (nullable reference types enabled) + Spectre.Console 0.48.0, Microsoft.Extensions.Hosting/DI/Logging v9.0.8, CommunityToolkit.Mvvm 8.2.1, TrashMailPanda.Providers.ML, TrashMailPanda.Providers.Email, TrashMailPanda.Providers.Storage
-- 060-console-tui-spectre: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 
 
 <!-- MANUAL ADDITIONS START -->
