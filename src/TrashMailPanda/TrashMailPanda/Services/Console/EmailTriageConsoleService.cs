@@ -278,12 +278,15 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             .RuleStyle(isRetriage ? "yellow dim" : "dim");
         _console.Write(rule);
 
+        // Dynamic age: stored age at scan time + days since scan, so stale 0d entries still show a real age.
+        var displayAgeDays = feature.EmailAgeDays + (int)(DateTime.UtcNow - feature.ExtractedAt).TotalDays;
+
         // Re-triage badge: show previous label and re-evaluate prompt
         if (isRetriage)
         {
             _console.MarkupLine(
                 $"  {ConsoleColors.Warning}↩ Previously: [bold]{Markup.Escape(feature.TrainingLabel!)}[/]  " +
-                $"— This email was archived {feature.EmailAgeDays}d ago. " +
+                $"— This email was archived {displayAgeDays}d ago. " +
                 $"Is it still worth keeping?{ConsoleColors.Close}");
         }
 
@@ -298,7 +301,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         _console.MarkupLine($"  {ConsoleColors.Dim}From:{ConsoleColors.Close}    {Markup.Escape(sender)}");
         _console.MarkupLine($"  {ConsoleColors.Dim}Subject:{ConsoleColors.Close} [bold]{Markup.Escape(subject)}[/]");
-        _console.MarkupLine($"  {ConsoleColors.Dim}Age:{ConsoleColors.Close}     {feature.EmailAgeDays}d old  ·  " +
+        _console.MarkupLine($"  {ConsoleColors.Dim}Age:{ConsoleColors.Close}     {displayAgeDays}d old  ·  " +
                             $"{(feature.IsStarred == 1 ? "⭐ Starred  · " : string.Empty)}" +
                             $"{(feature.HasAttachments == 1 ? "📎 Attachment  · " : string.Empty)}" +
                             $"{(feature.HasListUnsubscribe == 1 ? "📧 Mailing list  · " : string.Empty)}" +
