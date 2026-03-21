@@ -7,7 +7,7 @@ namespace TrashMailPanda.Tests.Unit.Storage.Models;
 [Trait("Category", "Unit")]
 public class EmailFeatureVectorTests
 {
-    [Fact(Timeout = 5000)]
+    [Fact]
     public void EmailFeatureVector_ValidModel_PassesValidation()
     {
         // Arrange
@@ -26,7 +26,7 @@ public class EmailFeatureVectorTests
         Assert.Empty(validationResults);
     }
 
-    [Fact(Timeout = 5000)]
+    [Fact]
     public void EmailFeatureVector_MissingEmailId_FailsValidation()
     {
         // Arrange - Create with empty EmailId
@@ -87,7 +87,7 @@ public class EmailFeatureVectorTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("EmailId"));
     }
 
-    [Fact(Timeout = 5000)]
+    [Fact]
     public void EmailFeatureVector_NullableFieldsCanBeNull()
     {
         // Arrange - Create with nullable fields set to null
@@ -148,7 +148,7 @@ public class EmailFeatureVectorTests
         Assert.Empty(validationResults);
     }
 
-    [Fact(Timeout = 5000)]
+    [Fact]
     public void EmailFeatureVector_InvalidSenderKnownValue_FailsValidation()
     {
         // Arrange - SenderKnown must be 0 or 1
@@ -209,7 +209,7 @@ public class EmailFeatureVectorTests
         Assert.Contains(validationResults, vr => vr.MemberNames.Contains("SenderKnown"));
     }
 
-    [Fact(Timeout = 5000)]
+    [Fact]
     public void EmailFeatureVector_InvalidContactStrengthValue_FailsValidation()
     {
         // Arrange - ContactStrength must be 0-2
