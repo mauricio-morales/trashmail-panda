@@ -33,7 +33,7 @@ public class ConsoleStatusDisplay
         };
         AnsiConsole.Write(rule);
 
-        AnsiConsole.MarkupLine("[dim]AI-Powered Email Triage Assistant[/]");
+        AnsiConsole.MarkupLine($"{ConsoleColors.Dim}AI-Powered Email Triage Assistant{ConsoleColors.Close}");
         AnsiConsole.WriteLine();
     }
 
@@ -43,12 +43,12 @@ public class ConsoleStatusDisplay
     /// <param name="state">The provider initialization state.</param>
     public void DisplayProviderInitializing(ProviderInitializationState state)
     {
-        var timestamp = _options.ShowTimestamps ? $"[dim]{DateTime.Now:HH:mm:ss}[/] " : "";
-        AnsiConsole.MarkupLine($"{timestamp}[blue]●[/] Initializing [bold]{state.ProviderName}[/] provider...");
+        var timestamp = _options.ShowTimestamps ? $"{ConsoleColors.Dim}{DateTime.Now:HH:mm:ss}{ConsoleColors.Close} " : "";
+        AnsiConsole.MarkupLine($"{timestamp}{ConsoleColors.Info}●{ConsoleColors.Close} Initializing [bold]{state.ProviderName}[/] provider...");
 
         if (!string.IsNullOrWhiteSpace(state.StatusMessage))
         {
-            AnsiConsole.MarkupLine($"    [dim]{state.StatusMessage}[/]");
+            AnsiConsole.MarkupLine($"    {ConsoleColors.Dim}{state.StatusMessage}{ConsoleColors.Close}");
         }
     }
 
@@ -58,12 +58,12 @@ public class ConsoleStatusDisplay
     /// <param name="state">The provider initialization state.</param>
     public void DisplayProviderSuccess(ProviderInitializationState state)
     {
-        var timestamp = _options.ShowTimestamps ? $"[dim]{DateTime.Now:HH:mm:ss}[/] " : "";
+        var timestamp = _options.ShowTimestamps ? $"{ConsoleColors.Dim}{DateTime.Now:HH:mm:ss}{ConsoleColors.Close} " : "";
         var duration = _options.ShowDuration && state.Duration.HasValue
             ? $" ({state.Duration.Value.TotalSeconds:F1}s)"
             : "";
 
-        AnsiConsole.MarkupLine($"{timestamp}[green]✓[/] [bold]{state.ProviderName}[/] provider initialized successfully{duration}");
+        AnsiConsole.MarkupLine($"{timestamp}{ConsoleColors.Success}✓{ConsoleColors.Close} [bold]{state.ProviderName}[/] provider initialized successfully{duration}");
     }
 
     /// <summary>
@@ -72,8 +72,8 @@ public class ConsoleStatusDisplay
     /// <param name="state">The provider initialization state.</param>
     public void DisplayProviderFailed(ProviderInitializationState state)
     {
-        var timestamp = _options.ShowTimestamps ? $"[dim]{DateTime.Now:HH:mm:ss}[/] " : "";
-        AnsiConsole.MarkupLine($"{timestamp}[bold red]✗[/] [bold]{state.ProviderName}[/] provider initialization failed");
+        var timestamp = _options.ShowTimestamps ? $"{ConsoleColors.Dim}{DateTime.Now:HH:mm:ss}{ConsoleColors.Close} " : "";
+        AnsiConsole.MarkupLine($"{timestamp}{ConsoleColors.Error}✗{ConsoleColors.Close} [bold]{state.ProviderName}[/] provider initialization failed");
 
         if (state.Error != null)
         {
@@ -97,7 +97,7 @@ public class ConsoleStatusDisplay
         // Minimal: Just the message
         if (_options.ErrorDetailLevel == ErrorDetailLevel.Minimal)
         {
-            AnsiConsole.MarkupLine($"    [red]{error.Message}[/]");
+            AnsiConsole.MarkupLine($"    {ConsoleColors.ErrorText}{error.Message}{ConsoleColors.Close}");
             return;
         }
 
@@ -105,7 +105,7 @@ public class ConsoleStatusDisplay
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine($"  [bold]Error Category:[/] {error.Category}");
         AnsiConsole.MarkupLine($"  [bold]Error Code:[/] {error.ErrorCode}");
-        AnsiConsole.MarkupLine($"  [bold]Message:[/] [red]{error.Message}[/]");
+        AnsiConsole.MarkupLine($"  [bold]Message:[/] {ConsoleColors.ErrorText}{error.Message}{ConsoleColors.Close}");
 
         // Handle scope mismatch errors specifically (check context)
         if (error.ErrorCode == "INSUFFICIENT_SCOPES" && error.Context.ContainsKey("MissingScopes"))
@@ -121,7 +121,7 @@ public class ConsoleStatusDisplay
         if (_options.ErrorDetailLevel == ErrorDetailLevel.Verbose && error.InnerException != null)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("  [dim]Exception Details:[/]");
+            AnsiConsole.MarkupLine($"  {ConsoleColors.Dim}Exception Details:{ConsoleColors.Close}");
             AnsiConsole.WriteException(error.InnerException);
         }
 
@@ -140,17 +140,17 @@ public class ConsoleStatusDisplay
         }
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("  [yellow]⚠ OAuth Scope Mismatch Detected[/]");
+        AnsiConsole.MarkupLine($"  {ConsoleColors.Warning}⚠ OAuth Scope Mismatch Detected{ConsoleColors.Close}");
         AnsiConsole.MarkupLine("  Your token is valid but missing required permissions:");
         AnsiConsole.WriteLine();
 
         foreach (var scope in missingScopes)
         {
-            AnsiConsole.MarkupLine($"    [red]✗[/] {scope}");
+            AnsiConsole.MarkupLine($"    {ConsoleColors.ErrorText}✗{ConsoleColors.Close} {scope}");
         }
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("  [blue]ℹ[/] [dim]You must re-authorize to grant additional permissions.[/]");
+        AnsiConsole.MarkupLine($"  {ConsoleColors.Info}ℹ{ConsoleColors.Close} {ConsoleColors.Dim}You must re-authorize to grant additional permissions.{ConsoleColors.Close}");
     }
 
     /// <summary>
@@ -159,14 +159,14 @@ public class ConsoleStatusDisplay
     /// <param name="state">The provider initialization state with health status.</param>
     public void DisplayHealthCheckStatus(ProviderInitializationState state)
     {
-        var timestamp = _options.ShowTimestamps ? $"[dim]{DateTime.Now:HH:mm:ss}[/] " : "";
+        var timestamp = _options.ShowTimestamps ? $"{ConsoleColors.Dim}{DateTime.Now:HH:mm:ss}{ConsoleColors.Close} " : "";
 
         var status = state.HealthStatus switch
         {
-            Models.Console.HealthStatus.Healthy => "[green]✓ Healthy[/]",
-            Models.Console.HealthStatus.Degraded => "[yellow]⚠ Degraded[/]",
-            Models.Console.HealthStatus.Critical => "[bold red]✗ Critical[/]",
-            _ => "[dim]? Unknown[/]"
+            Models.Console.HealthStatus.Healthy => $"{ConsoleColors.Success}✓ Healthy{ConsoleColors.Close}",
+            Models.Console.HealthStatus.Degraded => $"{ConsoleColors.Warning}⚠ Degraded{ConsoleColors.Close}",
+            Models.Console.HealthStatus.Critical => $"{ConsoleColors.Error}✗ Critical{ConsoleColors.Close}",
+            _ => $"{ConsoleColors.Dim}? Unknown{ConsoleColors.Close}"
         };
 
         AnsiConsole.MarkupLine($"{timestamp}{status} - [bold]{state.ProviderName}[/] provider");
@@ -185,15 +185,15 @@ public class ConsoleStatusDisplay
         if (sequenceState.OverallStatus == SequenceStatus.Completed)
         {
             var duration = sequenceState.TotalDuration?.TotalSeconds.ToString("F1") ?? "N/A";
-            AnsiConsole.MarkupLine($"[green]✓[/] All providers initialized successfully ([bold]{duration}s[/] total)");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓{ConsoleColors.Close} All providers initialized successfully ([bold]{duration}s[/] total)");
         }
         else if (sequenceState.OverallStatus == SequenceStatus.Failed)
         {
-            AnsiConsole.MarkupLine($"[bold red]✗[/] Startup sequence failed - required provider(s) unavailable");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Error}✗{ConsoleColors.Close} Startup sequence failed - required provider(s) unavailable");
         }
         else if (sequenceState.OverallStatus == SequenceStatus.Cancelled)
         {
-            AnsiConsole.MarkupLine($"[yellow]⚠[/] Startup cancelled by user");
+            AnsiConsole.MarkupLine($"{ConsoleColors.Warning}⚠{ConsoleColors.Close} Startup cancelled by user");
         }
 
         AnsiConsole.Write(new Rule());
@@ -230,8 +230,8 @@ public class ConsoleStatusDisplay
     /// <param name="remainingSeconds">Seconds remaining before timeout.</param>
     public void DisplayTimeoutWarning(string message, int remainingSeconds)
     {
-        var timestamp = _options.ShowTimestamps ? $"[dim]{DateTime.Now:HH:mm:ss}[/] " : "";
-        AnsiConsole.MarkupLine($"{timestamp}[yellow]⚠[/] {message} ([bold]{remainingSeconds}s[/] remaining)");
+        var timestamp = _options.ShowTimestamps ? $"{ConsoleColors.Dim}{DateTime.Now:HH:mm:ss}{ConsoleColors.Close} " : "";
+        AnsiConsole.MarkupLine($"{timestamp}{ConsoleColors.Warning}⚠{ConsoleColors.Close} {message} ([bold]{remainingSeconds}s[/] remaining)");
     }
 
     /// <summary>

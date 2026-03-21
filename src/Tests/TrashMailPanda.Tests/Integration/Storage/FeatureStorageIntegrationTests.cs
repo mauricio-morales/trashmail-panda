@@ -110,8 +110,8 @@ public class FeatureStorageIntegrationTests : StorageTestBase
             // First, insert an archive entry
             command.CommandText = @"
                 INSERT INTO email_archive (
-                    EmailId, ThreadId, ProviderType, HeadersJson, BodyText, BodyHtml,
-                    FolderTagsJson, SizeEstimate, ReceivedDate, ArchivedAt, Snippet, SourceFolder, UserCorrected
+                    email_id, thread_id, provider_type, headers_json, body_text, body_html,
+                    folder_tags_json, size_estimate, received_date, archived_at, snippet, source_folder, user_corrected
                 ) VALUES (
                     @EmailId, @ThreadId, @ProviderType, @HeadersJson, @BodyText, NULL,
                     @FolderTagsJson, @SizeEstimate, @ReceivedDate, @ArchivedAt, @Snippet, @SourceFolder, 0
@@ -133,7 +133,7 @@ public class FeatureStorageIntegrationTests : StorageTestBase
         // Verify archive exists
         using (var command = _connection.CreateCommand())
         {
-            command.CommandText = "SELECT COUNT(*) FROM email_archive WHERE EmailId = 'persist-test'";
+            command.CommandText = "SELECT COUNT(*) FROM email_archive WHERE email_id = 'persist-test'";
             var count = Convert.ToInt32(await command.ExecuteScalarAsync());
             Assert.Equal(1, count);
         }
@@ -141,7 +141,7 @@ public class FeatureStorageIntegrationTests : StorageTestBase
         // Delete archive entry
         using (var command = _connection.CreateCommand())
         {
-            command.CommandText = "DELETE FROM email_archive WHERE EmailId = 'persist-test'";
+            command.CommandText = "DELETE FROM email_archive WHERE email_id = 'persist-test'";
             await command.ExecuteNonQueryAsync();
         }
 
@@ -294,7 +294,217 @@ public class FeatureStorageIntegrationTests : StorageTestBase
         Assert.Equal(2, retrieved.Value.ContactStrength);
     }
 
-    private EmailFeatureVector CreateTestFeature(string emailId, string senderDomain, int schemaVersion = 1)
+    // ──────────────────────────────────────────────────────────────────────────
+    // GetUntriagedAsync — ordering and folder filtering
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact(Timeout = 5000)]
+    public async Task GetUntriagedAsync_ExcludesSentAndTrashEmails()
+    {
+        // Arrange — Inbox, Archive, Trash, and a Sent-like email (no inbox/archive flag)
+        var inbox = CreateTestFeature("triage-inbox", "inbox.com", isInInbox: 1, isArchived: 0, wasInTrash: 0, emailAgeDays: 5);
+        var archive = CreateTestFeature("triage-archive", "archive.com", isInInbox: 0, isArchived: 1, wasInTrash: 0, emailAgeDays: 3);
+        var trash = CreateTestFeature("triage-trash", "trash.com", isInInbox: 0, isArchived: 0, wasInTrash: 1, emailAgeDays: 1);
+        var sent = CreateTestFeature("triage-sent", "sent.com", isInInbox: 0, isArchived: 0, wasInTrash: 0, emailAgeDays: 2);
+
+        await _service.StoreFeatureAsync(inbox);
+        await _service.StoreFeatureAsync(archive);
+        await _service.StoreFeatureAsync(trash);
+        await _service.StoreFeatureAsync(sent);
+
+        // Act
+        var result = await _service.GetUntriagedAsync(10, 0);
+
+        // Assert — only inbox and archive should appear, not trash or sent
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+        Assert.Contains("triage-inbox", ids);
+        Assert.Contains("triage-archive", ids);
+        Assert.DoesNotContain("triage-trash", ids);
+        Assert.DoesNotContain("triage-sent", ids);
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task GetUntriagedAsync_OrdersInboxBeforeArchive_ThenByRecencyAscending()
+    {
+        // Arrange — mix of inbox and archive with varying ages
+        var inboxOld = CreateTestFeature("triage-order-inbox-old", "a.com", isInInbox: 1, isArchived: 0, wasInTrash: 0, emailAgeDays: 10);
+        var inboxNew = CreateTestFeature("triage-order-inbox-new", "b.com", isInInbox: 1, isArchived: 0, wasInTrash: 0, emailAgeDays: 2);
+        var archiveOld = CreateTestFeature("triage-order-archive-old", "c.com", isInInbox: 0, isArchived: 1, wasInTrash: 0, emailAgeDays: 7);
+        var archiveNew = CreateTestFeature("triage-order-archive-new", "d.com", isInInbox: 0, isArchived: 1, wasInTrash: 0, emailAgeDays: 1);
+
+        await _service.StoreFeatureAsync(inboxOld);
+        await _service.StoreFeatureAsync(inboxNew);
+        await _service.StoreFeatureAsync(archiveOld);
+        await _service.StoreFeatureAsync(archiveNew);
+
+        // Act
+        var result = await _service.GetUntriagedAsync(10, 0);
+
+        // Assert — inbox emails come first, within each group ordered by EmailAgeDays ASC (most recent first)
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+
+        var inboxNewIdx = ids.IndexOf("triage-order-inbox-new");
+        var inboxOldIdx = ids.IndexOf("triage-order-inbox-old");
+        var archiveNewIdx = ids.IndexOf("triage-order-archive-new");
+        var archiveOldIdx = ids.IndexOf("triage-order-archive-old");
+
+        // All found
+        Assert.True(inboxNewIdx >= 0);
+        Assert.True(inboxOldIdx >= 0);
+        Assert.True(archiveNewIdx >= 0);
+        Assert.True(archiveOldIdx >= 0);
+
+        // Inbox before archive
+        Assert.True(inboxNewIdx < archiveNewIdx);
+        Assert.True(inboxOldIdx < archiveNewIdx);
+
+        // Within inbox: most recent (lower EmailAgeDays) comes first
+        Assert.True(inboxNewIdx < inboxOldIdx);
+
+        // Within archive: most recent comes first
+        Assert.True(archiveNewIdx < archiveOldIdx);
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task GetUntriagedAsync_ExcludesAlreadyLabeledEmails()
+    {
+        // Arrange
+        var labeled = CreateTestFeature("triage-labeled", "labeled.com", isInInbox: 1, isArchived: 0, wasInTrash: 0, emailAgeDays: 1);
+        var unlabeled = CreateTestFeature("triage-unlabeled", "unlabeled.com", isInInbox: 1, isArchived: 0, wasInTrash: 0, emailAgeDays: 2);
+
+        await _service.StoreFeatureAsync(labeled);
+        await _service.StoreFeatureAsync(unlabeled);
+        await _service.SetTrainingLabelAsync("triage-labeled", "keep", false);
+
+        // Act
+        var result = await _service.GetUntriagedAsync(10, 0);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+        Assert.DoesNotContain("triage-labeled", ids);
+        Assert.Contains("triage-unlabeled", ids);
+    }
+
+    // GetRetriagedCandidatesAsync — re-triage pool queries
+
+    [Fact(Timeout = 5000)]
+    public async Task GetRetriagedCandidatesAsync_ReturnsOnlyArchivedLabeledNotUserCorrected()
+    {
+        // Arrange
+        // ✓ Should be returned: archived, labeled, NOT user-corrected
+        var candidate = CreateTestFeature("rc-candidate", "a.com", isInInbox: 0, isArchived: 1, emailAgeDays: 100);
+        // ✗ Not archived (inbox)
+        var inboxLabeled = CreateTestFeature("rc-inbox", "b.com", isInInbox: 1, isArchived: 0, emailAgeDays: 100);
+        // ✗ No training label
+        var unlabeled = CreateTestFeature("rc-unlabeled", "c.com", isInInbox: 0, isArchived: 1, emailAgeDays: 100);
+        // ✗ User-corrected
+        var userCorrected = CreateTestFeature("rc-user-corrected", "d.com", isInInbox: 0, isArchived: 1, emailAgeDays: 100);
+
+        await _service.StoreFeatureAsync(candidate);
+        await _service.StoreFeatureAsync(inboxLabeled);
+        await _service.StoreFeatureAsync(unlabeled);
+        await _service.StoreFeatureAsync(userCorrected);
+
+        await _service.SetTrainingLabelAsync("rc-candidate", "Keep", userCorrected: false);
+        await _service.SetTrainingLabelAsync("rc-inbox", "Keep", userCorrected: false);
+        await _service.SetTrainingLabelAsync("rc-user-corrected", "Delete", userCorrected: true);
+        // rc-unlabeled intentionally left without a label
+
+        // Act
+        var result = await _service.GetRetriagedCandidatesAsync(maxAgeDays: 365, pageSize: 10, offset: 0);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+        Assert.Contains("rc-candidate", ids);
+        Assert.DoesNotContain("rc-inbox", ids);           // not archived
+        Assert.DoesNotContain("rc-unlabeled", ids);       // no training label
+        Assert.DoesNotContain("rc-user-corrected", ids);  // already user-reviewed
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task GetRetriagedCandidatesAsync_RespectsMaxAgeDaysFilter()
+    {
+        // Arrange
+        var recent = CreateTestFeature("rc-recent", "a.com", isInInbox: 0, isArchived: 1, emailAgeDays: 200);
+        var tooOld = CreateTestFeature("rc-too-old", "b.com", isInInbox: 0, isArchived: 1, emailAgeDays: 800);
+
+        await _service.StoreFeatureAsync(recent);
+        await _service.StoreFeatureAsync(tooOld);
+        await _service.SetTrainingLabelAsync("rc-recent", "Archive", userCorrected: false);
+        await _service.SetTrainingLabelAsync("rc-too-old", "Archive", userCorrected: false);
+
+        // Act — maxAgeDays=365 should include 200-day-old but exclude 800-day-old
+        var result = await _service.GetRetriagedCandidatesAsync(maxAgeDays: 365, pageSize: 10, offset: 0);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+        Assert.Contains("rc-recent", ids);
+        Assert.DoesNotContain("rc-too-old", ids);
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task GetRetriagedCandidatesAsync_ExcludesUserCorrectedEmails()
+    {
+        // Arrange
+        var notCorrected = CreateTestFeature("rc-not-corrected", "a.com", isInInbox: 0, isArchived: 1, emailAgeDays: 50);
+        var corrected = CreateTestFeature("rc-corrected", "b.com", isInInbox: 0, isArchived: 1, emailAgeDays: 50);
+
+        await _service.StoreFeatureAsync(notCorrected);
+        await _service.StoreFeatureAsync(corrected);
+        await _service.SetTrainingLabelAsync("rc-not-corrected", "Keep", userCorrected: false);
+        await _service.SetTrainingLabelAsync("rc-corrected", "Delete", userCorrected: true);
+
+        // Act
+        var result = await _service.GetRetriagedCandidatesAsync(maxAgeDays: 1000, pageSize: 10, offset: 0);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+        Assert.Contains("rc-not-corrected", ids);
+        Assert.DoesNotContain("rc-corrected", ids);
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task GetRetriagedCandidatesAsync_OrdersByEmailAgeDaysAscending()
+    {
+        // Arrange — three candidates with different ages
+        var oldest = CreateTestFeature("rc-sort-old", "a.com", isInInbox: 0, isArchived: 1, emailAgeDays: 300);
+        var newest = CreateTestFeature("rc-sort-new", "b.com", isInInbox: 0, isArchived: 1, emailAgeDays: 50);
+        var mid = CreateTestFeature("rc-sort-mid", "c.com", isInInbox: 0, isArchived: 1, emailAgeDays: 150);
+
+        await _service.StoreFeatureAsync(oldest);
+        await _service.StoreFeatureAsync(newest);
+        await _service.StoreFeatureAsync(mid);
+        await _service.SetTrainingLabelAsync("rc-sort-old", "Keep", userCorrected: false);
+        await _service.SetTrainingLabelAsync("rc-sort-new", "Keep", userCorrected: false);
+        await _service.SetTrainingLabelAsync("rc-sort-mid", "Keep", userCorrected: false);
+
+        // Act
+        var result = await _service.GetRetriagedCandidatesAsync(maxAgeDays: 1000, pageSize: 10, offset: 0);
+
+        // Assert — ascending by EmailAgeDays: newest (50) → mid (150) → oldest (300)
+        Assert.True(result.IsSuccess);
+        var ids = result.Value.Select(f => f.EmailId).ToList();
+        var newestIdx = ids.IndexOf("rc-sort-new");  // 50 days
+        var midIdx = ids.IndexOf("rc-sort-mid");     // 150 days
+        var oldestIdx = ids.IndexOf("rc-sort-old");  // 300 days
+        Assert.True(newestIdx < midIdx, "Most recent (50 days) should come before mid (150 days)");
+        Assert.True(midIdx < oldestIdx, "Mid (150 days) should come before oldest (300 days)");
+    }
+
+    private EmailFeatureVector CreateTestFeature(
+        string emailId,
+        string senderDomain,
+        int schemaVersion = 1,
+        int isInInbox = 1,
+        int isArchived = 0,
+        int wasInTrash = 0,
+        int emailAgeDays = 5)
     {
         return new EmailFeatureVector
         {
@@ -320,13 +530,13 @@ public class FeatureStorageIntegrationTests : StorageTestBase
             ImageCount = 1,
             HasTrackingPixel = 0,
             UnsubscribeLinkInBody = 0,
-            EmailAgeDays = 5,
-            IsInInbox = 1,
+            EmailAgeDays = emailAgeDays,
+            IsInInbox = isInInbox,
             IsStarred = 0,
             IsImportant = 0,
-            WasInTrash = 0,
+            WasInTrash = wasInTrash,
             WasInSpam = 0,
-            IsArchived = 0,
+            IsArchived = isArchived,
             ThreadMessageCount = 1,
             SenderFrequency = 10,
             SubjectText = "Test Subject",

@@ -71,7 +71,7 @@ public class ModeSelectionMenu
     private async Task DisplayProviderStatusAsync()
     {
         AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule("[blue]Provider Status[/]"));
+        AnsiConsole.Write(new Rule($"{ConsoleColors.Info}Provider Status{ConsoleColors.Close}"));
         AnsiConsole.WriteLine();
 
         // Storage provider status
@@ -95,26 +95,26 @@ public class ModeSelectionMenu
                 var healthResult = await emailProvider.HealthCheckAsync();
                 if (healthResult.IsSuccess && healthResult.Value)
                 {
-                    AnsiConsole.MarkupLine($"[green]✓[/] {providerName}: [green]Healthy[/]");
+                    AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓{ConsoleColors.Close} {providerName}: {ConsoleColors.Success}Healthy{ConsoleColors.Close}");
                     return true;
                 }
                 else
                 {
-                    AnsiConsole.MarkupLine($"[yellow]⚠[/] {providerName}: [yellow]Degraded[/]");
+                    AnsiConsole.MarkupLine($"{ConsoleColors.Warning}⚠{ConsoleColors.Close} {providerName}: {ConsoleColors.Warning}Degraded{ConsoleColors.Close}");
                     return false;
                 }
             }
             else
             {
                 // Storage provider doesn't have HealthCheck method yet
-                AnsiConsole.MarkupLine($"[green]✓[/] {providerName}: [green]Ready[/]");
+                AnsiConsole.MarkupLine($"{ConsoleColors.Success}✓{ConsoleColors.Close} {providerName}: {ConsoleColors.Success}Ready{ConsoleColors.Close}");
                 return true;
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Health check failed for {Provider}", providerName);
-            AnsiConsole.MarkupLine($"[red]✗[/] {providerName}: [red]Unavailable[/]");
+            AnsiConsole.MarkupLine($"{ConsoleColors.ErrorText}✗{ConsoleColors.Close} {providerName}: {ConsoleColors.ErrorText}Unavailable{ConsoleColors.Close}");
             return false;
         }
     }
@@ -202,7 +202,7 @@ public class ModeSelectionMenu
     {
         await Task.CompletedTask; // Method is sync but signature allows for future async
 
-        AnsiConsole.Write(new Rule("[blue]Main Menu[/]"));
+        AnsiConsole.Write(new Rule($"{ConsoleColors.Info}Main Menu{ConsoleColors.Close}"));
         AnsiConsole.WriteLine();
 
         // Create selection prompt with only enabled modes
@@ -210,7 +210,7 @@ public class ModeSelectionMenu
 
         var selection = AnsiConsole.Prompt(
             new SelectionPrompt<(OperationalMode Mode, string DisplayText, bool Enabled)>()
-                .Title("[cyan]Select an operational mode:[/]")
+                .Title($"{ConsoleColors.Highlight}Select an operational mode:{ConsoleColors.Close}")
                 .PageSize(10)
                 .MoreChoicesText("[grey](Move up and down to reveal more options)[/grey]")
                 .AddChoices(enabledModes)

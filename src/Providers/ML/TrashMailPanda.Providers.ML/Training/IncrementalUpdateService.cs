@@ -264,6 +264,18 @@ public sealed class IncrementalUpdateService
         SubjectText = v.SubjectText ?? string.Empty,
         BodyTextShort = v.BodyTextShort ?? string.Empty,
         Weight = 1.0f,
-        Label = string.Empty, // Ground-truth label populated by user action pipeline
+        Label = v.TrainingLabel ?? InferLabelFromFlags(v),
     };
+
+    /// <summary>
+    /// Infers a training label from boolean feature flags when no explicit TrainingLabel is set.
+    /// Priority: Spam > Delete > Archive > Keep.
+    /// </summary>
+    private static string InferLabelFromFlags(EmailFeatureVector v)
+    {
+        if (v.WasInSpam == 1) return "Spam";
+        if (v.WasInTrash == 1) return "Delete";
+        if (v.IsArchived == 1) return "Archive";
+        return "Keep";
+    }
 }

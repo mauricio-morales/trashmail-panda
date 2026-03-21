@@ -2,6 +2,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
+using System.IO;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,6 +38,9 @@ sealed class Program
             var trainingScanCommand = host.Services.GetRequiredService<GmailTrainingScanCommand>();
             var scanProgressRepo = host.Services.GetRequiredService<IScanProgressRepository>();
             var trainingConsoleService = host.Services.GetRequiredService<TrainingConsoleService>();
+            var triageConsoleService = host.Services.GetRequiredService<IEmailTriageConsoleService>();
+            var bulkConsoleService = host.Services.GetRequiredService<IBulkOperationConsoleService>();
+            var settingsConsoleService = host.Services.GetRequiredService<IProviderSettingsConsoleService>();
 
             // Display welcome banner
             statusDisplay.DisplayWelcomeBanner();
@@ -71,9 +77,11 @@ sealed class Program
                 AnsiConsole.MarkupLine("[green]✓ Application ready![/]");
                 Console.WriteLine();
 
+                var archiveService = host.Services.GetRequiredService<IEmailArchiveService>();
+
                 // Sync training data: resume/run initial scan or auto-sync history changes
                 await HandleStartupTrainingSyncAsync(
-                    scanProgressRepo, trainingScanCommand, _cancellationTokenSource.Token);
+                    scanProgressRepo, trainingScanCommand, archiveService, _cancellationTokenSource.Token);
 
                 // Display mode selection menu
                 var running = true;
@@ -88,7 +96,7 @@ sealed class Program
                     }
 
                     // Handle mode selection
-                    running = await HandleModeSelectionAsync(selectedMode, trainingConsoleService, _cancellationTokenSource.Token);
+                    running = await HandleModeSelectionAsync(selectedMode, trainingConsoleService, triageConsoleService, bulkConsoleService, settingsConsoleService, _cancellationTokenSource.Token);
                 }
 
                 Console.WriteLine();
@@ -147,10 +155,23 @@ sealed class Program
                 // Add console-specific services (already registered in AddTrashMailPandaServices)
                 services.Configure<ConsoleDisplayOptions>(context.Configuration.GetSection("ConsoleDisplayOptions"));
             })
-            .ConfigureLogging(logging =>
+            .UseSerilog((_, _, loggerConfig) =>
             {
-                logging.ClearProviders();
-                logging.AddConsole();
+                var logDir = Path.Combine("data", "logs");
+                Directory.CreateDirectory(logDir);
+                var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var logPath = Path.Combine(logDir, $"trashmail-panda-{timestamp}.log");
+
+                loggerConfig
+                    .MinimumLevel.Debug()
+                    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+                    .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
+                    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+                    .MinimumLevel.Override("System", LogEventLevel.Warning)
+                    .MinimumLevel.Override("Google", LogEventLevel.Warning)
+                    .WriteTo.File(
+                        logPath,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}");
             });
 
     private static void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
@@ -174,6 +195,7 @@ sealed class Program
     private static async Task HandleStartupTrainingSyncAsync(
         IScanProgressRepository scanProgressRepo,
         GmailTrainingScanCommand trainingScanCommand,
+        IEmailArchiveService archiveService,
         CancellationToken cancellationToken)
     {
         ScanProgressEntity? latest = null;
@@ -191,6 +213,22 @@ sealed class Program
         // ———————————————————————————————————————————————————————
         if (status == "Completed")
         {
+            // If the scan completed but email_features is empty, the scan ran before
+            // feature extraction was wired up.  Reset progress to trigger a full re-scan
+            // so the triage queue gets populated.
+            var featureCountResult = await archiveService.CountLabeledAsync(cancellationToken);
+            var totalFeaturesResult = await archiveService.GetStorageUsageAsync(cancellationToken);
+            bool featuresEmpty = totalFeaturesResult.IsSuccess && totalFeaturesResult.Value.FeatureCount == 0;
+
+            if (featuresEmpty && latest is not null)
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Triage queue is empty — re-scanning to populate email features...[/]");
+                Console.WriteLine();
+                await trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+                Console.WriteLine();
+                return;
+            }
+
             AnsiConsole.MarkupLine("[dim]→ Syncing new email changes...[/]");
             await trainingScanCommand.RunIncrementalScanAsync("me", cancellationToken);
             Console.WriteLine();
@@ -239,36 +277,28 @@ sealed class Program
     /// <param name="mode">Selected operational mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True to continue showing menu, false to exit.</returns>
-    private static async Task<bool> HandleModeSelectionAsync(OperationalMode mode, TrainingConsoleService trainingConsoleService, CancellationToken cancellationToken)
+    private static async Task<bool> HandleModeSelectionAsync(
+        OperationalMode mode,
+        TrainingConsoleService trainingConsoleService,
+        IEmailTriageConsoleService triageConsoleService,
+        IBulkOperationConsoleService bulkConsoleService,
+        IProviderSettingsConsoleService settingsConsoleService,
+        CancellationToken cancellationToken)
     {
-        Console.WriteLine();
-        Console.WriteLine($"Selected mode: {mode}");
         Console.WriteLine();
 
         switch (mode)
         {
             case OperationalMode.EmailTriage:
-                Spectre.Console.AnsiConsole.MarkupLine("[yellow]📧 Email Triage mode - Coming soon![/]");
-                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will launch the email triage workflow.[/]");
-                Spectre.Console.AnsiConsole.WriteLine();
-                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
-                Console.ReadLine();
+                await triageConsoleService.RunAsync("me", cancellationToken);
                 return true;
 
             case OperationalMode.BulkOperations:
-                Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚡ Bulk Operations mode - Coming soon![/]");
-                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow bulk email actions (delete, archive, label).[/]");
-                Spectre.Console.AnsiConsole.WriteLine();
-                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
-                Console.ReadLine();
+                await bulkConsoleService.RunAsync(cancellationToken);
                 return true;
 
             case OperationalMode.ProviderSettings:
-                Spectre.Console.AnsiConsole.MarkupLine("[yellow]⚙️  Provider Settings mode - Coming soon![/]");
-                Spectre.Console.AnsiConsole.MarkupLine("[dim]This mode will allow reconfiguration of provider settings.[/]");
-                Spectre.Console.AnsiConsole.WriteLine();
-                Spectre.Console.AnsiConsole.MarkupLine("Press [green]Enter[/] to return to menu...");
-                Console.ReadLine();
+                await settingsConsoleService.RunAsync(cancellationToken);
                 return true;
 
             case OperationalMode.TrainModel:

@@ -137,7 +137,8 @@ public static class ServiceCollectionExtensions
         {
             var context = serviceProvider.GetRequiredService<TrashMailPandaDbContext>();
             var semaphore = serviceProvider.GetRequiredService<SemaphoreSlim>();
-            return new EmailArchiveService(context, semaphore);
+            var logger = serviceProvider.GetRequiredService<ILogger<EmailArchiveService>>();
+            return new EmailArchiveService(context, semaphore, logger);
         });
 
         // 6. Legacy IStorageProvider for backward compatibility (uses StorageProviderAdapter)
@@ -210,6 +211,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TrashMailPanda.Services.Console.ConsoleStartupOrchestrator>();
         services.AddSingleton<TrashMailPanda.Services.Console.ConfigurationWizard>();
         services.AddSingleton<TrashMailPanda.Services.Console.ModeSelectionMenu>();
+
+        // Console TUI services (feature #060)
+        services.AddSingleton<IEmailTriageService, EmailTriageService>();
+        services.AddSingleton<IBulkOperationService, BulkOperationService>();
+        services.AddSingleton<TrashMailPanda.Services.Console.IEmailTriageConsoleService,
+            TrashMailPanda.Services.Console.EmailTriageConsoleService>();
+        services.AddSingleton<TrashMailPanda.Services.Console.IBulkOperationConsoleService,
+            TrashMailPanda.Services.Console.BulkOperationConsoleService>();
+        services.AddSingleton<TrashMailPanda.Services.Console.IProviderSettingsConsoleService,
+            TrashMailPanda.Services.Console.ProviderSettingsConsoleService>();
+        services.AddSingleton<TrashMailPanda.Services.Console.IConsoleHelpPanel,
+            TrashMailPanda.Services.Console.ConsoleHelpPanel>();
 
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
@@ -298,8 +311,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IncrementalUpdateService>();
 
         // ML model provider and training pipeline
-        services.AddSingleton(sp => new MLModelProviderConfig());
-        services.AddOptions<MLModelProviderConfig>().ValidateDataAnnotations();
+        services.AddSingleton(sp => new MLModelProviderConfig { Name = "MLModelProvider" });
+        services.AddOptions<MLModelProviderConfig>()
+            .Configure(c => c.Name = "MLModelProvider")
+            .ValidateDataAnnotations();
         services.AddSingleton<IMLModelProvider, MLModelProvider>();
         services.AddTransient<IModelTrainingPipeline, ModelTrainingPipeline>();
 

@@ -265,6 +265,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
             string? pageToken = null;
             var emails = new List<TrainingEmailEntity>();
+            int fetchAttempts = 0, notFoundCount = 0;
 
             do
             {
@@ -301,8 +302,13 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 {
                     if (cancellationToken.IsCancellationRequested) break;
 
+                    fetchAttempts++;
                     var msgResult = await FetchMessageAsync(gmailService, msgId, cancellationToken);
-                    if (!msgResult.IsSuccess) continue;
+                    if (!msgResult.IsSuccess)
+                    {
+                        if (msgResult.Error is NotFoundError) notFoundCount++;
+                        continue;
+                    }
 
                     var msg = msgResult.Value;
                     var entity = BuildTrainingEmail(accountId, msg);
@@ -338,6 +344,18 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 lowConfidenceCount += counts.lowConfidence;
                 excludedCount += counts.excluded;
             }
+
+            // Log 404 summary: only warn when >50% of fetches failed (indicates a real problem,
+            // not the normal case of a handful of post-history-event deletions).
+            if (fetchAttempts > 0 && notFoundCount > fetchAttempts / 2)
+                _logger.LogWarning(
+                    "Incremental scan for account {AccountId}: {NotFound}/{Total} message fetches returned 404. " +
+                    "The saved historyId may be stale — consider running a full scan.",
+                    accountId, notFoundCount, fetchAttempts);
+            else if (notFoundCount > 0)
+                _logger.LogDebug(
+                    "Incremental scan for account {AccountId}: {NotFound}/{Total} messages were already deleted (normal).",
+                    accountId, notFoundCount, fetchAttempts);
 
             // Back-correction and signal re-derivation
             await _trainingEmailRepo.RunBackCorrectionAsync(accountId, cancellationToken);
@@ -389,6 +407,9 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         string? pageToken = fp.PageToken; // Resume from saved cursor (T043)
 
         var emails = new List<TrainingEmailEntity>();
+        // Raw messages kept alongside entities so we can build EmailFeatureVector rows
+        // for the triage queue (email_features WHERE training_label IS NULL).
+        var rawMessages = new List<Message>();
 
         do
         {
@@ -459,7 +480,10 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
                 var entity = BuildTrainingEmail(accountId, msgResult.Value, folderName);
                 if (entity is not null)
+                {
                     emails.Add(entity);
+                    rawMessages.Add(msgResult.Value);
+                }
             }
 
             // Atomic batch upsert + association reconcile (T037)
@@ -473,6 +497,28 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                     await _labelAssociationRepo.ReconcileAssociationsAsync(email.EmailId, labelIds, cancellationToken);
                 }
 
+                // Build and store feature vectors so the triage queue (email_features
+                // WHERE training_label IS NULL) is populated from the scan.
+                // training_label is intentionally left null — the user will set it via triage.
+                var features = rawMessages
+                    .Select(m => BuildFeatureVector(m, folderName))
+                    .Where(f => f is not null)
+                    .Cast<EmailFeatureVector>()
+                    .ToList();
+
+                if (features.Count > 0)
+                {
+                    var nullDateCount = features.Count(f => f.ReceivedDateUtc is null);
+                    if (nullDateCount > 0)
+                        _logger.LogWarning(
+                            "Folder {Folder}: {NullCount}/{Total} feature(s) have no ReceivedDateUtc (Date header missing or unparseable)",
+                            folderName, nullDateCount, features.Count);
+                    else
+                        _logger.LogDebug("Folder {Folder}: built {Total} feature vectors, age range {Min}-{Max}d",
+                            folderName, features.Count, features.Min(f => f.EmailAgeDays), features.Max(f => f.EmailAgeDays));
+                    await _archiveService.StoreFeaturesBatchAsync(features, cancellationToken);
+                }
+
                 var counts = CountSignals(emails);
                 totalProcessed += emails.Count;
                 autoDeleteCount += counts.autoDelete;
@@ -480,6 +526,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 lowConfidenceCount += counts.lowConfidence;
                 excludedCount += counts.excluded;
                 emails.Clear();
+                rawMessages.Clear();
 
                 // Report per-batch progress (folder not yet complete)
                 progressCallback?.Report(new ScanProgressUpdate(
@@ -605,6 +652,103 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         {
             // Graceful partial-data handling (T053): log and skip, never fail the batch
             _logger.LogWarning(ex, "Failed to build training email from message {MessageId}. Skipping.", msg?.Id);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Builds a minimal <see cref="EmailFeatureVector"/> for triage-queue display.
+    /// Body-analysis features (link count, image count, etc.) that require a full
+    /// message download are left at their zero/default values; they will be filled in
+    /// when the user trains a model.  <c>TrainingLabel</c> is intentionally left
+    /// <see langword="null"/> so the row appears in <c>GetUntriagedAsync</c>.
+    /// </summary>
+    private EmailFeatureVector? BuildFeatureVector(Message msg, string folderName)
+    {
+        try
+        {
+            if (msg?.Id is null) return null;
+
+            var labelIds = msg.LabelIds?.ToList() ?? [];
+            var headers = msg.Payload?.Headers ?? [];
+
+            var subject = headers
+                .FirstOrDefault(h => h.Name?.Equals("Subject", StringComparison.OrdinalIgnoreCase) == true)
+                ?.Value ?? string.Empty;
+
+            var from = headers
+                .FirstOrDefault(h => h.Name?.Equals("From", StringComparison.OrdinalIgnoreCase) == true)
+                ?.Value ?? string.Empty;
+
+            var dateStr = headers
+                .FirstOrDefault(h => h.Name?.Equals("Date", StringComparison.OrdinalIgnoreCase) == true)
+                ?.Value;
+
+            // Extract sender domain from "Name <user@domain.com>" or "user@domain.com"
+            var senderDomain = string.Empty;
+            var emailMatch = System.Text.RegularExpressions.Regex.Match(from, @"[\w.+-]+@([\w.-]+)");
+            if (emailMatch.Success)
+                senderDomain = emailMatch.Groups[1].Value.ToLowerInvariant();
+
+            // Resolve the absolute received date.
+            // Prefer InternalDate (Unix ms timestamp from Gmail API) over the Date header,
+            // which can be absent, spoofed, or in non-standard formats.
+            DateTime? receivedDateUtc = null;
+            if (msg.InternalDate.HasValue)
+            {
+                receivedDateUtc = DateTimeOffset.FromUnixTimeMilliseconds(msg.InternalDate.Value).UtcDateTime;
+                _logger.LogDebug("Message {MessageId}: InternalDate={Date:yyyy-MM-dd} → ReceivedDateUtc set",
+                    msg.Id, receivedDateUtc);
+            }
+            else if (!string.IsNullOrEmpty(dateStr) && DateTimeOffset.TryParse(dateStr, out var parsedDate))
+            {
+                receivedDateUtc = parsedDate.UtcDateTime;
+                _logger.LogDebug("Message {MessageId}: Date header '{DateStr}' → ReceivedDateUtc={Date:yyyy-MM-dd} (InternalDate absent)",
+                    msg.Id, dateStr, receivedDateUtc);
+            }
+            else
+            {
+                _logger.LogWarning("Message {MessageId}: No InternalDate and Date header missing/unparseable ('{DateStr}') — ReceivedDateUtc will be null",
+                    msg.Id, dateStr ?? "(null)");
+            }
+
+            var emailAgeDays = receivedDateUtc.HasValue
+                ? Math.Max(0, (int)(DateTime.UtcNow - receivedDateUtc.Value).TotalDays)
+                : 0;
+
+            // msg.Snippet is populated by the Gmail API even with format=METADATA
+            var snippet = msg.Snippet;
+
+            return new EmailFeatureVector
+            {
+                EmailId = msg.Id,
+                SenderDomain = senderDomain,
+                SubjectText = subject.Length > 1000 ? subject[..1000] : subject,
+                BodyTextShort = snippet?.Length > 500 ? snippet[..500] : snippet,
+                ReceivedDateUtc = receivedDateUtc,
+                EmailAgeDays = emailAgeDays,
+                IsInInbox = labelIds.Contains("INBOX") ? 1 : 0,
+                IsStarred = labelIds.Contains("STARRED") ? 1 : 0,
+                IsImportant = labelIds.Contains("IMPORTANT") ? 1 : 0,
+                WasInSpam = folderName == "SPAM" ? 1 : 0,
+                WasInTrash = folderName == "TRASH" ? 1 : 0,
+                IsArchived = folderName == "ARCHIVE" ? 1 : 0,
+                IsReply = subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+                SubjectLength = subject.Length,
+                SenderKnown = 0,
+                // Body-level features require full message; left at 0 for now.
+                SpfResult = "unknown",
+                DkimResult = "unknown",
+                DmarcResult = "unknown",
+                FeatureSchemaVersion = TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion,
+                ExtractedAt = DateTime.UtcNow,
+                UserCorrected = 0,
+                TrainingLabel = null,  // null → appears in GetUntriagedAsync
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "BuildFeatureVector failed for message {MessageId}", msg?.Id);
             return null;
         }
     }

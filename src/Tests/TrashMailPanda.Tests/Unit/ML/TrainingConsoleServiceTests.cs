@@ -17,7 +17,8 @@ public class TrainingConsoleServiceTests
     // ──────────────────────────────────────────────────────────────────────────
 
     private static (TrainingConsoleService Service, StringWriter Writer) CreateService(
-        IModelTrainingPipeline pipeline)
+        IModelTrainingPipeline pipeline,
+        Func<ConsoleKeyInfo>? readKey = null)
     {
         var writer = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -27,10 +28,14 @@ public class TrainingConsoleServiceTests
             Out = new AnsiConsoleOutput(writer),
         });
 
+        // Default to always answering Y (proceed with training) for existing tests
+        readKey ??= () => new ConsoleKeyInfo('Y', ConsoleKey.Y, false, false, false);
+
         var service = new TrainingConsoleService(
             pipeline,
             NullLogger<TrainingConsoleService>.Instance,
-            console);
+            console,
+            readKey);
 
         return (service, writer);
     }
@@ -155,5 +160,69 @@ public class TrainingConsoleServiceTests
         var output = writer.ToString();
         Assert.Contains("Training failed", output);
         Assert.Contains("Not enough training data", output);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // T049 — Save confirmation prompt tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RunTrainingAsync_ShowsConfirmationPrompt_BeforeTraining()
+    {
+        var pipeline = new Mock<IModelTrainingPipeline>();
+        pipeline
+            .Setup(p => p.TrainActionModelAsync(
+                It.IsAny<TrainingRequest>(),
+                It.IsAny<IProgress<TrainingProgress>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TrainingMetricsReport>.Success(BuildReport(0.80f, false)));
+
+        var (service, writer) = CreateService(pipeline.Object,
+            readKey: () => new ConsoleKeyInfo('Y', ConsoleKey.Y, false, false, false));
+
+        await service.RunTrainingAsync("test", CancellationToken.None);
+
+        var output = writer.ToString();
+        Assert.Contains("Proceed", output);
+    }
+
+    [Fact]
+    public async Task RunTrainingAsync_WhenUserCancels_DoesNotCallPipeline()
+    {
+        var pipeline = new Mock<IModelTrainingPipeline>();
+
+        // Inject 'N' key to cancel
+        var (service, writer) = CreateService(pipeline.Object,
+            readKey: () => new ConsoleKeyInfo('N', ConsoleKey.N, false, false, false));
+
+        await service.RunTrainingAsync("test", CancellationToken.None);
+
+        // Pipeline should NOT have been called
+        pipeline.Verify(p => p.TrainActionModelAsync(
+                It.IsAny<TrainingRequest>(),
+                It.IsAny<IProgress<TrainingProgress>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        var output = writer.ToString();
+        Assert.Contains("cancelled", output);
+    }
+
+    [Fact]
+    public async Task RunTrainingAsync_WhenUserPressesEscape_CancelsTiming()
+    {
+        var pipeline = new Mock<IModelTrainingPipeline>();
+
+        // Inject Escape key to cancel
+        var (service, writer) = CreateService(pipeline.Object,
+            readKey: () => new ConsoleKeyInfo('\0', ConsoleKey.Escape, false, false, false));
+
+        await service.RunTrainingAsync("test", CancellationToken.None);
+
+        pipeline.Verify(p => p.TrainActionModelAsync(
+                It.IsAny<TrainingRequest>(),
+                It.IsAny<IProgress<TrainingProgress>>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }

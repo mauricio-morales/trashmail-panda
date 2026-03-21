@@ -1,6 +1,6 @@
 # trashmail-panda Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-17
+Auto-generated from all feature plans. Last updated: 2026-03-19
 
 ## Active Technologies
 - SQLite + SQLCipher (existing encrypted storage), extended for email feature vectors and full email archive (054-ml-architecture-design)
@@ -10,6 +10,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-17
 - SQLite with SQLCipher encryption + OS keychain (DPAPI/macOS Keychain/libsecret) via SecureStorageManager (056-console-gmail-oauth)
 - C# 12 / .NET 9.0 + Avalonia UI 11 (to be replaced with console), CommunityToolkit.Mvvm (UI only), Microsoft.Extensions.Hosting/DI/Logging, Spectre.Console (NEW - for console formatting), Google.Apis.Gmail.v1, Polly (057-console-startup-orchestration)
 - SQLite with SQLCipher encryption via Microsoft.Data.Sqlite (057-console-startup-orchestration)
+- .NET 9.0 / C# 12 (nullable reference types enabled) + Spectre.Console 0.48.0, Microsoft.Extensions.Hosting/DI/Logging v9.0.8, CommunityToolkit.Mvvm 8.2.1, TrashMailPanda.Providers.ML, TrashMailPanda.Providers.Email, TrashMailPanda.Providers.Storage (060-console-tui-spectre)
+- SQLite via EF Core (`TrashMailPandaDbContext`); `email_features` column migration (`training_label TEXT NULL`); `IEmailArchiveService` for training signals + queue (add `SetTrainingLabelAsync`, `CountLabeledAsync`, `GetUntriagedAsync`) (060-console-tui-spectre)
 
 - .NET 9.0 / C# 12+ + ML.NET (planned), existing provider framework (`IProvider<TConfig>`, `BaseProvider<TConfig>`), Microsoft.Extensions.DI/Logging (054-ml-architecture-design)
 
@@ -29,9 +31,9 @@ tests/
 .NET 9.0 / C# 12+: Follow standard conventions
 
 ## Recent Changes
-- 059-mlnet-training-pipeline: Added .NET 9.0 / C# 12
-- 057-console-startup-orchestration: Added C# 12 / .NET 9.0 + Avalonia UI 11 (to be replaced with console), CommunityToolkit.Mvvm (UI only), Microsoft.Extensions.Hosting/DI/Logging, Spectre.Console (NEW - for console formatting), Google.Apis.Gmail.v1, Polly
-- 056-console-gmail-oauth: Added C# 12 / .NET 9.0
+- 060-console-tui-spectre: Added .NET 9.0 / C# 12 (nullable reference types enabled) + Spectre.Console 0.48.0, Microsoft.Extensions.Hosting/DI/Logging v9.0.8, CommunityToolkit.Mvvm 8.2.1, TrashMailPanda.Providers.ML, TrashMailPanda.Providers.Email, TrashMailPanda.Providers.Storage
+- 060-console-tui-spectre: Added .NET 9.0 / C# 12 (nullable reference types enabled) + Spectre.Console 0.48.0, Microsoft.Extensions.Hosting/DI/Logging v9.0.8, CommunityToolkit.Mvvm 8.2.1, TrashMailPanda.Providers.ML, TrashMailPanda.Providers.Email, TrashMailPanda.Providers.Storage
+- 060-console-tui-spectre: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 
 
 <!-- MANUAL ADDITIONS START -->

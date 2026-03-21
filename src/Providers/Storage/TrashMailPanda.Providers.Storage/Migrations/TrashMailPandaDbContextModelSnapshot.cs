@@ -96,51 +96,64 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<string>("EmailId")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("email_id");
 
                     b.Property<DateTime>("ArchivedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("archived_at");
 
                     b.Property<string>("BodyHtml")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("body_html");
 
                     b.Property<string>("BodyText")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("body_text");
 
                     b.Property<string>("FolderTagsJson")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("folder_tags_json");
 
                     b.Property<string>("HeadersJson")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("headers_json");
 
                     b.Property<string>("ProviderType")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider_type");
 
                     b.Property<DateTime>("ReceivedDate")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("received_date");
 
                     b.Property<long>("SizeEstimate")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("size_estimate");
 
                     b.Property<string>("Snippet")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("snippet");
 
                     b.Property<string>("SourceFolder")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_folder");
 
                     b.Property<string>("ThreadId")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("thread_id");
 
                     b.Property<int>("UserCorrected")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("user_corrected");
 
                     b.HasKey("EmailId");
 
@@ -157,141 +170,192 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<string>("EmailId")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("email_id");
 
                     b.Property<string>("BodyTextShort")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("body_text_short");
 
                     b.Property<int>("ContactStrength")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("contact_strength");
 
                     b.Property<int>("DayOfWeek")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("day_of_week");
 
                     b.Property<string>("DkimResult")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("dkim_result");
 
                     b.Property<string>("DmarcResult")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("dmarc_result");
 
                     b.Property<int>("EmailAgeDays")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("email_age_days");
 
                     b.Property<float>("EmailSizeLog")
-                        .HasColumnType("REAL");
+                        .HasColumnType("REAL")
+                        .HasColumnName("email_size_log");
 
                     b.Property<DateTime>("ExtractedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("extracted_at");
 
                     b.Property<int>("FeatureSchemaVersion")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("feature_schema_version");
 
                     b.Property<int>("HasAttachments")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("has_attachments");
 
                     b.Property<int>("HasListUnsubscribe")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("has_list_unsubscribe");
 
                     b.Property<int>("HasTrackingPixel")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("has_tracking_pixel");
 
                     b.Property<int>("HourReceived")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("hour_received");
 
                     b.Property<int>("ImageCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("image_count");
 
                     b.Property<int>("InUserBlacklist")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("in_user_blacklist");
 
                     b.Property<int>("InUserWhitelist")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("in_user_whitelist");
 
                     b.Property<int>("IsArchived")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_archived");
 
                     b.Property<int>("IsForwarded")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_forwarded");
 
                     b.Property<int>("IsImportant")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_important");
 
                     b.Property<int>("IsInInbox")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_in_inbox");
 
                     b.Property<int>("IsReplied")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_replied");
 
                     b.Property<int>("IsReply")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_reply");
 
                     b.Property<int>("IsStarred")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_starred");
 
                     b.Property<int>("LabelCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("label_count");
 
                     b.Property<int>("LinkCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("link_count");
+
+                    b.Property<DateTime?>("ReceivedDateUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("received_date_utc");
 
                     b.Property<int>("RecipientCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("recipient_count");
 
                     b.Property<string>("SemanticEmbeddingJson")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("semantic_embedding_json");
 
                     b.Property<string>("SenderCategory")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sender_category");
 
                     b.Property<string>("SenderDomain")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sender_domain");
 
                     b.Property<int>("SenderFrequency")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sender_frequency");
 
                     b.Property<int>("SenderKnown")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sender_known");
 
                     b.Property<string>("SpfResult")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("spf_result");
 
                     b.Property<int>("SubjectLength")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("subject_length");
 
                     b.Property<string>("SubjectText")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("subject_text");
 
                     b.Property<int>("ThreadMessageCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("thread_message_count");
 
                     b.Property<int?>("TopicClusterId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("topic_cluster_id");
 
                     b.Property<string>("TopicDistributionJson")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("topic_distribution_json");
+
+                    b.Property<string>("TrainingLabel")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("training_label");
 
                     b.Property<int>("UnsubscribeLinkInBody")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("unsubscribe_link_in_body");
 
                     b.Property<int>("UserCorrected")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("user_corrected");
 
                     b.Property<int>("WasInSpam")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("was_in_spam");
 
                     b.Property<int>("WasInTrash")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("was_in_trash");
 
                     b.HasKey("EmailId");
 
@@ -300,6 +364,9 @@ namespace TrashMailPanda.Providers.Storage.Migrations
 
                     b.HasIndex("FeatureSchemaVersion")
                         .HasDatabaseName("idx_email_features_schema_version");
+
+                    b.HasIndex("ReceivedDateUtc")
+                        .HasDatabaseName("idx_email_features_received_date_utc");
 
                     b.HasIndex("UserCorrected")
                         .HasDatabaseName("idx_email_features_user_corrected");
@@ -462,26 +529,32 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("EmailId")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("email_id");
 
                     b.Property<bool>("IsContextFeature")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_context_feature");
 
                     b.Property<bool>("IsTrainingSignal")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_training_signal");
 
                     b.Property<string>("LabelId")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("label_id");
 
                     b.HasKey("Id");
 
@@ -502,35 +575,43 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<string>("LabelId")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("label_id");
 
                     b.Property<string>("AccountId")
                         .IsRequired()
                         .HasMaxLength(320)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("account_id");
 
                     b.Property<string>("Color")
                         .HasMaxLength(50)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("color");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("LabelType")
                         .IsRequired()
                         .HasMaxLength(10)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("label_type");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
 
                     b.Property<int>("UsageCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("usage_count");
 
                     b.HasKey("LabelId");
 
@@ -547,48 +628,60 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
 
                     b.Property<string>("AccountId")
                         .IsRequired()
                         .HasMaxLength(320)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("account_id");
 
                     b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("completed_at");
 
                     b.Property<string>("FolderProgressJson")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("folder_progress_json");
 
                     b.Property<ulong?>("HistoryId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("history_id");
 
                     b.Property<string>("LastProcessedEmailId")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_processed_email_id");
 
                     b.Property<int>("ProcessedCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("processed_count");
 
                     b.Property<string>("ScanType")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("scan_type");
 
                     b.Property<DateTime>("StartedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("started_at");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
 
                     b.Property<int?>("TotalEstimate")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("total_estimate");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("Id");
 
@@ -602,34 +695,44 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
 
                     b.Property<long>("ArchiveBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("archive_bytes");
 
                     b.Property<long>("ArchiveCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("archive_count");
 
                     b.Property<long>("CurrentBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("current_bytes");
 
                     b.Property<long>("FeatureBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("feature_bytes");
 
                     b.Property<long>("FeatureCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("feature_count");
 
                     b.Property<DateTime?>("LastCleanupAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_cleanup_at");
 
                     b.Property<DateTime>("LastMonitoredAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_monitored_at");
 
                     b.Property<long>("LimitBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("limit_bytes");
 
                     b.Property<long>("UserCorrectedCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("user_corrected_count");
 
                     b.HasKey("Id");
 
@@ -640,59 +743,74 @@ namespace TrashMailPanda.Providers.Storage.Migrations
                 {
                     b.Property<string>("EmailId")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("email_id");
 
                     b.Property<string>("AccountId")
                         .IsRequired()
                         .HasMaxLength(320)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("account_id");
 
                     b.Property<string>("ClassificationSignal")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("classification_signal");
 
                     b.Property<string>("FolderOrigin")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("folder_origin");
 
                     b.Property<DateTime>("ImportedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("imported_at");
 
                     b.Property<bool>("IsForwarded")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_forwarded");
 
                     b.Property<bool>("IsRead")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_read");
 
                     b.Property<bool>("IsReplied")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_replied");
 
                     b.Property<bool>("IsValid")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_valid");
 
                     b.Property<DateTime>("LastSeenAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_seen_at");
 
                     b.Property<string>("RawLabelIds")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("raw_label_ids");
 
                     b.Property<float>("SignalConfidence")
-                        .HasColumnType("REAL");
+                        .HasColumnType("REAL")
+                        .HasColumnName("signal_confidence");
 
                     b.Property<string>("SubjectPrefix")
                         .HasMaxLength(10)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("subject_prefix");
 
                     b.Property<string>("ThreadId")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("thread_id");
 
                     b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("EmailId");
 

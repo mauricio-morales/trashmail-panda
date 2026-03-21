@@ -180,6 +180,55 @@ public interface IEmailArchiveService
         CancellationToken cancellationToken = default);
 
     // ============================================================
+    // Triage Queue & Training Labels
+    // ============================================================
+
+    /// <summary>
+    /// Sets the explicit training label for the given email's feature vector.
+    /// Also sets <c>UserCorrected = 1</c> when the user overrode an AI recommendation.
+    /// Returns <c>Success(false)</c> if no feature vector exists for the email ID.
+    /// MUST only be called after the corresponding Gmail action has succeeded.
+    /// </summary>
+    Task<Result<bool>> SetTrainingLabelAsync(
+        string emailId,
+        string label,
+        bool userCorrected,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the count of feature vectors with an explicit training label.
+    /// Used to seed <c>EmailTriageSession.LabeledCount</c> at session start.
+    /// </summary>
+    Task<Result<int>> CountLabeledAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a page of feature vectors with <c>training_label IS NULL</c> (untriaged queue).
+    /// Only includes Inbox and Archive emails — Sent and Trash folders are excluded because
+    /// they represent definitive user intent and should not be re-triaged.
+    /// Ordered by: Inbox first (priority 1), Archive second (priority 2),
+    /// then by email recency (<c>EmailAgeDays ASC</c>, most recent first within each group).
+    /// </summary>
+    Task<Result<IReadOnlyList<EmailFeatureVector>>> GetUntriagedAsync(
+        int pageSize,
+        int offset,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns a page of archived, already-labeled emails where
+    /// <c>user_corrected = 0</c> and <c>EmailAgeDays &lt;= maxAgeDays</c>,
+    /// eligible for re-triage. These are emails whose archive label was assigned
+    /// (by the AI or a previous user pass) but may now be worth deleting given
+    /// the passage of time.
+    /// Ordered by <c>EmailAgeDays ASC</c> (most recently archived first).
+    /// The pool naturally shrinks as each reviewed email is marked <c>user_corrected = 1</c>.
+    /// </summary>
+    Task<Result<IReadOnlyList<EmailFeatureVector>>> GetRetriagedCandidatesAsync(
+        int maxAgeDays,
+        int pageSize,
+        int offset,
+        CancellationToken ct = default);
+
+    // ============================================================
     // Automatic Cleanup
     // ============================================================
 

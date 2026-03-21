@@ -447,8 +447,8 @@ public class ConsoleStartupOrchestrator
         {
             var (message, hint) = _statusDisplay.GetProviderSpecificErrorMessage(state.Error.ErrorCode, state.ProviderName);
             Spectre.Console.AnsiConsole.WriteLine();
-            Spectre.Console.AnsiConsole.MarkupLine($"[bold yellow]⚠ {message}[/]");
-            Spectre.Console.AnsiConsole.MarkupLine($"[dim]{hint}[/]");
+            Spectre.Console.AnsiConsole.MarkupLine($"{ConsoleColors.PromptOption}⚠ {message}{ConsoleColors.Close}");
+            Spectre.Console.AnsiConsole.MarkupLine($"{ConsoleColors.Dim}{hint}{ConsoleColors.Close}");
         }
 
         // Show error recovery menu
@@ -485,7 +485,7 @@ public class ConsoleStartupOrchestrator
         _logger.LogInformation("Retrying initialization for {ProviderName}", state.ProviderName);
 
         Spectre.Console.AnsiConsole.WriteLine();
-        Spectre.Console.AnsiConsole.MarkupLine("[cyan]⟳[/] Retrying provider initialization...");
+        Spectre.Console.AnsiConsole.MarkupLine($"{ConsoleColors.Highlight}⟳{ConsoleColors.Close} Retrying provider initialization...");
         Spectre.Console.AnsiConsole.WriteLine();
 
         // Reset state for retry
@@ -507,7 +507,7 @@ public class ConsoleStartupOrchestrator
 
         // Offer another attempt
         Spectre.Console.AnsiConsole.WriteLine();
-        if (Spectre.Console.AnsiConsole.Confirm("[yellow]Retry again?[/]", defaultValue: false))
+        if (Spectre.Console.AnsiConsole.Confirm($"{ConsoleColors.Warning}Retry again?{ConsoleColors.Close}", defaultValue: false))
         {
             return await RetryProviderInitializationAsync(provider, providerIndex, cancellationToken);
         }
@@ -527,7 +527,7 @@ public class ConsoleStartupOrchestrator
         _logger.LogInformation("Starting reconfiguration for {ProviderName}", state.ProviderName);
 
         Spectre.Console.AnsiConsole.WriteLine();
-        Spectre.Console.AnsiConsole.MarkupLine($"[cyan]⚙[/] Reconfiguring [bold]{state.ProviderName}[/] provider...");
+        Spectre.Console.AnsiConsole.MarkupLine($"{ConsoleColors.Highlight}⚙{ConsoleColors.Close} Reconfiguring [bold]{state.ProviderName}[/] provider...");
         Spectre.Console.AnsiConsole.WriteLine();
 
         try
@@ -553,7 +553,7 @@ public class ConsoleStartupOrchestrator
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during reconfiguration for {ProviderName}", state.ProviderName);
-            Spectre.Console.AnsiConsole.MarkupLine($"[red]✗ Reconfiguration failed: {ex.Message}[/]");
+            Spectre.Console.AnsiConsole.MarkupLine($"{ConsoleColors.Error}✗ Reconfiguration failed: {ex.Message}{ConsoleColors.Close}");
             return false;
         }
     }

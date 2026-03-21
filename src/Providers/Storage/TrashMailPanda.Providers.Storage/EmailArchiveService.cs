@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,12 +20,14 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
     private readonly TrashMailPandaDbContext _context;
     private readonly SemaphoreSlim _connectionLock;
     private readonly bool _ownsLock;
+    private readonly ILogger<EmailArchiveService> _logger;
 
-    public EmailArchiveService(TrashMailPandaDbContext context, SemaphoreSlim connectionLock)
+    public EmailArchiveService(TrashMailPandaDbContext context, SemaphoreSlim connectionLock, ILogger<EmailArchiveService>? logger = null)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _connectionLock = connectionLock ?? throw new ArgumentNullException(nameof(connectionLock));
         _ownsLock = false;
+        _logger = logger ?? NullLogger<EmailArchiveService>.Instance;
     }
 
     /// <summary>
@@ -34,6 +38,7 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _connectionLock = new SemaphoreSlim(1, 1);
         _ownsLock = true;
+        _logger = NullLogger<EmailArchiveService>.Instance;
     }
 
     public void Dispose()
@@ -66,8 +71,12 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 var existing = await _context.EmailFeatures.FindAsync(new object[] { feature.EmailId }, cancellationToken);
                 if (existing != null)
                 {
-                    // Update existing
+                    // Preserve user-set fields — a re-scan must not wipe labels the user assigned.
+                    var preservedLabel = existing.TrainingLabel;
+                    var preservedUserCorrected = existing.UserCorrected;
                     _context.Entry(existing).CurrentValues.SetValues(feature);
+                    _context.Entry(existing).CurrentValues[nameof(EmailFeatureVector.TrainingLabel)] = preservedLabel;
+                    _context.Entry(existing).CurrentValues[nameof(EmailFeatureVector.UserCorrected)] = preservedUserCorrected;
                 }
                 else
                 {
@@ -76,6 +85,8 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 }
 
                 await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogDebug("StoreFeatureAsync [{EmailId}]: {Action} (EmailAgeDays={Age}d)",
+                    feature.EmailId, existing != null ? "updated" : "inserted", feature.EmailAgeDays);
                 return Result<bool>.Success(true);
             }
             finally
@@ -123,22 +134,34 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                     using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
                     try
                     {
+                        int batchInserts = 0, batchUpdates = 0;
                         foreach (var feature in batch)
                         {
                             var existing = await _context.EmailFeatures.FindAsync(new object[] { feature.EmailId }, cancellationToken);
                             if (existing != null)
                             {
+                                // Preserve user-set fields — a re-scan must not wipe labels the user assigned.
+                                var preservedLabel = existing.TrainingLabel;
+                                var preservedUserCorrected = existing.UserCorrected;
                                 _context.Entry(existing).CurrentValues.SetValues(feature);
+                                _context.Entry(existing).CurrentValues[nameof(EmailFeatureVector.TrainingLabel)] = preservedLabel;
+                                _context.Entry(existing).CurrentValues[nameof(EmailFeatureVector.UserCorrected)] = preservedUserCorrected;
+                                batchUpdates++;
                             }
                             else
                             {
                                 await _context.EmailFeatures.AddAsync(feature, cancellationToken);
+                                batchInserts++;
                             }
                             totalStored++;
                         }
 
                         await _context.SaveChangesAsync(cancellationToken);
                         await transaction.CommitAsync(cancellationToken);
+                        _logger.LogDebug(
+                            "StoreFeaturesBatchAsync sub-batch [{Start}-{End}]: {Inserts} inserts, {Updates} updates. Age range {MinAge}-{MaxAge}d",
+                            i, i + batch.Count - 1, batchInserts, batchUpdates,
+                            batch.Min(f => f.EmailAgeDays), batch.Max(f => f.EmailAgeDays));
                     }
                     catch (Exception ex)
                     {
@@ -826,6 +849,182 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         {
             // Step 5: Refresh storage usage after cleanup (outside lock)
             _ = await GetStorageUsageAsync(cancellationToken);
+        }
+    }
+
+    // ============================================================
+    // Triage Queue & Training Labels
+    // ============================================================
+
+    public async Task<Result<bool>> SetTrainingLabelAsync(
+        string emailId,
+        string label,
+        bool userCorrected,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(emailId))
+            return Result<bool>.Failure(new ValidationError("EmailId is required"));
+        if (string.IsNullOrWhiteSpace(label))
+            return Result<bool>.Failure(new ValidationError("Label is required"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                int rows;
+                if (userCorrected)
+                {
+                    rows = await _context.EmailFeatures
+                        .Where(f => f.EmailId == emailId)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(f => f.TrainingLabel, label)
+                            .SetProperty(f => f.UserCorrected, 1), ct);
+                }
+                else
+                {
+                    rows = await _context.EmailFeatures
+                        .Where(f => f.EmailId == emailId)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(f => f.TrainingLabel, label), ct);
+                }
+
+                // Detach any cached entity so future queries reflect the DB update
+                var tracked = _context.EmailFeatures.Local.FirstOrDefault(f => f.EmailId == emailId);
+                if (tracked != null)
+                    _context.Entry(tracked).State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+
+                return Result<bool>.Success(rows > 0);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError($"Failed to set training label for {emailId}", ex.Message, ex));
+        }
+    }
+
+    public async Task<Result<int>> CountLabeledAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                var count = await _context.EmailFeatures
+                    .CountAsync(f => f.TrainingLabel != null, ct);
+                return Result<int>.Success(count);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure(new StorageError("Failed to count labeled features", ex.Message, ex));
+        }
+    }
+
+    public async Task<Result<IReadOnlyList<EmailFeatureVector>>> GetUntriagedAsync(
+        int pageSize,
+        int offset,
+        CancellationToken ct = default)
+    {
+        if (pageSize <= 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Page size must be greater than zero"));
+        if (offset < 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Offset must be non-negative"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                // Only triage Inbox and Archive emails — Sent and Trash are definitive
+                // signals that don't belong in the manual triage queue.
+                // Order: Inbox first (priority 1), then Archive (priority 2),
+                // then by email recency (ReceivedDateUtc DESC = most recent first,
+                // fall back to EmailAgeDays ASC for legacy rows without a date).
+                var results = await _context.EmailFeatures
+                    .Where(f => f.TrainingLabel == null
+                                && (f.IsInInbox == 1 || f.IsArchived == 1))
+                    .OrderBy(f => f.IsInInbox == 1 ? 0 : 1)
+                    .ThenByDescending(f => f.ReceivedDateUtc)
+                    .ThenBy(f => f.EmailAgeDays)
+                    .Skip(offset)
+                    .Take(pageSize)
+                    .ToListAsync(ct);
+
+                _logger.LogDebug("GetUntriagedAsync(pageSize={PageSize}, offset={Offset}) → {Count} emails",
+                    pageSize, offset, results.Count);
+                return Result<IReadOnlyList<EmailFeatureVector>>.Success(results);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(
+                new StorageError("Failed to get untriaged features", ex.Message, ex));
+        }
+    }
+
+    public async Task<Result<IReadOnlyList<EmailFeatureVector>>> GetRetriagedCandidatesAsync(
+        int maxAgeDays,
+        int pageSize,
+        int offset,
+        CancellationToken ct = default)
+    {
+        if (maxAgeDays <= 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Max age days must be greater than zero"));
+        if (pageSize <= 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Page size must be greater than zero"));
+        if (offset < 0)
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(new ValidationError("Offset must be non-negative"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                // Return archived, previously-labeled emails that have not yet been
+                // explicitly user-reviewed (user_corrected = 0). After re-triage the
+                // decision sets user_corrected = 1, removing them from future pages
+                // at offset 0 — the pool shrinks naturally without explicit paging.
+                // Use ReceivedDateUtc for the age filter when available; fall back to EmailAgeDays.
+                var cutoffDate = DateTime.UtcNow.AddDays(-maxAgeDays);
+                var results = await _context.EmailFeatures
+                    .Where(f => f.TrainingLabel != null
+                                && f.IsArchived == 1
+                                && f.UserCorrected == 0
+                                && (f.ReceivedDateUtc != null
+                                    ? f.ReceivedDateUtc >= cutoffDate
+                                    : f.EmailAgeDays <= maxAgeDays))
+                    .OrderByDescending(f => f.ReceivedDateUtc)
+                    .ThenBy(f => f.EmailAgeDays)
+                    .Skip(offset)
+                    .Take(pageSize)
+                    .ToListAsync(ct);
+
+                _logger.LogDebug("GetRetriagedCandidatesAsync(maxAge={MaxAge}, pageSize={PageSize}, offset={Offset}) → {Count} emails",
+                    maxAgeDays, pageSize, offset, results.Count);
+                return Result<IReadOnlyList<EmailFeatureVector>>.Success(results);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<IReadOnlyList<EmailFeatureVector>>.Failure(
+                new StorageError("Failed to get retriage candidates", ex.Message, ex));
         }
     }
 }
