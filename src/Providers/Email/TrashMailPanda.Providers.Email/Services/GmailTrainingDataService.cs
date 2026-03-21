@@ -508,11 +508,11 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
                 if (features.Count > 0)
                 {
-                    var zeroAgeCount = features.Count(f => f.EmailAgeDays == 0);
-                    if (zeroAgeCount > 0)
+                    var nullDateCount = features.Count(f => f.ReceivedDateUtc is null);
+                    if (nullDateCount > 0)
                         _logger.LogWarning(
-                            "Folder {Folder}: {ZeroCount}/{Total} feature(s) have EmailAgeDays=0 (Date header missing or unparseable)",
-                            folderName, zeroAgeCount, features.Count);
+                            "Folder {Folder}: {NullCount}/{Total} feature(s) have no ReceivedDateUtc (Date header missing or unparseable)",
+                            folderName, nullDateCount, features.Count);
                     else
                         _logger.LogDebug("Folder {Folder}: built {Total} feature vectors, age range {Min}-{Max}d",
                             folderName, features.Count, features.Min(f => f.EmailAgeDays), features.Max(f => f.EmailAgeDays));
@@ -690,30 +690,31 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
             if (emailMatch.Success)
                 senderDomain = emailMatch.Groups[1].Value.ToLowerInvariant();
 
-            // Estimate age in days.
-            // Prefer InternalDate (always-present Unix ms timestamp from Gmail API) over
-            // the Date header, which can be absent, spoofed, or in non-standard formats
-            // like "Thu, 20 Mar 2024 09:45:02 +0000 (Coordinated Universal Time)" that
-            // DateTimeOffset.TryParse chokes on.
-            var emailAgeDays = 0;
+            // Resolve the absolute received date.
+            // Prefer InternalDate (Unix ms timestamp from Gmail API) over the Date header,
+            // which can be absent, spoofed, or in non-standard formats.
+            DateTime? receivedDateUtc = null;
             if (msg.InternalDate.HasValue)
             {
-                var internalDate = DateTimeOffset.FromUnixTimeMilliseconds(msg.InternalDate.Value);
-                emailAgeDays = Math.Max(0, (int)(DateTimeOffset.UtcNow - internalDate).TotalDays);
-                _logger.LogDebug("Message {MessageId}: InternalDate={InternalDate:yyyy-MM-dd} → EmailAgeDays={Age}d",
-                    msg.Id, internalDate, emailAgeDays);
+                receivedDateUtc = DateTimeOffset.FromUnixTimeMilliseconds(msg.InternalDate.Value).UtcDateTime;
+                _logger.LogDebug("Message {MessageId}: InternalDate={Date:yyyy-MM-dd} → ReceivedDateUtc set",
+                    msg.Id, receivedDateUtc);
             }
             else if (!string.IsNullOrEmpty(dateStr) && DateTimeOffset.TryParse(dateStr, out var parsedDate))
             {
-                emailAgeDays = Math.Max(0, (int)(DateTimeOffset.UtcNow - parsedDate).TotalDays);
-                _logger.LogDebug("Message {MessageId}: Date header '{DateStr}' → EmailAgeDays={Age}d (InternalDate absent)",
-                    msg.Id, dateStr, emailAgeDays);
+                receivedDateUtc = parsedDate.UtcDateTime;
+                _logger.LogDebug("Message {MessageId}: Date header '{DateStr}' → ReceivedDateUtc={Date:yyyy-MM-dd} (InternalDate absent)",
+                    msg.Id, dateStr, receivedDateUtc);
             }
             else
             {
-                _logger.LogWarning("Message {MessageId}: No InternalDate and Date header missing/unparseable ('{DateStr}') — EmailAgeDays will be 0",
+                _logger.LogWarning("Message {MessageId}: No InternalDate and Date header missing/unparseable ('{DateStr}') — ReceivedDateUtc will be null",
                     msg.Id, dateStr ?? "(null)");
             }
+
+            var emailAgeDays = receivedDateUtc.HasValue
+                ? Math.Max(0, (int)(DateTime.UtcNow - receivedDateUtc.Value).TotalDays)
+                : 0;
 
             // msg.Snippet is populated by the Gmail API even with format=METADATA
             var snippet = msg.Snippet;
@@ -724,6 +725,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 SenderDomain = senderDomain,
                 SubjectText = subject.Length > 1000 ? subject[..1000] : subject,
                 BodyTextShort = snippet?.Length > 500 ? snippet[..500] : snippet,
+                ReceivedDateUtc = receivedDateUtc,
                 EmailAgeDays = emailAgeDays,
                 IsInInbox = labelIds.Contains("INBOX") ? 1 : 0,
                 IsStarred = labelIds.Contains("STARRED") ? 1 : 0,

@@ -219,7 +219,16 @@ public class EmailFeatureVector
     // ============================================================
 
     /// <summary>
+    /// Absolute UTC timestamp when the email was received by the mail server.
+    /// Used to compute display age dynamically (now - ReceivedDateUtc).
+    /// Null for legacy rows migrated before this column was added.
+    /// </summary>
+    [Column("received_date_utc")]
+    public DateTime? ReceivedDateUtc { get; init; }
+
+    /// <summary>
     /// Days since email received (relative to extraction time).
+    /// Kept for ML feature compatibility; recomputed at training time.
     /// </summary>
     [Required]
     [Range(0, int.MaxValue)]

@@ -121,6 +121,7 @@ public class TrashMailPandaDbContext : DbContext
             entity.HasIndex(e => e.FeatureSchemaVersion).HasDatabaseName("idx_email_features_schema_version");
             entity.HasIndex(e => e.ExtractedAt).HasDatabaseName("idx_email_features_extracted_at");
             entity.HasIndex(e => e.UserCorrected).HasDatabaseName("idx_email_features_user_corrected");
+            entity.HasIndex(e => e.ReceivedDateUtc).HasDatabaseName("idx_email_features_received_date_utc");
         });
 
         // EmailArchiveEntry configuration

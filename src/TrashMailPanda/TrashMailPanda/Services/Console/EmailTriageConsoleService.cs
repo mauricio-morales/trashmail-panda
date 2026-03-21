@@ -109,8 +109,14 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                 // Check if the oldest available untriaged email has crossed the 5-year threshold.
                 // When batch[0] (the most recent untriaged) is 5+ years old, no newer emails remain.
                 // Trigger the re-triage transition: mix old unlabeled with archived re-evaluations.
+                // Use ReceivedDateUtc for accurate check; fall back to EmailAgeDays for legacy rows.
+                var oldestAgeDays = batch.Count > 0
+                    ? (batch[0].ReceivedDateUtc.HasValue
+                        ? (int)(DateTime.UtcNow - batch[0].ReceivedDateUtc.Value).TotalDays
+                        : batch[0].EmailAgeDays)
+                    : 0;
                 if (batch.Count > 0
-                    && batch[0].EmailAgeDays > EmailTriageService.OldEmailThresholdDays
+                    && oldestAgeDays > EmailTriageService.OldEmailThresholdDays
                     && !session.IsRetriagedPhase)
                 {
                     session.IsRetriagedPhase = true;
@@ -278,8 +284,11 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             .RuleStyle(isRetriage ? "yellow dim" : "dim");
         _console.Write(rule);
 
-        // Dynamic age: stored age at scan time + days since scan, so stale 0d entries still show a real age.
-        var displayAgeDays = feature.EmailAgeDays + (int)(DateTime.UtcNow - feature.ExtractedAt).TotalDays;
+        // Dynamic age: prefer the absolute received date (always correct);
+        // fall back to stored age + drift for legacy rows without ReceivedDateUtc.
+        var displayAgeDays = feature.ReceivedDateUtc.HasValue
+            ? Math.Max(0, (int)(DateTime.UtcNow - feature.ReceivedDateUtc.Value).TotalDays)
+            : feature.EmailAgeDays + (int)(DateTime.UtcNow - feature.ExtractedAt).TotalDays;
 
         // Re-triage badge: show previous label and re-evaluate prompt
         if (isRetriage)

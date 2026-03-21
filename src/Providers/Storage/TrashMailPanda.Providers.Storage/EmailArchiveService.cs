@@ -947,11 +947,13 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 // Only triage Inbox and Archive emails — Sent and Trash are definitive
                 // signals that don't belong in the manual triage queue.
                 // Order: Inbox first (priority 1), then Archive (priority 2),
-                // then by email recency (EmailAgeDays ASC = most recent first).
+                // then by email recency (ReceivedDateUtc DESC = most recent first,
+                // fall back to EmailAgeDays ASC for legacy rows without a date).
                 var results = await _context.EmailFeatures
                     .Where(f => f.TrainingLabel == null
                                 && (f.IsInInbox == 1 || f.IsArchived == 1))
                     .OrderBy(f => f.IsInInbox == 1 ? 0 : 1)
+                    .ThenByDescending(f => f.ReceivedDateUtc)
                     .ThenBy(f => f.EmailAgeDays)
                     .Skip(offset)
                     .Take(pageSize)
@@ -995,12 +997,17 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 // explicitly user-reviewed (user_corrected = 0). After re-triage the
                 // decision sets user_corrected = 1, removing them from future pages
                 // at offset 0 — the pool shrinks naturally without explicit paging.
+                // Use ReceivedDateUtc for the age filter when available; fall back to EmailAgeDays.
+                var cutoffDate = DateTime.UtcNow.AddDays(-maxAgeDays);
                 var results = await _context.EmailFeatures
                     .Where(f => f.TrainingLabel != null
                                 && f.IsArchived == 1
                                 && f.UserCorrected == 0
-                                && f.EmailAgeDays <= maxAgeDays)
-                    .OrderBy(f => f.EmailAgeDays)
+                                && (f.ReceivedDateUtc != null
+                                    ? f.ReceivedDateUtc >= cutoffDate
+                                    : f.EmailAgeDays <= maxAgeDays))
+                    .OrderByDescending(f => f.ReceivedDateUtc)
+                    .ThenBy(f => f.EmailAgeDays)
                     .Skip(offset)
                     .Take(pageSize)
                     .ToListAsync(ct);

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TrashMailPanda.Providers.Storage;
 
@@ -10,9 +11,11 @@ using TrashMailPanda.Providers.Storage;
 namespace TrashMailPanda.Providers.Storage.Migrations
 {
     [DbContext(typeof(TrashMailPandaDbContext))]
-    partial class TrashMailPandaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260321204730_ResetScanProgressForReceivedDateBackfill")]
+    partial class ResetScanProgressForReceivedDateBackfill
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.0");
