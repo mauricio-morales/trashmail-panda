@@ -1,3 +1,5 @@
+using TrashMailPanda.Shared.Models;
+
 namespace TrashMailPanda.Models.Console;
 
 /// <summary>
@@ -45,7 +47,7 @@ public class StartupSequenceState
         ProviderStates
             .Where(p => p.ProviderType == ProviderType.Required)
             .All(p => p.Status == InitializationStatus.Ready &&
-                     p.HealthStatus == Console.HealthStatus.Healthy);
+                     p.HealthStatus == HealthStatus.Healthy);
 
     /// <summary>
     /// Gets whether the application is ready for mode selection.

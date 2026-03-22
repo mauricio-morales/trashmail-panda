@@ -170,6 +170,35 @@ public sealed class EmailTriageConsoleServiceTests
         Assert.Equal(1, occurrences);
     }
 
+    /// <summary>Regression: Threshold prompt must NOT appear when the user already has enough labels at session start.</summary>
+    [Fact]
+    public async Task RunAsync_ThresholdAlreadyReachedBeforeSession_PromptNeverShown()
+    {
+        var triage = new Mock<IEmailTriageService>();
+        // 200 labels already, threshold is 100 — threshold was reached long ago
+        triage.Setup(t => t.GetSessionInfoAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageSessionInfo>.Success(ColdStartInfo(labeled: 200, threshold: 100)));
+
+        triage.SetupSequence(t => t.GetNextBatchAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector> { MakeVector("id-1") }))
+            .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
+                new List<EmailFeatureVector>()));
+
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
+
+        var keys = new Queue<ConsoleKeyInfo>([
+            new ConsoleKeyInfo('K', ConsoleKey.K, false, false, false), // label one email
+        ]);
+
+        var (svc, writer) = CreateService(triage, keys);
+        await svc.RunAsync("me");
+
+        var output = writer.ToString();
+        Assert.DoesNotContain("Training threshold reached", output);
+    }
+
     // ── T044 — AI-Assisted UI tests ───────────────────────────────────────────
 
     /// <summary>T044: In AI-assisted mode the recommendation and confidence score are rendered.</summary>

@@ -17,7 +17,9 @@ using TrashMailPanda.Providers.ML.Versioning;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
+#if AVALONIA_UI
 using TrashMailPanda.ViewModels;
+#endif
 
 namespace TrashMailPanda.Services;
 
@@ -54,8 +56,10 @@ public static class ServiceCollectionExtensions
         // Add application services
         services.AddApplicationServices();
 
+#if AVALONIA_UI
         // Add view models
         services.AddViewModels();
+#endif
 
         return services;
     }
@@ -224,12 +228,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TrashMailPanda.Services.Console.IConsoleHelpPanel,
             TrashMailPanda.Services.Console.ConsoleHelpPanel>();
 
+        // UI-agnostic service contracts (feature #061)
+        services.AddSingleton<IClassificationService, ClassificationService>();
+        services.AddSingleton<IApplicationOrchestrator, ApplicationOrchestrator>();
+        services.AddSingleton<TrashMailPanda.Services.Console.ConsoleEventRenderer>();
+
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
 
         return services;
     }
 
+#if AVALONIA_UI
     /// <summary>
     /// Add view models
     /// </summary>
@@ -261,6 +271,7 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+#endif
 
     /// <summary>
     /// Add the hosted service that will run the startup orchestration

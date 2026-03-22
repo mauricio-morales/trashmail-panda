@@ -1,4 +1,5 @@
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Models.Console;
 

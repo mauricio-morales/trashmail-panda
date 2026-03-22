@@ -51,21 +51,30 @@ public sealed class MLModelProvider : BaseProvider<MLModelProviderConfig>, IMLMo
         {
             // Ensure model directory exists
             Directory.CreateDirectory(config.ModelDirectory);
+            Logger.LogInformation("MLModelProvider initializing. Model directory: {ModelDir}", config.ModelDirectory);
 
             // Attempt to load the active model; a cold-start (no trained model) is acceptable
             var activeResult = await _versionRepository.GetActiveVersionAsync(ActionModelType);
             if (!activeResult.IsSuccess)
             {
                 Logger.LogWarning(
-                    "No active action model found (cold start): {Error}", activeResult.Error.Message);
+                    "MLModelProvider: No active action model found in DB (cold start) — rule-based fallback active. Error: {Error}",
+                    activeResult.Error.Message);
                 return Result<bool>.Success(true); // cold start is not a fatal error
             }
 
-            var filePath = activeResult.Value.FilePath;
+            var active = activeResult.Value;
+            Logger.LogInformation(
+                "MLModelProvider: Active model found in DB: modelId={ModelId} version={Version} algorithm={Algorithm} " +
+                "trainedOn={TrainingDate} samples={TrainingDataCount} accuracy={Accuracy:P2} f1={MacroF1:F4} filePath={FilePath}",
+                active.ModelId, active.Version, active.Algorithm, active.TrainingDate,
+                active.TrainingDataCount, active.Accuracy, active.MacroF1, active.FilePath);
+
+            var filePath = active.FilePath;
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             {
                 Logger.LogWarning(
-                    "Active model file not found on disk: {Path} — running in cold-start mode", filePath);
+                    "MLModelProvider: Active model file not found on disk: {Path} — running in cold-start mode", filePath);
                 return Result<bool>.Success(true);
             }
 
@@ -73,15 +82,15 @@ public sealed class MLModelProvider : BaseProvider<MLModelProviderConfig>, IMLMo
             if (!loadResult.IsSuccess)
             {
                 Logger.LogWarning(
-                    "Could not load active model from {Path}: {Error}",
+                    "MLModelProvider: Could not load active model from {Path}: {Error} — cold-start fallback active",
                     filePath, loadResult.Error.Message);
                 // Non-fatal — still returns success so app can start
             }
             else
             {
                 Logger.LogInformation(
-                    "Action model loaded: {ModelId} from {Path}",
-                    activeResult.Value.ModelId, filePath);
+                    "MLModelProvider: Model loaded successfully into classifier. ModelId={ModelId}, Path={Path}",
+                    active.ModelId, filePath);
             }
 
             return Result<bool>.Success(true);
@@ -124,6 +133,9 @@ public sealed class MLModelProvider : BaseProvider<MLModelProviderConfig>, IMLMo
         if (!_classifier.IsLoaded)
         {
             // Rule-based fallback: default to "Keep"
+            Logger.LogDebug(
+                "ClassifyAction [{EmailId}]: classifier not loaded (cold-start) — returning fallback Keep/50%",
+                input.EmailId);
             return Task.FromResult(Result<ActionPrediction>.Success(new ActionPrediction
             {
                 PredictedLabel = "Keep",
@@ -131,7 +143,16 @@ public sealed class MLModelProvider : BaseProvider<MLModelProviderConfig>, IMLMo
             }));
         }
 
+        Logger.LogDebug(
+            "ClassifyAction [{EmailId}]: using loaded model {ModelId}",
+            input.EmailId, _classifier.LoadedModelId);
         var result = _classifier.Classify(input);
+        if (result.IsSuccess)
+        {
+            Logger.LogDebug(
+                "ClassifyAction [{EmailId}]: prediction={Label} confidence={Confidence:P0}",
+                input.EmailId, result.Value.PredictedLabel, result.Value.Confidence);
+        }
         return Task.FromResult(result);
     }
 
@@ -256,6 +277,9 @@ public sealed class MLModelProvider : BaseProvider<MLModelProviderConfig>, IMLMo
         CancellationToken cancellationToken = default)
     {
         var mode = _classifier.IsLoaded ? ClassificationMode.MlPrimary : ClassificationMode.ColdStart;
+        Logger.LogDebug(
+            "GetClassificationMode: mode={Mode} (classifier loaded={IsLoaded}, modelId={ModelId})",
+            mode, _classifier.IsLoaded, _classifier.LoadedModelId ?? "none");
         return Task.FromResult(Result<ClassificationMode>.Success(mode));
     }
 }

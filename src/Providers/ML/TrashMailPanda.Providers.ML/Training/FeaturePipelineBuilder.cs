@@ -118,6 +118,7 @@ public sealed class FeaturePipelineBuilder
             .Append(normalizePipeline)
             .Append(labelPipeline)
             .Append(concatPipeline)
-            .Append(trainer);
+            .Append(trainer)
+            .Append(mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
     }
 }

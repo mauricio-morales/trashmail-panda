@@ -10,6 +10,8 @@ using TrashMailPanda.Shared.Security;
 using TrashMailPanda.Providers.Email;
 using TrashMailPanda.Providers.Email.Models;
 using TrashMailPanda.Providers.Storage;
+using TrashMailPanda.Providers.ML;
+using TrashMailPanda.Providers.ML.Config;
 
 namespace TrashMailPanda.Services.Console;
 
@@ -21,6 +23,8 @@ public class ConsoleStartupOrchestrator
 {
     private readonly IStorageProvider _storageProvider;
     private readonly IEmailProvider _emailProvider;
+    private readonly IMLModelProvider _mlModelProvider;
+    private readonly MLModelProviderConfig _mlModelConfig;
     private readonly ISecureStorageManager _secureStorage;
     private readonly TrashMailPandaDbContext _dbContext;
     private readonly ConsoleStatusDisplay _statusDisplay;
@@ -37,6 +41,8 @@ public class ConsoleStartupOrchestrator
     public ConsoleStartupOrchestrator(
         IStorageProvider storageProvider,
         IEmailProvider emailProvider,
+        IMLModelProvider mlModelProvider,
+        MLModelProviderConfig mlModelConfig,
         ISecureStorageManager secureStorage,
         TrashMailPandaDbContext dbContext,
         ConsoleStatusDisplay statusDisplay,
@@ -46,6 +52,8 @@ public class ConsoleStartupOrchestrator
     {
         _storageProvider = storageProvider ?? throw new ArgumentNullException(nameof(storageProvider));
         _emailProvider = emailProvider ?? throw new ArgumentNullException(nameof(emailProvider));
+        _mlModelProvider = mlModelProvider ?? throw new ArgumentNullException(nameof(mlModelProvider));
+        _mlModelConfig = mlModelConfig ?? throw new ArgumentNullException(nameof(mlModelConfig));
         _secureStorage = secureStorage ?? throw new ArgumentNullException(nameof(secureStorage));
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _statusDisplay = statusDisplay ?? throw new ArgumentNullException(nameof(statusDisplay));
@@ -74,7 +82,8 @@ public class ConsoleStartupOrchestrator
                 ProviderStates = new List<ProviderInitializationState>
                 {
                     new() { ProviderName = "Storage", ProviderType = ProviderType.Required },
-                    new() { ProviderName = "Gmail", ProviderType = ProviderType.Required }
+                    new() { ProviderName = "Gmail", ProviderType = ProviderType.Required },
+                    new() { ProviderName = "MLModel", ProviderType = ProviderType.Optional }
                 },
                 StartTime = DateTime.UtcNow
             };
@@ -126,6 +135,9 @@ public class ConsoleStartupOrchestrator
                     }
                 }
             }
+
+            // Initialize ML model provider (optional — cold-start is acceptable if no model trained yet)
+            await InitializeProviderAsync(_mlModelProvider, 2, _cancellationTokenSource.Token);
 
             // Determine overall status
             _sequenceState.CompletionTime = DateTime.UtcNow;
@@ -228,6 +240,19 @@ public class ConsoleStartupOrchestrator
                     }
                 }
             }
+            else if (provider is IMLModelProvider mlModelProvider)
+            {
+                var initResult = await mlModelProvider.InitializeAsync(_mlModelConfig, linkedCts.Token);
+                if (!initResult.IsSuccess)
+                {
+                    state.Status = InitializationStatus.Failed;
+                    state.Error = initResult.Error;
+                    state.CompletionTime = DateTime.UtcNow;
+                    _statusDisplay.DisplayProviderFailed(state);
+                    _logger.LogError("MLModel provider initialization failed: {Error}", initResult.Error?.Message);
+                    return;
+                }
+            }
             else
             {
                 throw new InvalidOperationException($"Unknown provider type: {provider.GetType().Name}");
@@ -284,7 +309,7 @@ public class ConsoleStartupOrchestrator
             // IStorageProvider has no health check - mark as healthy
             if (provider is IStorageProvider)
             {
-                state.HealthStatus = Models.Console.HealthStatus.Healthy;
+                state.HealthStatus = HealthStatus.Healthy;
                 state.Status = InitializationStatus.Ready;
                 _statusDisplay.DisplayHealthCheckStatus(state);
                 return;
@@ -298,7 +323,7 @@ public class ConsoleStartupOrchestrator
                 if (!healthResult.IsSuccess || !healthResult.Value)
                 {
                     state.Status = InitializationStatus.Failed;
-                    state.HealthStatus = Models.Console.HealthStatus.Critical;
+                    state.HealthStatus = HealthStatus.Critical;
                     state.Error = healthResult.Error;
 
                     _statusDisplay.DisplayProviderFailed(state);
@@ -308,15 +333,41 @@ public class ConsoleStartupOrchestrator
                 }
 
                 // Health check passed
-                state.HealthStatus = Models.Console.HealthStatus.Healthy;
+                state.HealthStatus = HealthStatus.Healthy;
                 state.Status = InitializationStatus.Ready;
+                _statusDisplay.DisplayHealthCheckStatus(state);
+                return;
+            }
+
+            // IMLModelProvider health check — Degraded (cold-start) is acceptable
+            if (provider is IMLModelProvider mlModelProvider)
+            {
+                var healthResult = await mlModelProvider.HealthCheckAsync(cancellationToken);
+                if (healthResult.IsSuccess)
+                {
+                    var hr = healthResult.Value;
+                    state.HealthStatus = hr.Status;
+                    // Degraded = cold start (no model trained yet) — still mark Ready so app can run
+                    state.Status = (hr.Status is HealthStatus.Critical or HealthStatus.Unhealthy)
+                        ? InitializationStatus.Failed
+                        : InitializationStatus.Ready;
+                    _logger.LogInformation(
+                        "MLModel provider health: {Status} — {Description}",
+                        hr.Status, hr.Description);
+                }
+                else
+                {
+                    state.HealthStatus = HealthStatus.Unknown;
+                    state.Status = InitializationStatus.Ready; // non-fatal
+                    _logger.LogWarning("MLModel provider health check returned error: {Error}", healthResult.Error?.Message);
+                }
                 _statusDisplay.DisplayHealthCheckStatus(state);
             }
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
             state.Status = InitializationStatus.Timeout;
-            state.HealthStatus = Models.Console.HealthStatus.Unknown;
+            state.HealthStatus = HealthStatus.Unknown;
             state.Error = new TimeoutError("Health check exceeded 10 second timeout");
 
             _statusDisplay.DisplayProviderFailed(state);

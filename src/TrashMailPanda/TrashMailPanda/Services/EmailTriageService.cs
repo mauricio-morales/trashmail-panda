@@ -151,7 +151,16 @@ public sealed class EmailTriageService : IEmailTriageService
             return Result<ActionPrediction?>.Success(null);
 
         if (sessionInfo.Value.Mode == TriageMode.ColdStart)
+        {
+            _logger.LogDebug(
+                "GetAiRecommendation [{EmailId}]: skipped — triage mode is ColdStart (no ML model loaded)",
+                feature.EmailId);
             return Result<ActionPrediction?>.Success(null);
+        }
+
+        _logger.LogDebug(
+            "GetAiRecommendation [{EmailId}]: requesting prediction (mode={Mode})",
+            feature.EmailId, sessionInfo.Value.Mode);
 
         var predResult = await _mlProvider.ClassifyActionAsync(feature, cancellationToken);
         if (!predResult.IsSuccess)
@@ -160,6 +169,10 @@ public sealed class EmailTriageService : IEmailTriageService
                 feature.EmailId, predResult.Error.Message);
             return Result<ActionPrediction?>.Success(null);
         }
+
+        _logger.LogDebug(
+            "GetAiRecommendation [{EmailId}]: result={Label} confidence={Confidence:P0}",
+            feature.EmailId, predResult.Value.PredictedLabel, predResult.Value.Confidence);
 
         return Result<ActionPrediction?>.Success(predResult.Value);
     }
@@ -255,6 +268,7 @@ public sealed class EmailTriageService : IEmailTriageService
             "Archive" => await ApplyArchiveAsync(emailId, cancellationToken),
             "archive-then-delete-30d" => await ApplyArchiveAsync(emailId, cancellationToken),
             "archive-then-delete-1y" => await ApplyArchiveAsync(emailId, cancellationToken),
+            "archive-then-delete-5y" => await ApplyArchiveAsync(emailId, cancellationToken),
             "Delete" => await ApplyDeleteAsync(emailId, cancellationToken),
             "Spam" => await _emailProvider.ReportSpamAsync(emailId),
             _ => Result<bool>.Failure(new ValidationError($"Unknown triage action: '{action}'"))

@@ -52,11 +52,17 @@ public sealed class ActionModelTrainer
                     new ValidationError($"Training requires at least 2 distinct action classes; found {labelCounts.Count}."));
             }
 
-            // Compute class weights (inverse frequency)
+            // Log class distribution so we can see if data is imbalanced
+            var totalSamples = labelCounts.Values.Sum();
+            foreach (var (label, count) in labelCounts.OrderByDescending(kv => kv.Value))
+            {
+                _logger.LogInformation(
+                    "Training data class: {Label} = {Count} samples ({Pct:P1})",
+                    label, count, (double)count / totalSamples);
+            }
             var weightedData = AddInverseFrequencyWeights(mlContext, trainingData, labelCounts);
 
             // Select trainer based on class imbalance
-            var totalSamples = labelCounts.Values.Sum();
             var maxClassCount = labelCounts.Values.Max();
             var dominantRatio = (double)maxClassCount / totalSamples;
 

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using Spectre.Console;
 using TrashMailPanda.Models.Console;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Services.Console;
 
@@ -163,9 +164,9 @@ public class ConsoleStatusDisplay
 
         var status = state.HealthStatus switch
         {
-            Models.Console.HealthStatus.Healthy => $"{ConsoleColors.Success}✓ Healthy{ConsoleColors.Close}",
-            Models.Console.HealthStatus.Degraded => $"{ConsoleColors.Warning}⚠ Degraded{ConsoleColors.Close}",
-            Models.Console.HealthStatus.Critical => $"{ConsoleColors.Error}✗ Critical{ConsoleColors.Close}",
+            HealthStatus.Healthy => $"{ConsoleColors.Success}✓ Healthy{ConsoleColors.Close}",
+            HealthStatus.Degraded => $"{ConsoleColors.Warning}⚠ Degraded{ConsoleColors.Close}",
+            HealthStatus.Unhealthy or HealthStatus.Critical => $"{ConsoleColors.Error}✗ Critical{ConsoleColors.Close}",
             _ => $"{ConsoleColors.Dim}? Unknown{ConsoleColors.Close}"
         };
 
