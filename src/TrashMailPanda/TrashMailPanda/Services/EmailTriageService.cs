@@ -268,6 +268,7 @@ public sealed class EmailTriageService : IEmailTriageService
             "Archive" => await ApplyArchiveAsync(emailId, cancellationToken),
             "archive-then-delete-30d" => await ApplyArchiveAsync(emailId, cancellationToken),
             "archive-then-delete-1y" => await ApplyArchiveAsync(emailId, cancellationToken),
+            "archive-then-delete-5y" => await ApplyArchiveAsync(emailId, cancellationToken),
             "Delete" => await ApplyDeleteAsync(emailId, cancellationToken),
             "Spam" => await _emailProvider.ReportSpamAsync(emailId),
             _ => Result<bool>.Failure(new ValidationError($"Unknown triage action: '{action}'"))

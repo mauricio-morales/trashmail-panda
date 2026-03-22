@@ -63,6 +63,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             Mode = info.Mode,
             LabeledCount = info.LabeledCount,
             LabelingThreshold = info.LabelingThreshold,
+            // Suppress the threshold prompt if the user already crossed it before this session
+            ThresholdPromptShownThisSession = info.ThresholdAlreadyReached,
         };
 
         RenderSessionHeader(session);
@@ -474,6 +476,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             action = "archive-then-delete-30d";
         else if (key == '2')
             action = "archive-then-delete-1y";
+        else if (key == '3')
+            action = "archive-then-delete-5y";
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter) && isRetriage && feature.TrainingLabel is not null)
             action = feature.TrainingLabel; // Confirm previous label during re-triage
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter)
@@ -631,6 +635,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         table.AddRow("Archive", summary.ArchiveCount.ToString());
         table.AddRow("Archive→30d", summary.ArchiveThenDelete30dCount.ToString());
         table.AddRow("Archive→1y", summary.ArchiveThenDelete1yCount.ToString());
+        table.AddRow("Archive→5y", summary.ArchiveThenDelete5yCount.ToString());
         table.AddRow("Delete", summary.DeleteCount.ToString());
         table.AddRow("Spam", summary.SpamCount.ToString());
         table.AddRow("[dim]─────[/]", "[dim]────[/]");
@@ -658,6 +663,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         session.ActionCounts.TryGetValue("Archive", out var archive);
         session.ActionCounts.TryGetValue("archive-then-delete-30d", out var archiveThenDelete30d);
         session.ActionCounts.TryGetValue("archive-then-delete-1y", out var archiveThenDelete1y);
+        session.ActionCounts.TryGetValue("archive-then-delete-5y", out var archiveThenDelete5y);
         session.ActionCounts.TryGetValue("Delete", out var delete);
         session.ActionCounts.TryGetValue("Spam", out var spam);
 
@@ -667,6 +673,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             ArchiveCount: archive,
             ArchiveThenDelete30dCount: archiveThenDelete30d,
             ArchiveThenDelete1yCount: archiveThenDelete1y,
+            ArchiveThenDelete5yCount: archiveThenDelete5y,
             DeleteCount: delete,
             SpamCount: spam,
             OverrideCount: session.SessionOverrideCount,
