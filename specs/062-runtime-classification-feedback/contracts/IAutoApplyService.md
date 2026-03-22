@@ -21,13 +21,14 @@ namespace TrashMailPanda.Services;
 public interface IAutoApplyService
 {
     /// <summary>
-    /// Loads persisted auto-apply configuration from secure storage.
+    /// Loads persisted auto-apply configuration from ProcessingSettings
+    /// via IConfigurationService (app_config SQLite KV table).
     /// Called once at session start.
     /// </summary>
     Task<Result<AutoApplyConfig>> GetConfigAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Persists updated auto-apply configuration to secure storage (FR-023).
+    /// Persists updated auto-apply configuration via IConfigurationService (FR-023).
     /// </summary>
     Task<Result<bool>> SaveConfigAsync(AutoApplyConfig config, CancellationToken ct = default);
 
@@ -80,4 +81,4 @@ services.AddSingleton<IAutoApplyService, AutoApplyService>();
 - `ShouldAutoApply` is pure logic — no side effects, no DB calls
 - `IsActionRedundant` checks feature flags: if `recommendedAction == "Archive"` and `IsArchived == 1`, the action is redundant
 - Session log is in-memory (`List<AutoApplyLogEntry>`) — not persisted beyond session lifetime
-- Config persistence uses `ISecureStorageManager.StoreAsync("autoapply_enabled", ...)` and `StoreAsync("autoapply_threshold", ...)`
+- Config persistence uses `IConfigurationService.UpdateProcessingSettingsAsync()` — stored as JSON in the `app_config` SQLite KV table under the `"ProcessingSettings"` key. NOT `ISecureStorageManager` (that's for encrypted secrets only).

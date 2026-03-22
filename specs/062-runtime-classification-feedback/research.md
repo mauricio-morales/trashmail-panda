@@ -49,30 +49,51 @@ Thorough codebase exploration revealed that ~60% of the spec's underlying infras
 
 ## R2: Where should auto-apply configuration live?
 
-### Decision: New `AutoApplyConfig` class registered in DI, persisted via `ISecureStorageManager`
+### Decision: New `AutoApplyConfig` nested under `ProcessingSettings`, persisted via existing `IConfigurationService` / `app_config` SQLite KV table
 
 ### Rationale
 
-The existing `MLModelProviderConfig` handles ML model parameters. Auto-apply is a user-facing triage preference, not a model parameter. Separating it:
-- Follows the existing pattern where each concern has its own config class
-- Auto-apply settings must persist across sessions (FR-023) via the existing secure storage
-- Keeps the ML provider config focused on model training
+The codebase already has a clean separation:
+- **`ISecureStorageManager`** — encrypted OS keychain for secrets (tokens, API keys). NOT appropriate for simple user preferences.
+- **`AppConfig` + `IConfigurationService`** — simple `app_config` SQLite KV table for user settings (`ConnectionState`, `ProcessingSettings`, `UISettings`). Each group is JSON-serialized into one row.
+
+Auto-apply is a user-facing triage preference (enabled flag + confidence threshold). It belongs in `ProcessingSettings` alongside existing settings like `BatchSize` and `AutoProcessNewEmails`. This:
+- Reuses the existing persistence pattern (no new storage mechanism)
+- Keeps secrets in keychain and preferences in SQLite where they belong
+- Auto-apply settings persist across sessions (FR-023) via `IConfigurationService.UpdateProcessingSettingsAsync`
 
 ### Config Shape
+
+Extend `ProcessingSettings` with auto-apply fields:
+
+```csharp
+// In ProcessingSettings.cs (existing file)
+public bool AutoApplyEnabled { get; set; } = false;  // FR-002: disabled by default
+
+[Range(0.50, 1.00)]
+public float AutoApplyConfidenceThreshold { get; set; } = 0.95f;  // FR-001: 95% default
+```
+
+Alternatively, a nested `AutoApplyConfig` record on `ProcessingSettings`:
 
 ```csharp
 public sealed class AutoApplyConfig
 {
-    public bool Enabled { get; set; } = false;  // FR-002: disabled by default
+    public bool Enabled { get; set; } = false;
     [Range(0.50, 1.00)]
-    public float ConfidenceThreshold { get; set; } = 0.95f;  // FR-001: 95% default
+    public float ConfidenceThreshold { get; set; } = 0.95f;
 }
+
+// In ProcessingSettings:
+public AutoApplyConfig AutoApply { get; set; } = new();
 ```
 
 ### Alternatives Considered
 
-- **Add to MLModelProviderConfig**: Rejected — auto-apply is a UI concern, not a model parameter
-- **Store in appsettings.json**: Rejected — user modifies at runtime; needs persistence via secure storage
+- **Store in `ISecureStorageManager`**: Rejected — that's for encrypted secrets (tokens, API keys), not simple user preferences. Over-secured and wrong abstraction.
+- **Add to `MLModelProviderConfig`**: Rejected — auto-apply is a user preference, not a model parameter
+- **Store in `appsettings.json`**: Rejected — user modifies at runtime; needs persistence in SQLite
+- **New standalone config table**: Rejected — `app_config` KV table already exists and handles this pattern
 
 ---
 
@@ -127,7 +148,7 @@ This avoids background timers and keeps the system simple. The existing `EmailTr
 
 ## R5: What's the best approach for the bootstrap Starred/Important gap?
 
-### Decision: Add a post-scan label inference step in `GmailTrainingDataService` that converts IsStarred/IsImportant features to "Keep" training labels
+### Decision: Add a post-scan label inference step in `GmailTrainingDataService` that converts IsStarred/IsImportant features to "Keep" training labels, and run the same SQL as a migration for existing installs
 
 ### Rationale
 
@@ -143,8 +164,11 @@ Solution: Add a post-scan step in the bootstrap flow that runs:
 UPDATE email_features
 SET training_label = 'Keep', user_corrected = 0
 WHERE (is_starred = 1 OR is_important = 1)
-  AND training_label IS NULL
+  AND training_label IS NULL;
 ```
+
+**Migration for existing installs:**
+Because the initial scan may have already run for current users, this SQL must also be executed as a one-time migration step to ensure all existing emails with Starred/Important are labeled correctly. Integrate this into the next database migration or provide a one-off script for users to run after updating.
 
 This preserves:
 - Existing `TrainingSignalAssigner` logic (no modification needed)

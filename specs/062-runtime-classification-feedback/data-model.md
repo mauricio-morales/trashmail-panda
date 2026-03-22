@@ -48,7 +48,7 @@ Extend with auto-apply counts (see below).
 | `Enabled` | `bool` | `false` | — | FR-002: disabled by default |
 | `ConfidenceThreshold` | `float` | `0.95f` | `[Range(0.50, 1.00)]` | FR-001: minimum confidence for auto-apply |
 
-**Storage**: Persisted via `ISecureStorageManager` with keys `autoapply_enabled` and `autoapply_threshold`.
+**Storage**: Persisted as a nested object on `ProcessingSettings` via `IConfigurationService.UpdateProcessingSettingsAsync()`. Stored in the `app_config` SQLite KV table as JSON under the `"ProcessingSettings"` key. **NOT** in `ISecureStorageManager` — that's reserved for encrypted secrets (tokens, API keys).
 
 **State transitions**:
 - `Enabled: false` → User explicitly enables → `Enabled: true`
@@ -163,7 +163,7 @@ Extend with auto-apply counts (see below).
 ## Relationships
 
 ```
-AutoApplyConfig ─── persisted via ──→ ISecureStorageManager
+AutoApplyConfig ─── persisted via ──→ IConfigurationService (app_config SQLite KV table)
        │
        │ read at session start
        ▼

@@ -26,7 +26,7 @@ Add confidence-based auto-apply, model quality monitoring, bootstrap Starred/Imp
 ### I. Provider-Agnostic Architecture — PASS
 - New services (`IAutoApplyService`, `IModelQualityMonitor`, `IAutoApplyUndoService`) are interfaces with DI registration
 - No direct dependency on Gmail API — delegates to existing `IEmailProvider` and `IEmailArchiveService`
-- Auto-apply config persisted via existing `ISecureStorageManager` abstraction
+- Auto-apply config persisted via existing `IConfigurationService` / `app_config` SQLite KV table (not `ISecureStorageManager` — that's for encrypted secrets only)
 
 ### II. Result Pattern (NON-NEGOTIABLE) — PASS
 - All async service methods return `Result<T>`

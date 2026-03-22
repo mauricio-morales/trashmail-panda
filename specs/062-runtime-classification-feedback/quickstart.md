@@ -77,6 +77,7 @@ Four new capabilities on top of the existing triage infrastructure:
 | `EmailTriageSession.cs` | Add `AutoApplyLog`, `AutoAppliedCount`, `RollingDecisions` fields |
 | `TriageSessionSummary.cs` | Add `AutoAppliedCount`, `ManuallyReviewedCount` fields |
 | `ServiceCollectionExtensions.cs` | Register new services in DI |
+| `ProcessingSettings.cs` | Add AutoApply nested config property |
 | `GmailTrainingDataService.cs` | Add post-scan Starred/Important → Keep label inference |
 
 ## Key Integration Points
@@ -129,7 +130,7 @@ if (warning?.Value != null)
     if (warning.Value.AutoApplyDisabled)
     {
         autoApplyConfig.Enabled = false;
-        await _autoApplyService.SaveConfigAsync(autoApplyConfig, ct);
+        await _configService.UpdateProcessingSettingsAsync(processingSettings, ct);
     }
 }
 ```
