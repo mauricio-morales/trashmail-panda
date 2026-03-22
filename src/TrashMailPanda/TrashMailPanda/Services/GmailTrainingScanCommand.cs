@@ -217,7 +217,10 @@ public sealed class GmailTrainingScanCommand
         table.AddRow("Low-confidence signals", $"[dim]{s.LowConfidenceCount:N0}[/]");
         table.AddRow("Excluded", $"[dim]{s.ExcludedCount:N0}[/]");
         table.AddRow("Labels imported", $"[cyan]{s.LabelsImported:N0}[/]");
-        table.AddRow("Duration", $"[blue]{s.Duration:mm\\:ss}[/]");
+        var durationStr = s.Duration.TotalHours >= 1
+            ? $"{(int)s.Duration.TotalHours:D2}:{s.Duration.Minutes:D2}:{s.Duration.Seconds:D2}"
+            : $"{s.Duration:mm\\:ss}";
+        table.AddRow("Duration", $"[blue]{durationStr}[/]");
 
         AnsiConsole.Write(table);
     }
