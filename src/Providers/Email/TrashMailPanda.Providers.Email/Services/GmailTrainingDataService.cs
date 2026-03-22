@@ -727,7 +727,10 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 BodyTextShort = snippet?.Length > 500 ? snippet[..500] : snippet,
                 ReceivedDateUtc = receivedDateUtc,
                 EmailAgeDays = emailAgeDays,
-                IsInInbox = labelIds.Contains("INBOX") ? 1 : 0,
+                // Self-sent emails (To: yourself) get both SENT and INBOX labels from Gmail.
+                // Use the canonical folder to determine IsInInbox — if the authoritative folder
+                // is SENT or DRAFT, this email does not belong in the triage queue.
+                IsInInbox = (folderName != "SENT" && folderName != "DRAFT") && labelIds.Contains("INBOX") ? 1 : 0,
                 IsStarred = labelIds.Contains("STARRED") ? 1 : 0,
                 IsImportant = labelIds.Contains("IMPORTANT") ? 1 : 0,
                 WasInSpam = folderName == "SPAM" ? 1 : 0,

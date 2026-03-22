@@ -19,7 +19,7 @@
 
 **Purpose**: Establish baseline build before any changes
 
-- [ ] T001 Verify the solution builds cleanly with `dotnet build` and note any pre-existing warnings
+- [x] T001 Verify the solution builds cleanly with `dotnet build` and note any pre-existing warnings
 
 ---
 
@@ -31,11 +31,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T002 [P] [US1] Create `ReasoningSource` enum (`ML`, `RuleBased`) in `src/TrashMailPanda/TrashMailPanda/Models/ReasoningSource.cs`
-- [ ] T003 [P] [US1] Create `ClassificationResult` sealed record (`EmailId`, `PredictedAction`, `Confidence`, `ReasoningSource`) in `src/TrashMailPanda/TrashMailPanda/Models/ClassificationResult.cs`
-- [ ] T004 [US1] Create `IClassificationService` interface with `ClassifySingleAsync`, `ClassifyBatchAsync`, and `GetClassificationModeAsync` in `src/TrashMailPanda/TrashMailPanda/Services/IClassificationService.cs` — use contract from `specs/061-backend-ui-abstraction/contracts/IClassificationService.cs`
-- [ ] T005 [US1] Implement `ClassificationService` wrapping `IMLModelProvider`: delegate to `ClassifyActionAsync`/`ClassifyActionBatchAsync`, map `ActionPrediction` → `ClassificationResult`, handle empty input (return empty list), cold-start fallback (rule-based with `ReasoningSource.RuleBased`), in `src/TrashMailPanda/TrashMailPanda/Services/ClassificationService.cs`
-- [ ] T006 [US1] Register `IClassificationService` → `ClassificationService` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs` inside `AddApplicationServices()`
+- [x] T002 [P] [US1] Create `ReasoningSource` enum (`ML`, `RuleBased`) in `src/TrashMailPanda/TrashMailPanda/Models/ReasoningSource.cs`
+- [x] T003 [P] [US1] Create `ClassificationResult` sealed record (`EmailId`, `PredictedAction`, `Confidence`, `ReasoningSource`) in `src/TrashMailPanda/TrashMailPanda/Models/ClassificationResult.cs`
+- [x] T004 [US1] Create `IClassificationService` interface with `ClassifySingleAsync`, `ClassifyBatchAsync`, and `GetClassificationModeAsync` in `src/TrashMailPanda/TrashMailPanda/Services/IClassificationService.cs` — use contract from `specs/061-backend-ui-abstraction/contracts/IClassificationService.cs`
+- [x] T005 [US1] Implement `ClassificationService` wrapping `IMLModelProvider`: delegate to `ClassifyActionAsync`/`ClassifyActionBatchAsync`, map `ActionPrediction` → `ClassificationResult`, handle empty input (return empty list), cold-start fallback (rule-based with `ReasoningSource.RuleBased`), in `src/TrashMailPanda/TrashMailPanda/Services/ClassificationService.cs`
+- [x] T006 [US1] Register `IClassificationService` → `ClassificationService` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs` inside `AddApplicationServices()`
 
 **Checkpoint**: `IClassificationService` is injectable and functional. `ClassifyBatchAsync` returns results with reasoning attribution. No Avalonia or console references in the service.
 
@@ -49,19 +49,19 @@
 
 ### Models for User Story 2
 
-- [ ] T007 [US2] Create abstract base `ApplicationEvent` record (`Timestamp`, `EventType`) in `src/TrashMailPanda/TrashMailPanda/Models/ApplicationEvent.cs`
-- [ ] T008 [P] [US2] Create `ApplicationEventArgs` sealed class (wraps `ApplicationEvent`) in `src/TrashMailPanda/TrashMailPanda/Models/ApplicationEventArgs.cs`
-- [ ] T009 [P] [US2] Create `ModeSelectionRequestedEvent` sealed record (`AvailableModes: IReadOnlyList<OperationalMode>`) in `src/TrashMailPanda/TrashMailPanda/Models/ModeSelectionRequestedEvent.cs`
-- [ ] T010 [P] [US2] Create `BatchProgressEvent` sealed record (`ProcessedCount`, `TotalCount`, `EstimatedSecondsRemaining`) in `src/TrashMailPanda/TrashMailPanda/Models/BatchProgressEvent.cs`
-- [ ] T011 [P] [US2] Create `ProviderStatusChangedEvent` sealed record (`ProviderName`, `IsHealthy`, `StatusMessage?`) in `src/TrashMailPanda/TrashMailPanda/Models/ProviderStatusChangedEvent.cs` — note: distinct from existing `ProviderStatusChangedEventArgs` in Services namespace
-- [ ] T012 [P] [US2] Create `ApplicationWorkflowCompletedEvent` sealed record (`ExitCode`, `Reason`) in `src/TrashMailPanda/TrashMailPanda/Models/ApplicationWorkflowCompletedEvent.cs`
+- [x] T007 [US2] Create abstract base `ApplicationEvent` record (`Timestamp`, `EventType`) in `src/TrashMailPanda/TrashMailPanda/Models/ApplicationEvent.cs`
+- [x] T008 [P] [US2] Create `ApplicationEventArgs` sealed class (wraps `ApplicationEvent`) in `src/TrashMailPanda/TrashMailPanda/Models/ApplicationEventArgs.cs`
+- [x] T009 [P] [US2] Create `ModeSelectionRequestedEvent` sealed record (`AvailableModes: IReadOnlyList<OperationalMode>`) in `src/TrashMailPanda/TrashMailPanda/Models/ModeSelectionRequestedEvent.cs`
+- [x] T010 [P] [US2] Create `BatchProgressEvent` sealed record (`ProcessedCount`, `TotalCount`, `EstimatedSecondsRemaining`) in `src/TrashMailPanda/TrashMailPanda/Models/BatchProgressEvent.cs`
+- [x] T011 [P] [US2] Create `ProviderStatusChangedEvent` sealed record (`ProviderName`, `IsHealthy`, `StatusMessage?`) in `src/TrashMailPanda/TrashMailPanda/Models/ProviderStatusChangedEvent.cs` — note: distinct from existing `ProviderStatusChangedEventArgs` in Services namespace
+- [x] T012 [P] [US2] Create `ApplicationWorkflowCompletedEvent` sealed record (`ExitCode`, `Reason`) in `src/TrashMailPanda/TrashMailPanda/Models/ApplicationWorkflowCompletedEvent.cs`
 
 ### Services for User Story 2
 
-- [ ] T013 [US2] Create `IApplicationOrchestrator` interface with `RunAsync(CancellationToken)`, `IsRunning`, and `ApplicationEventRaised` event in `src/TrashMailPanda/TrashMailPanda/Services/IApplicationOrchestrator.cs` — use contract from `specs/061-backend-ui-abstraction/contracts/IApplicationOrchestrator.cs`
-- [ ] T014 [US2] Implement `ApplicationOrchestrator` extracting the following from `Program.cs`: setup wizard check, `ConsoleStartupOrchestrator.InitializeProvidersAsync()`, `HandleStartupTrainingSyncAsync`, mode-selection loop via `ModeSelectionMenu`, mode dispatch to `IEmailTriageConsoleService`/`IBulkOperationConsoleService`/`IProviderSettingsConsoleService`/`TrainingConsoleService`, graceful shutdown on cancellation, duplicate-run guard (`IsRunning`), and event emission with try/catch per subscriber — in `src/TrashMailPanda/TrashMailPanda/Services/ApplicationOrchestrator.cs`
-- [ ] T015 [US2] Refactor `Program.cs` to: keep host builder + DI + Serilog setup, remove `HandleStartupTrainingSyncAsync` and `HandleModeSelectionAsync` methods (moved to orchestrator), resolve `IApplicationOrchestrator`, call `await orchestrator.RunAsync(ct)`, return exit code — in `src/TrashMailPanda/TrashMailPanda/Program.cs`
-- [ ] T016 [US2] Register `IApplicationOrchestrator` → `ApplicationOrchestrator` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
+- [x] T013 [US2] Create `IApplicationOrchestrator` interface with `RunAsync(CancellationToken)`, `IsRunning`, and `ApplicationEventRaised` event in `src/TrashMailPanda/TrashMailPanda/Services/IApplicationOrchestrator.cs` — use contract from `specs/061-backend-ui-abstraction/contracts/IApplicationOrchestrator.cs`
+- [x] T014 [US2] Implement `ApplicationOrchestrator` extracting the following from `Program.cs`: setup wizard check, `ConsoleStartupOrchestrator.InitializeProvidersAsync()`, `HandleStartupTrainingSyncAsync`, mode-selection loop via `ModeSelectionMenu`, mode dispatch to `IEmailTriageConsoleService`/`IBulkOperationConsoleService`/`IProviderSettingsConsoleService`/`TrainingConsoleService`, graceful shutdown on cancellation, duplicate-run guard (`IsRunning`), and event emission with try/catch per subscriber — in `src/TrashMailPanda/TrashMailPanda/Services/ApplicationOrchestrator.cs`
+- [x] T015 [US2] Refactor `Program.cs` to: keep host builder + DI + Serilog setup, remove `HandleStartupTrainingSyncAsync` and `HandleModeSelectionAsync` methods (moved to orchestrator), resolve `IApplicationOrchestrator`, call `await orchestrator.RunAsync(ct)`, return exit code — in `src/TrashMailPanda/TrashMailPanda/Program.cs`
+- [x] T016 [US2] Register `IApplicationOrchestrator` → `ApplicationOrchestrator` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
 
 **Checkpoint**: `Program.cs` is a thin launcher. `ApplicationOrchestrator` drives the full workflow. Events fire for mode selection, provider status, and workflow completion. Application runs identically to before from the user's perspective.
 
@@ -75,9 +75,9 @@
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] Implement `ConsoleEventRenderer` that subscribes to `IApplicationOrchestrator.ApplicationEventRaised` and pattern-matches on event types to render with Spectre.Console: `ModeSelectionRequestedEvent` → log available modes, `BatchProgressEvent` → update progress display, `ProviderStatusChangedEvent` → show health status, `ApplicationWorkflowCompletedEvent` → exit summary — in `src/TrashMailPanda/TrashMailPanda/Services/Console/ConsoleEventRenderer.cs`
-- [ ] T018 [US3] Register `ConsoleEventRenderer` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
-- [ ] T019 [US3] Wire `ConsoleEventRenderer` subscription to orchestrator events: resolve both from DI in `Program.cs` and call the renderer's subscribe method before `orchestrator.RunAsync(ct)` — in `src/TrashMailPanda/TrashMailPanda/Program.cs`
+- [x] T017 [US3] Implement `ConsoleEventRenderer` that subscribes to `IApplicationOrchestrator.ApplicationEventRaised` and pattern-matches on event types to render with Spectre.Console: `ModeSelectionRequestedEvent` → log available modes, `BatchProgressEvent` → update progress display, `ProviderStatusChangedEvent` → show health status, `ApplicationWorkflowCompletedEvent` → exit summary — in `src/TrashMailPanda/TrashMailPanda/Services/Console/ConsoleEventRenderer.cs`
+- [x] T018 [US3] Register `ConsoleEventRenderer` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
+- [x] T019 [US3] Wire `ConsoleEventRenderer` subscription to orchestrator events: resolve both from DI in `Program.cs` and call the renderer's subscribe method before `orchestrator.RunAsync(ct)` — in `src/TrashMailPanda/TrashMailPanda/Program.cs`
 
 **Checkpoint**: Progress events flow from orchestrator → renderer → terminal output. The orchestrator has zero Spectre.Console references. Multiple subscribers can coexist without blocking.
 
@@ -91,9 +91,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T020 [US4] Add `EnableAvaloniaUI` MSBuild property (default `false`) to `src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj`: wrap Avalonia package refs (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`, `Avalonia.Fonts.Inter`, `Avalonia.Diagnostics`) in `<ItemGroup Condition="'$(EnableAvaloniaUI)' == 'true'">`, exclude `Views/**`, `ViewModels/**`, `App.axaml.cs`, `Styles/**`, `*.axaml` from compilation when disabled, set `OutputType` to `Exe` when disabled (instead of `WinExe`), set `EnableDefaultAvaloniaItems` to `false` when disabled
-- [ ] T021 [US4] Add conditional `#if`-style guard or MSBuild condition to exclude ViewModel DI registrations in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs` when `EnableAvaloniaUI` is not set — use a `DefineConstants` condition in the csproj (`AVALONIA_UI`) so relevant registrations compile out
-- [ ] T022 [US4] Verify `dotnet build` succeeds with Avalonia excluded and `dotnet build /p:EnableAvaloniaUI=true` still compiles all Avalonia Views/ViewModels
+- [x] T020 [US4] Add `EnableAvaloniaUI` MSBuild property (default `false`) to `src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj`: wrap Avalonia package refs (`Avalonia`, `Avalonia.Desktop`, `Avalonia.Themes.Fluent`, `Avalonia.Fonts.Inter`, `Avalonia.Diagnostics`) in `<ItemGroup Condition="'$(EnableAvaloniaUI)' == 'true'">`, exclude `Views/**`, `ViewModels/**`, `App.axaml.cs`, `Styles/**`, `*.axaml` from compilation when disabled, set `OutputType` to `Exe` when disabled (instead of `WinExe`), set `EnableDefaultAvaloniaItems` to `false` when disabled
+- [x] T021 [US4] Add conditional `#if`-style guard or MSBuild condition to exclude ViewModel DI registrations in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs` when `EnableAvaloniaUI` is not set — use a `DefineConstants` condition in the csproj (`AVALONIA_UI`) so relevant registrations compile out
+- [x] T022 [US4] Verify `dotnet build` succeeds with Avalonia excluded and `dotnet build /p:EnableAvaloniaUI=true` still compiles all Avalonia Views/ViewModels
 
 **Checkpoint**: Default `dotnet build` produces a console-only app. Avalonia source files are preserved, not deleted. Opt-in re-enablement works.
 
@@ -103,9 +103,9 @@
 
 **Purpose**: Validation, cleanup, and cross-story verification
 
-- [ ] T023 [P] Verify zero Avalonia or Spectre.Console references exist in `IClassificationService`, `ClassificationService`, `IApplicationOrchestrator`, and `ApplicationOrchestrator` source files (assembly dependency scan)
-- [ ] T024 [P] Ensure `dotnet format --verify-no-changes` passes for all new and modified files
-- [ ] T025 Run end-to-end quickstart.md validation: resolve `IClassificationService` and `IApplicationOrchestrator` from DI, invoke `ClassifyBatchAsync` with empty input, verify `Result.Success` with empty list, invoke `RunAsync` and confirm `ApplicationWorkflowCompletedEvent` emission
+- [x] T023 [P] Verify zero Avalonia or Spectre.Console references exist in `IClassificationService`, `ClassificationService`, `IApplicationOrchestrator`, and `ApplicationOrchestrator` source files (assembly dependency scan)
+- [x] T024 [P] Ensure `dotnet format --verify-no-changes` passes for all new and modified files
+- [x] T025 Run end-to-end quickstart.md validation: resolve `IClassificationService` and `IApplicationOrchestrator` from DI, invoke `ClassifyBatchAsync` with empty input, verify `Result.Success` with empty list, invoke `RunAsync` and confirm `ApplicationWorkflowCompletedEvent` emission
 
 ---
 

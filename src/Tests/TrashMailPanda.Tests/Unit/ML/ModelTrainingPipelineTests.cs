@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.ML;
 using Moq;
+using TrashMailPanda.Providers.ML.Classification;
 using TrashMailPanda.Providers.ML.Config;
 using TrashMailPanda.Providers.ML.Models;
 using TrashMailPanda.Providers.ML.Training;
@@ -158,7 +160,9 @@ public sealed class ModelTrainingPipelineTests : IDisposable
 
         return new ModelTrainingPipeline(
             archiveService, _repo, pruner, trainer, pipelineBuilder,
-            _config, incrementalService, NullLogger<ModelTrainingPipeline>.Instance);
+            _config, incrementalService,
+            new ActionClassifier(new MLContext(seed: 42), NullLogger<ActionClassifier>.Instance),
+            NullLogger<ModelTrainingPipeline>.Instance);
     }
 
     private static IEnumerable<EmailFeatureVector> BuildVectors(

@@ -103,6 +103,22 @@ public sealed class ActionClassifier : IActionClassifier, IDisposable
             var trainingInput = MapToTrainingInput(input);
             var prediction = _engine.Predict(trainingInput);
             prediction.Confidence = prediction.Score?.Length > 0 ? prediction.Score.Max() : 0f;
+
+            // Log per-class scores so we can diagnose whether the model is biased
+            if (prediction.Score is { Length: > 0 })
+            {
+                var scoresStr = string.Join(", ", prediction.Score.Select((s, i) => $"[{i}]={s:F3}"));
+                _logger.LogDebug(
+                    "Classifier [{EmailId}] model={ModelId} → label={Label} confidence={Confidence:P0} scores=[{Scores}]",
+                    input.EmailId, _loadedModelId, prediction.PredictedLabel, prediction.Confidence, scoresStr);
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "Classifier [{EmailId}] model={ModelId} → label={Label} confidence={Confidence:P0} (no score array)",
+                    input.EmailId, _loadedModelId, prediction.PredictedLabel, prediction.Confidence);
+            }
+
             return Result<ActionPrediction>.Success(prediction);
         }
         catch (Exception ex)

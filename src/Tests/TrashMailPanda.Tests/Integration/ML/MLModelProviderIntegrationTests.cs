@@ -112,6 +112,7 @@ public class MLModelProviderIntegrationTests : IDisposable
             pipelineBuilder,
             config,
             incrementalService,
+            new ActionClassifier(new MLContext(seed: 42), NullLogger<ActionClassifier>.Instance),
             NullLogger<ModelTrainingPipeline>.Instance);
 
         // Act: Train first time

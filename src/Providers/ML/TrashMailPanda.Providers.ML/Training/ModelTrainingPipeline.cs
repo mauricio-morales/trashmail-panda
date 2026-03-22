@@ -23,6 +23,7 @@ public sealed class ModelTrainingPipeline : IModelTrainingPipeline
     private readonly FeaturePipelineBuilder _pipelineBuilder;
     private readonly MLModelProviderConfig _config;
     private readonly IncrementalUpdateService _incrementalUpdateService;
+    private readonly ActionClassifier _classifier;
     private readonly ILogger<ModelTrainingPipeline> _logger;
 
     // Model directory is resolved once and cached
@@ -36,6 +37,7 @@ public sealed class ModelTrainingPipeline : IModelTrainingPipeline
         FeaturePipelineBuilder pipelineBuilder,
         MLModelProviderConfig config,
         IncrementalUpdateService incrementalUpdateService,
+        ActionClassifier classifier,
         ILogger<ModelTrainingPipeline> logger)
     {
         _archiveService = archiveService;
@@ -45,6 +47,7 @@ public sealed class ModelTrainingPipeline : IModelTrainingPipeline
         _pipelineBuilder = pipelineBuilder;
         _config = config;
         _incrementalUpdateService = incrementalUpdateService;
+        _classifier = classifier;
         _logger = logger;
     }
 
@@ -73,6 +76,21 @@ public sealed class ModelTrainingPipeline : IModelTrainingPipeline
                 return Result<TrainingMetricsReport>.Failure(featuresResult.Error);
 
             var vectors = featuresResult.Value.ToList();
+
+            // Log training data summary
+            var labelGroups = vectors
+                .GroupBy(v => v.TrainingLabel ?? "unlabeled")
+                .OrderByDescending(g => g.Count())
+                .ToList();
+            _logger.LogInformation(
+                "Training data: {Total} total feature vectors, {Classes} distinct labels",
+                vectors.Count, labelGroups.Count);
+            foreach (var g in labelGroups)
+            {
+                _logger.LogInformation(
+                    "  Label '{Label}': {Count} samples ({Pct:P1})",
+                    g.Key, g.Count(), (double)g.Count() / vectors.Count);
+            }
 
             // Validate minimum sample count
             if (!request.ForceRetrain && vectors.Count < _config.MinTrainingSamples)
@@ -160,6 +178,23 @@ public sealed class ModelTrainingPipeline : IModelTrainingPipeline
             var activateResult = await _versionRepository.SetActiveAsync(modelId, ActionModelType);
             if (!activateResult.IsSuccess)
                 return Result<TrainingMetricsReport>.Failure(activateResult.Error);
+
+            // Hot-swap: load the newly trained model into the in-process classifier
+            // so predictions start using it immediately without an app restart.
+            var hotSwapResult = await _classifier.LoadModelAsync(finalPath, cancellationToken);
+            if (!hotSwapResult.IsSuccess)
+            {
+                _logger.LogWarning(
+                    "Model saved and activated in DB ({ModelId}) but hot-swap into classifier failed: {Error}. " +
+                    "Predictions will use the new model after restart.",
+                    modelId, hotSwapResult.Error.Message);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Model hot-swapped into classifier: {ModelId} — predictions now use the new model",
+                    modelId);
+            }
 
             // Step 6 — Prune and report
             await PruneWithWarnOnFailure(ActionModelType, cancellationToken);

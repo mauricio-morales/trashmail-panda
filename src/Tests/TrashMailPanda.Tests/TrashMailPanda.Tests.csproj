@@ -5,7 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- Inherit EnableAvaloniaUI setting from the build context (default false) -->
+    <EnableAvaloniaUI Condition="'$(EnableAvaloniaUI)' == ''">false</EnableAvaloniaUI>
   </PropertyGroup>
+
+  <!-- Exclude Avalonia-dependent tests when building without Avalonia -->
+  <ItemGroup Condition="'$(EnableAvaloniaUI)' != 'true'">
+    <Compile Remove="Converters\**" />
+    <Compile Remove="ViewModels\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />

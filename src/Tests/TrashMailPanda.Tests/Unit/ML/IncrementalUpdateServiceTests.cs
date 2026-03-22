@@ -228,6 +228,7 @@ public class IncrementalUpdateServiceTests : IDisposable
                 new ActionModelTrainer(NullLogger<ActionModelTrainer>.Instance),
                 config,
                 NullLogger<IncrementalUpdateService>.Instance),
+            new ActionClassifier(new MLContext(seed: 42), NullLogger<ActionClassifier>.Instance),
             NullLogger<ModelTrainingPipeline>.Instance);
 
         // Act

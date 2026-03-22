@@ -310,7 +310,16 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         _console.MarkupLine($"  {ConsoleColors.Dim}From:{ConsoleColors.Close}    {Markup.Escape(sender)}");
         _console.MarkupLine($"  {ConsoleColors.Dim}Subject:{ConsoleColors.Close} [bold]{Markup.Escape(subject)}[/]");
+
+        // Derive the folder from stored flags so the user can see where the email lives.
+        var folder = feature.WasInSpam == 1 ? "Spam"
+            : feature.WasInTrash == 1 ? "Trash"
+            : feature.IsArchived == 1 ? "Archive"
+            : feature.IsInInbox == 1 ? "Inbox"
+            : "Unknown";
+
         _console.MarkupLine($"  {ConsoleColors.Dim}Age:{ConsoleColors.Close}     {displayAgeDays}d old  ·  " +
+                            $"{ConsoleColors.Dim}folder: {folder}  ·  {ConsoleColors.Close}" +
                             $"{(feature.IsStarred == 1 ? "⭐ Starred  · " : string.Empty)}" +
                             $"{(feature.HasAttachments == 1 ? "📎 Attachment  · " : string.Empty)}" +
                             $"{(feature.HasListUnsubscribe == 1 ? "📧 Mailing list  · " : string.Empty)}" +
