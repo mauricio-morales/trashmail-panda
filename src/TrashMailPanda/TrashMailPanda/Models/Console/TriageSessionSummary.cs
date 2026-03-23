@@ -14,5 +14,7 @@ public sealed record TriageSessionSummary(
     int DeleteCount,
     int SpamCount,
     int OverrideCount,
-    TimeSpan Elapsed
-);
+    TimeSpan Elapsed,
+    int AutoAppliedCount = 0,
+    int ManuallyReviewedCount = 0);
+

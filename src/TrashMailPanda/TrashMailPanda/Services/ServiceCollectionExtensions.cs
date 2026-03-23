@@ -233,6 +233,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IApplicationOrchestrator, ApplicationOrchestrator>();
         services.AddSingleton<TrashMailPanda.Services.Console.ConsoleEventRenderer>();
 
+        // Feature #064 — Runtime classification with user feedback
+        services.AddSingleton<IAutoApplyService, AutoApplyService>();
+        services.AddSingleton<IModelQualityMonitor, ModelQualityMonitor>();
+        services.AddScoped<IAutoApplyUndoService, AutoApplyUndoService>();
+
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
 

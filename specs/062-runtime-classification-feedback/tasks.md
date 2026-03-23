@@ -18,7 +18,7 @@
 
 **Purpose**: Confirm clean build baseline; no new NuGet packages or projects are needed (ML.NET, Spectre.Console, xUnit, Moq, Google.Apis.Gmail.v1 all already in place).
 
-- [ ] T001 Confirm clean build baseline by running `dotnet build` in project root and resolving any pre-existing compilation errors in `src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj`
+- [X] T001 Confirm clean build baseline by running `dotnet build` in project root and resolving any pre-existing compilation errors in `src/TrashMailPanda/TrashMailPanda/TrashMailPanda.csproj`
 
 **Checkpoint**: Green build — no pre-existing errors polluting the implementation work
 
@@ -30,8 +30,8 @@
 
 **⚠️ CRITICAL**: US1 and US3 cannot begin until T002 and T003 are complete.
 
-- [ ] T002 [P] Create `AutoApplyConfig` sealed class (Enabled: bool = false, ConfidenceThreshold: float [Range(0.50, 1.00)] = 0.95f) in `src/TrashMailPanda/TrashMailPanda/Models/Console/AutoApplyConfig.cs`
-- [ ] T003 Add `AutoApply` property of type `AutoApplyConfig` (default: `new()`) to `ProcessingSettings` in `src/TrashMailPanda/TrashMailPanda/Models/ProcessingSettings.cs`
+- [X] T002 [P] Create `AutoApplyConfig` sealed class (Enabled: bool = false, ConfidenceThreshold: float [Range(0.50, 1.00)] = 0.95f) in `src/TrashMailPanda/TrashMailPanda/Models/Console/AutoApplyConfig.cs`
+- [X] T003 Add `AutoApply` property of type `AutoApplyConfig` (default: `new()`) to `ProcessingSettings` in `src/TrashMailPanda/TrashMailPanda/Models/ProcessingSettings.cs`
 
 **Checkpoint**: Foundation ready — `AutoApplyConfig` is resolvable and `ProcessingSettings` carries the auto-apply config; all user story phases can now begin
 
@@ -45,15 +45,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T004 [P] [US1] Create `AutoApplyLogEntry` record (EmailId, SenderDomain, Subject, AppliedAction, Confidence, AppliedAtUtc, WasRedundant, Undone, UndoneToAction?) in `src/TrashMailPanda/TrashMailPanda/Models/Console/AutoApplyLogEntry.cs`
-- [ ] T005 [P] [US1] Create `AutoApplySessionSummary` record (TotalAutoApplied, TotalManuallyReviewed, TotalRedundant, TotalUndone, PerActionCounts) in `src/TrashMailPanda/TrashMailPanda/Models/Console/AutoApplySessionSummary.cs`
-- [ ] T006 [P] [US1] Extend `EmailTriageSession` with `AutoApplyLog` (List\<AutoApplyLogEntry\>), `AutoAppliedCount` (int), and `RollingDecisions` (Queue\<(string predicted, string actual, bool isOverride)\> capped at 100) in `src/TrashMailPanda/TrashMailPanda/Models/Console/EmailTriageSession.cs`
-- [ ] T007 [P] [US1] Extend `TriageSessionSummary` record with `AutoAppliedCount` (int) and `ManuallyReviewedCount` (int) fields in `src/TrashMailPanda/TrashMailPanda/Models/Console/TriageSessionSummary.cs`
-- [ ] T008 [P] [US1] Create `IAutoApplyService` interface (GetConfigAsync, SaveConfigAsync, ShouldAutoApply, IsActionRedundant, LogAutoApply, GetSessionLog, GetSessionSummary, ResetSession) per `contracts/IAutoApplyService.md` in `src/TrashMailPanda/TrashMailPanda/Services/IAutoApplyService.cs`
-- [ ] T009 [US1] Implement `AutoApplyService` with threshold evaluation (confidence ≥ threshold AND enabled), redundancy detection (action matches IsArchived/IsInInbox/WasInTrash feature flags), in-memory session log, and `IConfigurationService` persistence in `src/TrashMailPanda/TrashMailPanda/Services/AutoApplyService.cs`
-- [ ] T010 [US1] Register `IAutoApplyService` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
-- [ ] T011 [US1] Integrate auto-apply decision point into `RunAsync` per-email loop: call `ShouldAutoApply`, branch to auto-apply (redundancy check → skip Gmail or apply, LogAutoApply, RecordDecision) or manual review; add session summary display at loop end in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
-- [ ] T012 [US1] Write unit tests for threshold boundary (94.9% → manual, 95.0% → auto), auto-apply disabled config, redundancy detection for each action category, and `GetSessionSummary` aggregate counts in `src/Tests/TrashMailPanda.Tests/Unit/AutoApplyServiceTests.cs`
+- [X] T004 [P] [US1] Create `AutoApplyLogEntry` record (EmailId, SenderDomain, Subject, AppliedAction, Confidence, AppliedAtUtc, WasRedundant, Undone, UndoneToAction?) in `src/TrashMailPanda/TrashMailPanda/Models/Console/AutoApplyLogEntry.cs`
+- [X] T005 [P] [US1] Create `AutoApplySessionSummary` record (TotalAutoApplied, TotalManuallyReviewed, TotalRedundant, TotalUndone, PerActionCounts) in `src/TrashMailPanda/TrashMailPanda/Models/Console/AutoApplySessionSummary.cs`
+- [X] T006 [P] [US1] Extend `EmailTriageSession` with `AutoApplyLog` (List\<AutoApplyLogEntry\>), `AutoAppliedCount` (int), and `RollingDecisions` (Queue\<(string predicted, string actual, bool isOverride)\> capped at 100) in `src/TrashMailPanda/TrashMailPanda/Models/Console/EmailTriageSession.cs`
+- [X] T007 [P] [US1] Extend `TriageSessionSummary` record with `AutoAppliedCount` (int) and `ManuallyReviewedCount` (int) fields in `src/TrashMailPanda/TrashMailPanda/Models/Console/TriageSessionSummary.cs`
+- [X] T008 [P] [US1] Create `IAutoApplyService` interface (GetConfigAsync, SaveConfigAsync, ShouldAutoApply, IsActionRedundant, LogAutoApply, GetSessionLog, GetSessionSummary, ResetSession) per `contracts/IAutoApplyService.md` in `src/TrashMailPanda/TrashMailPanda/Services/IAutoApplyService.cs`
+- [X] T009 [US1] Implement `AutoApplyService` with threshold evaluation (confidence ≥ threshold AND enabled), redundancy detection (action matches IsArchived/IsInInbox/WasInTrash feature flags), in-memory session log, and `IConfigurationService` persistence in `src/TrashMailPanda/TrashMailPanda/Services/AutoApplyService.cs`
+- [X] T010 [US1] Register `IAutoApplyService` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
+- [X] T011 [US1] Integrate auto-apply decision point into `RunAsync` per-email loop: call `ShouldAutoApply`, branch to auto-apply (redundancy check → skip Gmail or apply, LogAutoApply, RecordDecision) or manual review; add session summary display at loop end in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
+- [X] T012 [US1] Write unit tests for threshold boundary (94.9% → manual, 95.0% → auto), auto-apply disabled config, redundancy detection for each action category, and `GetSessionSummary` aggregate counts in `src/Tests/TrashMailPanda.Tests/Unit/AutoApplyServiceTests.cs`
 
 **Checkpoint**: US1 fully functional — auto-apply processes high-confidence emails, session summary appears at end, existing manual triage flow unchanged for sub-threshold emails
 
@@ -67,7 +67,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Add idempotent post-scan `IsStarred`/`IsImportant` → `'Keep'` label inference step (SQL: `UPDATE email_features SET training_label='Keep', user_corrected=0 WHERE (is_starred=1 OR is_important=1) AND training_label IS NULL`) to `RunInitialScanAsync`, including a one-time migration execution on startup for existing installs in `src/Providers/Email/TrashMailPanda.Providers.Email/Services/GmailTrainingDataService.cs`
+- [X] T013 [US2] Add idempotent post-scan `IsStarred`/`IsImportant` → `'Keep'` label inference step (SQL: `UPDATE email_features SET training_label='Keep', user_corrected=0 WHERE (is_starred=1 OR is_important=1) AND training_label IS NULL`) to `RunInitialScanAsync`, including a one-time migration execution on startup for existing installs in `src/Providers/Email/TrashMailPanda.Providers.Email/Services/GmailTrainingDataService.cs`
 
 **Checkpoint**: US2 complete — bootstrap seeding now covers Starred/Important→Keep in addition to existing Trash→Delete; idempotency verified; existing `TrainingSignalAssigner` untouched
 
@@ -81,15 +81,15 @@
 
 ### Implementation for User Story 3
 
-- [ ] T014 [P] [US3] Create `QualityWarningSeverity` enum (Info, Warning, Critical) in `src/TrashMailPanda/TrashMailPanda/Models/Console/QualityWarningSeverity.cs`
-- [ ] T015 [P] [US3] Create `ActionCategoryMetrics` record (Action, TotalRecommended, TotalAccepted, CorrectionRate, CorrectedTo Dictionary\<string, int\>) in `src/TrashMailPanda/TrashMailPanda/Models/Console/ActionCategoryMetrics.cs`
-- [ ] T016 [P] [US3] Create `ModelQualityMetrics` record (OverallAccuracy, RollingAccuracy, RollingWindowSize, TotalDecisions, TotalCorrections, CorrectionsSinceLastTraining, PerActionMetrics, CalculatedAtUtc) in `src/TrashMailPanda/TrashMailPanda/Models/Console/ModelQualityMetrics.cs`
-- [ ] T017 [P] [US3] Create `QualityWarning` record (Severity, Message, RollingAccuracy, CorrectionsSinceTraining, RecommendedAction, ProblematicActions?, AutoApplyDisabled) in `src/TrashMailPanda/TrashMailPanda/Models/Console/QualityWarning.cs`
-- [ ] T018 [US3] Create `IModelQualityMonitor` interface (RecordDecision, GetMetricsAsync, CheckForWarningAsync, GetCorrectionsSinceLastTrainingAsync, ResetSession) per `contracts/IModelQualityMonitor.md` in `src/TrashMailPanda/TrashMailPanda/Services/IModelQualityMonitor.cs`
-- [ ] T019 [US3] Implement `ModelQualityMonitor` with rolling `Queue<(string, string, bool)>` capped at 100, single DB aggregation query `(SELECT training_label, COUNT(*) FROM email_features WHERE user_corrected=1 GROUP BY training_label)` for per-action metrics, warning threshold evaluation (Critical <50%, Warning <70%, Info ≥50 corrections), and dismissal tracking (suppress until +25 corrections or new session) in `src/TrashMailPanda/TrashMailPanda/Services/ModelQualityMonitor.cs`
-- [ ] T020 [US3] Register `IModelQualityMonitor` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
-- [ ] T021 [US3] Add per-batch quality warning banner rendering (Critical = bold red panel, Warning = yellow, Info/retrain = cyan), retrain 'T' keystroke handler calling `ModelTrainingPipeline.IncrementalUpdateActionModelAsync`, and Critical auto-disable path (`autoApplyConfig.Enabled = false` + `SaveConfigAsync`) in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
-- [ ] T022 [US3] Write unit tests for rolling window accuracy calculation, 70%/50% warning threshold transitions, per-action correction rate aggregation, >40% correction rate targeted recommendation, and dismissal suppression logic in `src/Tests/TrashMailPanda.Tests/Unit/ModelQualityMonitorTests.cs`
+- [X] T014 [P] [US3] Create `QualityWarningSeverity` enum (Info, Warning, Critical) in `src/TrashMailPanda/TrashMailPanda/Models/Console/QualityWarningSeverity.cs`
+- [X] T015 [P] [US3] Create `ActionCategoryMetrics` record (Action, TotalRecommended, TotalAccepted, CorrectionRate, CorrectedTo Dictionary\<string, int\>) in `src/TrashMailPanda/TrashMailPanda/Models/Console/ActionCategoryMetrics.cs`
+- [X] T016 [P] [US3] Create `ModelQualityMetrics` record (OverallAccuracy, RollingAccuracy, RollingWindowSize, TotalDecisions, TotalCorrections, CorrectionsSinceLastTraining, PerActionMetrics, CalculatedAtUtc) in `src/TrashMailPanda/TrashMailPanda/Models/Console/ModelQualityMetrics.cs`
+- [X] T017 [P] [US3] Create `QualityWarning` record (Severity, Message, RollingAccuracy, CorrectionsSinceTraining, RecommendedAction, ProblematicActions?, AutoApplyDisabled) in `src/TrashMailPanda/TrashMailPanda/Models/Console/QualityWarning.cs`
+- [X] T018 [US3] Create `IModelQualityMonitor` interface (RecordDecision, GetMetricsAsync, CheckForWarningAsync, GetCorrectionsSinceLastTrainingAsync, ResetSession) per `contracts/IModelQualityMonitor.md` in `src/TrashMailPanda/TrashMailPanda/Services/IModelQualityMonitor.cs`
+- [X] T019 [US3] Implement `ModelQualityMonitor` with rolling `Queue<(string, string, bool)>` capped at 100, single DB aggregation query `(SELECT training_label, COUNT(*) FROM email_features WHERE user_corrected=1 GROUP BY training_label)` for per-action metrics, warning threshold evaluation (Critical <50%, Warning <70%, Info ≥50 corrections), and dismissal tracking (suppress until +25 corrections or new session) in `src/TrashMailPanda/TrashMailPanda/Services/ModelQualityMonitor.cs`
+- [X] T020 [US3] Register `IModelQualityMonitor` as singleton in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
+- [X] T021 [US3] Add per-batch quality warning banner rendering (Critical = bold red panel, Warning = yellow, Info/retrain = cyan), retrain 'T' keystroke handler calling `ModelTrainingPipeline.IncrementalUpdateActionModelAsync`, and Critical auto-disable path (`autoApplyConfig.Enabled = false` + `SaveConfigAsync`) in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
+- [X] T022 [US3] Write unit tests for rolling window accuracy calculation, 70%/50% warning threshold transitions, per-action correction rate aggregation, >40% correction rate targeted recommendation, and dismissal suppression logic in `src/Tests/TrashMailPanda.Tests/Unit/ModelQualityMonitorTests.cs`
 
 **Checkpoint**: US3 complete — quality degradation surfaces automatically at batch boundaries; Critical path auto-disables auto-apply and persists the change; retrain can be triggered in-session
 
@@ -103,7 +103,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T023 [US4] Add model stats display keyed to 'M' keystroke: render a Spectre.Console `Table` with per-action rows (action, total, accepted, correction rate) and a confusion summary section ("Archive→Delete: 15 times") using `IModelQualityMonitor.GetMetricsAsync()` in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
+- [X] T023 [US4] Add model stats display keyed to 'M' keystroke: render a Spectre.Console `Table` with per-action rows (action, total, accepted, correction rate) and a confusion summary section ("Archive→Delete: 15 times") using `IModelQualityMonitor.GetMetricsAsync()` in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
 
 **Checkpoint**: US4 complete — performance dashboard accessible on demand; per-action table and confusion summary render correctly; US3 quality monitor unchanged
 
@@ -117,11 +117,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T024 [P] [US5] Create `IAutoApplyUndoService` interface (UndoAsync: emailId, originalAction, correctedAction → Result\<bool\>) per `contracts/IAutoApplyUndoService.md` in `src/TrashMailPanda/TrashMailPanda/Services/IAutoApplyUndoService.cs`
-- [ ] T025 [US5] Implement `AutoApplyUndoService` with Gmail reversal mapping (Delete→add INBOX/remove TRASH, Archive→add INBOX, Spam→add INBOX/remove SPAM, Keep→no-op), dual-write via `IEmailProvider.BatchModifyAsync` then `IEmailArchiveService.SetTrainingLabelAsync(userCorrected: true)`, and Result.Failure if Gmail API call fails (training label not updated) in `src/TrashMailPanda/TrashMailPanda/Services/AutoApplyUndoService.cs`
-- [ ] T026 [US5] Register `IAutoApplyUndoService` with scoped lifetime in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
-- [ ] T027 [US5] Add review ('R') and undo ('U') menu: render auto-apply review table (columns: #, Sender, Subject, Action, Confidence, Status), handle 'U' keystrokes to call `IAutoApplyUndoService.UndoAsync` and call `IModelQualityMonitor.RecordDecision` with `isOverride: true`, update session log entry `Undone = true` in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
-- [ ] T028 [US5] Write unit tests for Gmail reversal mapping (each action), dual-write ordering, failure isolation (Gmail fails → no training label update), and `UndoneToAction` recording in `src/Tests/TrashMailPanda.Tests/Unit/AutoApplyUndoServiceTests.cs`
+- [X] T024 [P] [US5] Create `IAutoApplyUndoService` interface (UndoAsync: emailId, originalAction, correctedAction → Result\<bool\>) per `contracts/IAutoApplyUndoService.md` in `src/TrashMailPanda/TrashMailPanda/Services/IAutoApplyUndoService.cs`
+- [X] T025 [US5] Implement `AutoApplyUndoService` with Gmail reversal mapping (Delete→add INBOX/remove TRASH, Archive→add INBOX, Spam→add INBOX/remove SPAM, Keep→no-op), dual-write via `IEmailProvider.BatchModifyAsync` then `IEmailArchiveService.SetTrainingLabelAsync(userCorrected: true)`, and Result.Failure if Gmail API call fails (training label not updated) in `src/TrashMailPanda/TrashMailPanda/Services/AutoApplyUndoService.cs`
+- [X] T026 [US5] Register `IAutoApplyUndoService` with scoped lifetime in `src/TrashMailPanda/TrashMailPanda/Services/ServiceCollectionExtensions.cs`
+- [X] T027 [US5] Add review ('R') and undo ('U') menu: render auto-apply review table (columns: #, Sender, Subject, Action, Confidence, Status), handle 'U' keystrokes to call `IAutoApplyUndoService.UndoAsync` and call `IModelQualityMonitor.RecordDecision` with `isOverride: true`, update session log entry `Undone = true` in `src/TrashMailPanda/TrashMailPanda/Services/Console/EmailTriageConsoleService.cs`
+- [X] T028 [US5] Write unit tests for Gmail reversal mapping (each action), dual-write ordering, failure isolation (Gmail fails → no training label update), and `UndoneToAction` recording in `src/Tests/TrashMailPanda.Tests/Unit/AutoApplyUndoServiceTests.cs`
 
 **Checkpoint**: US5 complete — review table shows current session auto-applied decisions; undo reverses Gmail state and stores correction; failure path aborts dual-write correctly
 
@@ -131,9 +131,9 @@
 
 **Purpose**: Validate compilation, test coverage, and code style across all new and modified files.
 
-- [ ] T029 Run `dotnet build -c Release` and resolve any nullable reference warnings or type resolution errors introduced by new files in project root
-- [ ] T030 [P] Run `dotnet test --filter Category=Unit` and confirm all three new test suites (AutoApplyServiceTests, ModelQualityMonitorTests, AutoApplyUndoServiceTests) pass with no failures
-- [ ] T031 [P] Run `dotnet format --verify-no-changes` and fix any style violations in new or modified files in project root
+- [X] T029 Run `dotnet build -c Release` and resolve any nullable reference warnings or type resolution errors introduced by new files in project root
+- [X] T030 [P] Run `dotnet test --filter Category=Unit` and confirm all three new test suites (AutoApplyServiceTests, ModelQualityMonitorTests, AutoApplyUndoServiceTests) pass with no failures
+- [X] T031 [P] Run `dotnet format --verify-no-changes` and fix any style violations in new or modified files in project root
 
 ---
 

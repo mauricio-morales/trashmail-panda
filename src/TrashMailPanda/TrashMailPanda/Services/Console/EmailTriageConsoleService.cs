@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using TrashMailPanda.Models.Console;
 using TrashMailPanda.Providers.ML.Models;
+using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Shared.Base;
 
@@ -23,25 +24,38 @@ namespace TrashMailPanda.Services.Console;
 public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 {
     private const int PageSize = 5;
+    private const int RollingWindowSize = 100;
 
     private readonly IEmailTriageService _triageService;
     private readonly IConsoleHelpPanel _helpPanel;
     private readonly ILogger<EmailTriageConsoleService> _logger;
     private readonly IAnsiConsole _console;
     private readonly Func<ConsoleKeyInfo> _readKey;
+    private readonly IAutoApplyService? _autoApplyService;
+    private readonly IEmailArchiveService? _archiveService;
+    private readonly IModelQualityMonitor? _qualityMonitor;
+    private readonly IAutoApplyUndoService? _undoService;
 
     public EmailTriageConsoleService(
         IEmailTriageService triageService,
         IConsoleHelpPanel helpPanel,
         ILogger<EmailTriageConsoleService> logger,
         IAnsiConsole? console = null,
-        Func<ConsoleKeyInfo>? readKey = null)
+        Func<ConsoleKeyInfo>? readKey = null,
+        IAutoApplyService? autoApplyService = null,
+        IEmailArchiveService? archiveService = null,
+        IModelQualityMonitor? qualityMonitor = null,
+        IAutoApplyUndoService? undoService = null)
     {
         _triageService = triageService ?? throw new ArgumentNullException(nameof(triageService));
         _helpPanel = helpPanel ?? throw new ArgumentNullException(nameof(helpPanel));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _console = console ?? AnsiConsole.Console;
         _readKey = readKey ?? (() => System.Console.ReadKey(intercept: true));
+        _autoApplyService = autoApplyService;
+        _archiveService = archiveService;
+        _qualityMonitor = qualityMonitor;
+        _undoService = undoService;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -69,7 +83,22 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         RenderSessionHeader(session);
 
+        // Load auto-apply config once per session (null = feature not wired in DI)
+        AutoApplyConfig? autoApplyConfig = null;
+        if (_autoApplyService is not null)
+        {
+            var configResult = await _autoApplyService.GetConfigAsync(cancellationToken);
+            if (configResult.IsSuccess)
+            {
+                autoApplyConfig = configResult.Value;
+                _autoApplyService.ResetSession();
+            }
+        }
+
+        _qualityMonitor?.ResetSession();
+
         var exitRequested = false;
+        var manuallyReviewedCount = 0;
 
         while (!cancellationToken.IsCancellationRequested && !exitRequested)
         {
@@ -162,6 +191,22 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                 break;
             }
 
+            // ── Quality warning banner (per-batch) ──────────────────────────
+            if (_qualityMonitor is not null && autoApplyConfig is not null)
+            {
+                var warningResult = await _qualityMonitor.CheckForWarningAsync(autoApplyConfig, cancellationToken);
+                if (warningResult.IsSuccess && warningResult.Value is { } warning)
+                {
+                    RenderQualityWarning(warning);
+
+                    // If auto-apply was disabled by the Critical path, persist the change
+                    if (warning.AutoApplyDisabled && _autoApplyService is not null)
+                    {
+                        await _autoApplyService.SaveConfigAsync(autoApplyConfig, cancellationToken);
+                    }
+                }
+            }
+
             foreach (var feature in batch)
             {
                 if (cancellationToken.IsCancellationRequested || exitRequested)
@@ -185,6 +230,118 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                     var recResult = await _triageService.GetAiRecommendationAsync(feature, cancellationToken);
                     prediction = recResult.IsSuccess ? recResult.Value : null;
                 }
+
+                // ── Auto-apply branch (FR-001, FR-003, FR-024) ───────────────
+                // Only eligible for AI-assisted, non-re-triage emails with a prediction.
+                var wasAutoApplied = false;
+                if (!isRetriage
+                    && session.Mode == TriageMode.AiAssisted
+                    && prediction is not null
+                    && autoApplyConfig is not null
+                    && _autoApplyService is not null
+                    && _autoApplyService.ShouldAutoApply(
+                        autoApplyConfig,
+                        new TrashMailPanda.Models.ClassificationResult
+                        {
+                            EmailId = feature.EmailId,
+                            PredictedAction = prediction.PredictedLabel,
+                            Confidence = prediction.Confidence,
+                            ReasoningSource = TrashMailPanda.Models.ReasoningSource.ML,
+                        }))
+                {
+                    var action = prediction.PredictedLabel;
+                    var isRedundant = _autoApplyService.IsActionRedundant(action, feature);
+                    var autoApplySucceeded = false;
+
+                    if (!isRedundant)
+                    {
+                        // Execute Gmail action + store training label
+                        var applyResult = await _triageService.ApplyDecisionAsync(
+                            feature.EmailId, action, action,
+                            forceUserCorrected: false, cancellationToken);
+
+                        if (applyResult.IsSuccess)
+                        {
+                            autoApplySucceeded = true;
+                        }
+                        else
+                        {
+                            // Auto-apply failed — fall through to manual review
+                            _logger.LogWarning(
+                                "Auto-apply failed for {EmailId}: {Error}",
+                                feature.EmailId, applyResult.Error.Message);
+                        }
+                    }
+                    else if (_archiveService is not null)
+                    {
+                        // Redundant: skip Gmail API, store training label directly
+                        await _archiveService.SetTrainingLabelAsync(
+                            feature.EmailId, action, userCorrected: false, cancellationToken);
+                        autoApplySucceeded = true;
+                    }
+                    else
+                    {
+                        // IEmailArchiveService is not wired — redundant action cannot be persisted.
+                        // This is a DI misconfiguration; log and skip auto-apply so the email
+                        // falls through to manual review rather than silently doing nothing.
+                        _logger.LogWarning(
+                            "Auto-apply skipped for {EmailId}: action '{Action}' is redundant but " +
+                            "IEmailArchiveService is not registered — training label cannot be stored.",
+                            feature.EmailId, action);
+                    }
+
+                    if (autoApplySucceeded)
+                    {
+                        // Record in session log and update counters
+                        var entry = new AutoApplyLogEntry(
+                            feature.EmailId,
+                            feature.SenderDomain ?? string.Empty,
+                            feature.SubjectText ?? string.Empty,
+                            action,
+                            prediction.Confidence,
+                            DateTime.UtcNow,
+                            isRedundant);
+                        _autoApplyService.LogAutoApply(entry);
+                        session.AutoApplyLog.Add(entry);
+                        session.AutoAppliedCount++;
+
+                        // Maintain rolling window for quality monitor
+                        if (session.RollingDecisions.Count >= RollingWindowSize)
+                            session.RollingDecisions.Dequeue();
+                        session.RollingDecisions.Enqueue((action, action, false));
+
+                        // Update session counters
+                        session.LabeledCount++;
+                        session.SessionProcessedCount++;
+                        if (session.ActionCounts.ContainsKey(action))
+                            session.ActionCounts[action]++;
+
+                        var redundantNote = isRedundant ? " [dim](redundant — skipped API)[/]" : string.Empty;
+                        _console.MarkupLine(
+                            $"  {ConsoleColors.Success}⚡ Auto-applied:{ConsoleColors.Close} " +
+                            $"[bold]{Markup.Escape(action)}[/] " +
+                            $"{ConsoleColors.Dim}{(int)(prediction.Confidence * 100)}%{ConsoleColors.Close}" +
+                            redundantNote);
+
+                        // Show threshold prompt if crossed
+                        if (!exitRequested
+                            && !session.ThresholdPromptShownThisSession
+                            && session.LabeledCount >= session.LabelingThreshold)
+                        {
+                            await ShowThresholdPromptAsync(cancellationToken);
+                            session.ThresholdPromptShownThisSession = true;
+                        }
+                        // Record for quality monitor (auto-applied = predicted == chosen, isOverride=false)
+                        _qualityMonitor?.RecordDecision(action, action, isOverride: false);
+
+                        wasAutoApplied = true;
+                    }
+                }
+
+                if (wasAutoApplied)
+                    continue; // skip manual rendering — advance to next email
+
+                manuallyReviewedCount++;
 
                 // Fetch live email details (From header, ThreadId, body) with a brief spinner.
                 // Failure is non-fatal — card renders with the stored feature data as fallback.
@@ -259,8 +416,16 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         }
 
         // T036 — Session summary
-        var summary = BuildSummary(session);
+        var summary = BuildSummary(session, manuallyReviewedCount);
         RenderSessionSummary(summary);
+
+        // Auto-apply session summary (shown only when auto-apply was active)
+        if (_autoApplyService is not null && autoApplyConfig is not null && session.AutoAppliedCount > 0)
+        {
+            var autoSummary = _autoApplyService.GetSessionSummary(manuallyReviewedCount);
+            RenderAutoApplySummary(autoSummary);
+        }
+
         return Result<TriageSessionSummary>.Success(summary);
     }
 
@@ -461,6 +626,30 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             return KeyHandleResult.Reprompt;
         }
 
+        // Model quality stats
+        if (key == 'M' && _qualityMonitor is not null)
+        {
+            var metricsResult = await _qualityMonitor.GetMetricsAsync(cancellationToken);
+            if (metricsResult.IsSuccess)
+                RenderModelQualityDashboard(metricsResult.Value);
+            else
+                _console.MarkupLine($"[red]✗ Could not load model metrics: {Markup.Escape(metricsResult.Error.Message)}[/]");
+            return KeyHandleResult.Reprompt;
+        }
+        // Auto-apply review / undo
+        if (key == 'R' && _autoApplyService is not null)
+        {
+            var log = _autoApplyService.GetSessionLog();
+            if (log.Count == 0)
+            {
+                _console.MarkupLine("[dim]  No auto-applied decisions to review this session.[/]");
+            }
+            else
+            {
+                await RenderAutoApplyReviewTableAsync(log, cancellationToken);
+            }
+            return KeyHandleResult.Reprompt;
+        }
         // Map key to action
         string? action = null;
 
@@ -505,6 +694,10 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             if (decision.IsOverride) session.SessionOverrideCount++;
             if (session.ActionCounts.ContainsKey(action))
                 session.ActionCounts[action]++;
+
+            // Record for quality monitor (manual review path)
+            if (session.Mode == TriageMode.AiAssisted && prediction is not null)
+                _qualityMonitor?.RecordDecision(prediction.PredictedLabel, action, decision.IsOverride);
 
             RenderDecisionFeedback(action, decision.IsOverride, aiRec);
             return KeyHandleResult.Decided;
@@ -657,7 +850,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
     // Helpers
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static TriageSessionSummary BuildSummary(EmailTriageSession session)
+    private static TriageSessionSummary BuildSummary(EmailTriageSession session, int manuallyReviewedCount)
     {
         session.ActionCounts.TryGetValue("Keep", out var keep);
         session.ActionCounts.TryGetValue("Archive", out var archive);
@@ -677,8 +870,217 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             DeleteCount: delete,
             SpamCount: spam,
             OverrideCount: session.SessionOverrideCount,
-            Elapsed: DateTime.UtcNow - session.StartedAtUtc
+            Elapsed: DateTime.UtcNow - session.StartedAtUtc,
+            AutoAppliedCount: session.AutoAppliedCount,
+            ManuallyReviewedCount: manuallyReviewedCount
         );
+    }
+
+    private void RenderAutoApplySummary(AutoApplySessionSummary summary)
+    {
+        _console.WriteLine();
+        _console.Write(new Rule("[bold]Auto-Apply Summary[/]").RuleStyle("dim"));
+        _console.WriteLine();
+
+        _console.MarkupLine(
+            $"  {ConsoleColors.Success}⚡{ConsoleColors.Close} " +
+            $"Auto-applied: [bold]{summary.TotalAutoApplied}[/]  " +
+            $"{ConsoleColors.Dim}({summary.TotalRedundant} redundant, {summary.TotalUndone} undone){ConsoleColors.Close}");
+        _console.MarkupLine(
+            $"  {ConsoleColors.Info}👤{ConsoleColors.Close} " +
+            $"Manually reviewed: [bold]{summary.TotalManuallyReviewed}[/]");
+
+        if (summary.PerActionCounts.Count > 0)
+        {
+            var breakdown = string.Join("  ",
+                summary.PerActionCounts.Select(kv => $"{Markup.Escape(kv.Key)}: {kv.Value}"));
+            _console.MarkupLine($"  {ConsoleColors.Dim}Per action: {breakdown}{ConsoleColors.Close}");
+        }
+        _console.WriteLine();
+    }
+
+    private async Task RenderAutoApplyReviewTableAsync(
+        IReadOnlyList<AutoApplyLogEntry> entries,
+        CancellationToken ct)
+    {
+        _console.WriteLine();
+        _console.MarkupLine("[bold blue]━━ Auto-Apply Review ━━[/]");
+        _console.MarkupLine("[dim]Press [bold]U[/] next to an entry number to undo it, or [bold]Q[/] to return.[/]");
+        _console.WriteLine();
+
+        var table = new Table();
+        table.AddColumn("#");
+        table.AddColumn("Sender");
+        table.AddColumn("Subject");
+        table.AddColumn("Action");
+        table.AddColumn("Confidence");
+        table.AddColumn("Status");
+
+        int idx = 1;
+        foreach (var entry in entries)
+        {
+            var statusMarkup = entry.Undone
+                ? $"[dim]Undone → {Markup.Escape(entry.UndoneToAction ?? "?")}[/]"
+                : "[green]Applied[/]";
+            var confidenceText = $"{entry.Confidence:P0}";
+
+            table.AddRow(
+                idx.ToString(),
+                Markup.Escape(entry.SenderDomain),
+                Markup.Escape(entry.Subject.Length > 40 ? entry.Subject[..40] + "…" : entry.Subject),
+                Markup.Escape(entry.AppliedAction),
+                confidenceText,
+                statusMarkup);
+            idx++;
+        }
+
+        _console.Write(table);
+
+        // Interactive undo loop
+        while (!ct.IsCancellationRequested)
+        {
+            _console.Markup("[dim]Enter entry # to undo (e.g. 2), or [bold]Q[/] to return: [/]");
+            var inputKey = _readKey();
+            _console.WriteLine();
+
+            var inputChar = char.ToUpperInvariant(inputKey.KeyChar);
+
+            if (inputChar == 'Q' || inputKey.Key == ConsoleKey.Escape)
+                break;
+
+            // Parse digit(s): for simplicity accept single digit 1-9
+            if (!char.IsDigit(inputChar))
+                continue;
+
+            int entryNumber = inputChar - '0';
+            if (entryNumber < 1 || entryNumber > entries.Count)
+            {
+                _console.MarkupLine($"[yellow]  Entry {entryNumber} out of range.[/]");
+                continue;
+            }
+
+            var selected = entries[entryNumber - 1];
+            if (selected.Undone)
+            {
+                _console.MarkupLine($"[dim]  Entry {entryNumber} already undone.[/]");
+                continue;
+            }
+
+            if (_undoService is null)
+            {
+                _console.MarkupLine("[yellow]  Undo service is unavailable.[/]");
+                continue;
+            }
+
+            // Prompt for corrected action
+            _console.Markup("[dim]  Correct action [bold]K[/]=Keep [bold]A[/]=Archive [bold]D[/]=Delete [bold]S[/]=Spam: [/]");
+            var actionKey = char.ToUpperInvariant(_readKey().KeyChar);
+            _console.WriteLine();
+
+            string? correctedAction = actionKey switch
+            {
+                'K' => "Keep",
+                'A' => "Archive",
+                'D' => "Delete",
+                'S' => "Spam",
+                _ => null
+            };
+
+            if (correctedAction is null)
+            {
+                _console.MarkupLine("[dim]  Invalid action — undo cancelled.[/]");
+                continue;
+            }
+
+            var undoResult = await _undoService.UndoAsync(
+                selected.EmailId, selected.AppliedAction, correctedAction, ct);
+
+            if (undoResult.IsSuccess)
+            {
+                selected.Undone = true;
+                selected.UndoneToAction = correctedAction;
+                _qualityMonitor?.RecordDecision(selected.AppliedAction, correctedAction, isOverride: true);
+                _console.MarkupLine($"[green]✓ Entry {entryNumber} undone ({Markup.Escape(selected.AppliedAction)} → {Markup.Escape(correctedAction)})[/]");
+            }
+            else
+            {
+                _console.MarkupLine(
+                    $"[red]✗ Undo failed: {Markup.Escape(undoResult.Error.Message)}[/]");
+            }
+        }
+
+        _console.WriteLine();
+    }
+
+    private void RenderModelQualityDashboard(ModelQualityMetrics metrics)
+    {
+        _console.WriteLine();
+        _console.MarkupLine("[bold blue]━━ Model Quality Dashboard ━━[/]");
+        _console.MarkupLine(
+            $"  Rolling accuracy: [bold]{metrics.RollingAccuracy:P0}[/] " +
+            $"over last {metrics.TotalDecisions} decisions (window: {metrics.RollingWindowSize})");
+        _console.MarkupLine(
+            $"  Corrections since last training: [bold]{metrics.CorrectionsSinceLastTraining}[/]");
+
+        if (metrics.PerActionMetrics.Count > 0)
+        {
+            _console.WriteLine();
+            var table = new Spectre.Console.Table();
+            table.AddColumn("Action");
+            table.AddColumn("Corrections");
+            table.AddColumn("Correction Rate");
+
+            foreach (var (action, m) in metrics.PerActionMetrics.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                var rateMarkup = m.CorrectionRate > 0.40f
+                    ? $"[red]{m.CorrectionRate:P0}[/]"
+                    : $"{m.CorrectionRate:P0}";
+
+                table.AddRow(
+                    Markup.Escape(action),
+                    m.TotalRecommended.ToString(),
+                    rateMarkup);
+            }
+
+            _console.Write(table);
+        }
+
+        _console.MarkupLine("[dim]Press any key to continue.[/]");
+        _readKey();
+        _console.WriteLine();
+    }
+
+    private void RenderQualityWarning(QualityWarning warning)
+    {
+        _console.WriteLine();
+        switch (warning.Severity)
+        {
+            case QualityWarningSeverity.Critical:
+                _console.MarkupLine("[bold red]⚠ MODEL QUALITY CRITICAL[/]");
+                _console.MarkupLine($"[red]{Markup.Escape(warning.Message)}[/]");
+                if (warning.AutoApplyDisabled)
+                    _console.MarkupLine("[red]→ Auto-apply has been disabled automatically.[/]");
+                _console.MarkupLine("[yellow]→ Recommend retraining before continuing. Press [bold]T[/] to retrain.[/]");
+                break;
+
+            case QualityWarningSeverity.Warning:
+                _console.MarkupLine($"[yellow]⚠ {Markup.Escape(warning.Message)}[/]");
+                _console.MarkupLine($"[yellow]→ {Markup.Escape(warning.RecommendedAction)}[/]");
+                break;
+
+            default: // Info
+                _console.MarkupLine($"[cyan]ℹ {Markup.Escape(warning.Message)}[/]");
+                _console.MarkupLine($"[cyan]→ {Markup.Escape(warning.RecommendedAction)}[/]");
+                break;
+        }
+
+        if (warning.ProblematicActions is { Count: > 0 })
+        {
+            var actions = string.Join(", ", warning.ProblematicActions.Select(Markup.Escape));
+            _console.MarkupLine($"[dim]  Problematic actions: {actions}[/]");
+        }
+
+        _console.WriteLine();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
