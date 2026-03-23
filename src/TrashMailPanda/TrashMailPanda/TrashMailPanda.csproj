@@ -1,73 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- ───────────────────────────────────────────────────────────────────────
-       EnableAvaloniaUI: default false → console-only (headless-friendly) build.
-       Opt in with: dotnet build /p:EnableAvaloniaUI=true
-  ──────────────────────────────────────────────────────────────────────────── -->
   <PropertyGroup>
-    <EnableAvaloniaUI Condition="'$(EnableAvaloniaUI)' == ''">false</EnableAvaloniaUI>
     <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
     <Nullable>enable</Nullable>
     <EnableDefaultItems>true</EnableDefaultItems>
   </PropertyGroup>
 
-  <!-- Console-only build (default) -->
-  <PropertyGroup Condition="'$(EnableAvaloniaUI)' != 'true'">
-    <OutputType>Exe</OutputType>
-    <EnableDefaultAvaloniaItems>false</EnableDefaultAvaloniaItems>
-  </PropertyGroup>
-
-  <!-- Avalonia-enabled build (opt-in) -->
-  <PropertyGroup Condition="'$(EnableAvaloniaUI)' == 'true'">
-    <OutputType>WinExe</OutputType>
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
-    <EnableDefaultAvaloniaItems>true</EnableDefaultAvaloniaItems>
-    <DefineConstants>$(DefineConstants);AVALONIA_UI</DefineConstants>
-  </PropertyGroup>
-
-  <!-- Exclude Avalonia-specific source files when building without Avalonia -->
-  <ItemGroup Condition="'$(EnableAvaloniaUI)' != 'true'">
-    <Compile Remove="Views\**" />
-    <Compile Remove="ViewModels\**" />
-    <Compile Remove="App.axaml.cs" />
-    <Compile Remove="Styles\**" />
-    <Compile Remove="Converters\**" />
-    <Compile Remove="Theming\**" />
-    <Compile Remove="ViewLocator.cs" />
-    <None Remove="Views\**" />
-    <None Remove="ViewModels\**" />
-    <None Remove="Styles\**" />
-  </ItemGroup>
-
   <ItemGroup>
     <Folder Include="Models\" />
-  </ItemGroup>
-
-  <!-- Avalonia assets (opt-in only) -->
-  <ItemGroup Condition="'$(EnableAvaloniaUI)' == 'true'">
-    <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <!-- Avalonia packages (opt-in only) -->
-  <ItemGroup Condition="'$(EnableAvaloniaUI)' == 'true'">
-    <PackageReference Include="Avalonia" Version="11.3.4" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.4" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.4" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.4" />
-    <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.4">
-      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
-      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.1" />
   </ItemGroup>
 
   <ItemGroup>

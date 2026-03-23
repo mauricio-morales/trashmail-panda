@@ -26,11 +26,6 @@ public enum OperationalMode
     TrainModel,
 
     /// <summary>
-    /// Launch Avalonia UI application mode (requires Storage and Gmail).
-    /// </summary>
-    UIMode,
-
-    /// <summary>
     /// Exit the application.
     /// </summary>
     Exit

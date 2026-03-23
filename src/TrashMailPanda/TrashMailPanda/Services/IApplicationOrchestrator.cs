@@ -9,10 +9,9 @@ namespace TrashMailPanda.Services;
 /// the <see cref="ApplicationEventRaised"/> event for any UI layer to subscribe to.
 ///
 /// This service is UI-agnostic with respect to its own code — it MUST NOT reference
-/// Spectre.Console or Avalonia directly. However, it delegates to console rendering
+/// Spectre.Console directly. However, it delegates to console rendering
 /// services (e.g., <c>IEmailTriageConsoleService</c>) for the current TUI
-/// implementation. A future Avalonia orchestrator would delegate to Avalonia views
-/// instead.
+/// implementation.
 ///
 /// Key responsibility: extract the workflow loop currently in <c>Program.cs</c> into
 /// a testable, injectable service with typed lifecycle events.

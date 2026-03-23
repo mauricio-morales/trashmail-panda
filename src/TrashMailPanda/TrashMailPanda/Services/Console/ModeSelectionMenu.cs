@@ -176,11 +176,6 @@ public class ModeSelectionMenu
              "⚙️  Provider Settings",
              true),
 
-            // UI Mode - requires Storage + Gmail
-            (OperationalMode.UIMode,
-             gmailHealthy ? "🖥️  Launch UI Mode" : "🖥️  Launch UI Mode [dim](Requires Gmail)[/]",
-             gmailHealthy),
-
             // Exit always available
             (OperationalMode.Exit,
              "🚪 Exit Application",

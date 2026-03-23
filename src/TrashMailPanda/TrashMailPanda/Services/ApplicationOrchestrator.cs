@@ -140,7 +140,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
                     OperationalMode.BulkOperations,
                     OperationalMode.ProviderSettings,
                     OperationalMode.TrainModel,
-                    OperationalMode.UIMode,
                     OperationalMode.Exit,
                 };
 
@@ -295,14 +294,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
 
             case OperationalMode.TrainModel:
                 await _trainingConsoleService.RunTrainingAsync("manual", cancellationToken);
-                EmitEvent(new StatusMessageEvent { Message = "Press [green]Enter[/] to return to menu..." });
-                System.Console.ReadLine();
-                return true;
-
-            case OperationalMode.UIMode:
-                EmitEvent(new StatusMessageEvent { Message = "[yellow]🖥️  UI Mode - Coming soon![/]" });
-                EmitEvent(new StatusMessageEvent { Message = "[dim]This mode will launch the Avalonia desktop UI.[/]" });
-                System.Console.WriteLine();
                 EmitEvent(new StatusMessageEvent { Message = "Press [green]Enter[/] to return to menu..." });
                 System.Console.ReadLine();
                 return true;

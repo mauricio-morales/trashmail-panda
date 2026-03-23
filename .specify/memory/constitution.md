@@ -1,14 +1,16 @@
 <!--
   Sync Impact Report
   ==================
-  Version change: 0.0.0 → 1.0.0 (MAJOR — initial ratification)
-  Modified principles: N/A (first version)
-  Added sections:
-    - Core Principles (7 principles)
-    - Technology & Quality Standards
-    - Development Workflow & Review
-    - Governance
+  Version change: 1.0.0 → 2.0.0 (MAJOR — principle removal)
+  Modified principles:
+    - Principle IV (MVVM with CommunityToolkit.Mvvm) REMOVED — Avalonia UI layer
+      deleted in feature 063-remove-avalonia-ui; console TUI (Spectre.Console +
+      IApplicationOrchestrator) is the permanent UI architecture.
+    - Former V→IV, VI→V, VII→VI (renumbered after removal)
   Removed sections: N/A
+  Technology changes:
+    - Removed "Avalonia UI 11" from Technology & Quality Standards
+    - Removed "No hardcoded colors" from PR checklist (Avalonia-specific)
   Templates requiring updates:
     - .specify/templates/plan-template.md ✅ (no changes needed;
       Constitution Check section dynamically references this file)
@@ -72,22 +74,7 @@ serialized to disk in plaintext, or committed to version control.
 **Rationale**: User email data is highly sensitive; defense-in-depth
 prevents credential leakage across every storage layer.
 
-### IV. MVVM with CommunityToolkit.Mvvm
-
-All UI MUST follow the MVVM pattern using `CommunityToolkit.Mvvm`.
-
-- ViewModels MUST extend `ObservableObject` and use
-  `[ObservableProperty]` for data binding.
-- User actions MUST use `[RelayCommand]` /
-  `[AsyncRelayCommand]`.
-- No business logic in XAML code-behind.
-- UI colors MUST use `ProfessionalColors` semantic helpers — hardcoded
-  RGB hex values are prohibited.
-
-**Rationale**: Separation of concerns enables testable UI logic and
-consistent theming across the application.
-
-### V. One Public Type Per File
+### IV. One Public Type Per File
 
 Each source file MUST contain exactly one public class, interface,
 enum, or record.
@@ -98,7 +85,7 @@ enum, or record.
 **Rationale**: Keeps file responsibility clear, simplifies navigation,
 and reduces merge conflicts.
 
-### VI. Strict Null Safety
+### V. Strict Null Safety
 
 Nullable reference types MUST be enabled in every project
 (`<Nullable>enable</Nullable>`).
@@ -111,7 +98,7 @@ Nullable reference types MUST be enabled in every project
 **Rationale**: Eliminates null-reference exceptions at compile time
 and documents intent in signatures.
 
-### VII. Test Coverage & Quality Gates
+### VI. Test Coverage & Quality Gates
 
 All code changes MUST pass automated quality checks before merge.
 
@@ -131,7 +118,7 @@ the codebase consistently formatted and secure.
 ## Technology & Quality Standards
 
 - **.NET 9.0** with **C# 12+**, targeting `net9.0`.
-- **Avalonia UI 11** for cross-platform desktop rendering.
+- **Spectre.Console** for cross-platform console TUI rendering.
 - **Microsoft.Extensions.Hosting/DI/Logging/Configuration** for
   application infrastructure.
 - **Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlcipher** for
@@ -157,7 +144,6 @@ the codebase consistently formatted and secure.
 - PR checklist:
   - Result pattern — no `catch` blocks in providers.
   - One public type per file.
-  - No hardcoded colors.
   - Nullable annotations present.
   - Tests included; coverage maintained.
   - `dotnet format --verify-no-changes` passes.
@@ -182,4 +168,4 @@ PRPs, specs) MUST remain consistent with these principles.
   MUST be documented in the feature's `plan.md` under
   "Complexity Tracking" with a rejected-simpler-alternative.
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-14 | **Last Amended**: 2026-03-14
+**Version**: 2.0.0 | **Ratified**: 2026-03-14 | **Last Amended**: 2026-03-23
