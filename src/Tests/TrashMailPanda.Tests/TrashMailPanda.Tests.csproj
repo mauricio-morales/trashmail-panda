@@ -5,15 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <!-- Inherit EnableAvaloniaUI setting from the build context (default false) -->
-    <EnableAvaloniaUI Condition="'$(EnableAvaloniaUI)' == ''">false</EnableAvaloniaUI>
   </PropertyGroup>
-
-  <!-- Exclude Avalonia-dependent tests when building without Avalonia -->
-  <ItemGroup Condition="'$(EnableAvaloniaUI)' != 'true'">
-    <Compile Remove="Converters\**" />
-    <Compile Remove="ViewModels\**" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
@@ -24,7 +16,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Moq" Version="4.20.70" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.8" />
-    <PackageReference Include="Avalonia" Version="11.3.4" />
     <PackageReference Include="Spectre.Console" Version="0.48.0" />
   </ItemGroup>
 

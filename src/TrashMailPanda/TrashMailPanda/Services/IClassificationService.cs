@@ -11,9 +11,8 @@ namespace TrashMailPanda.Services;
 /// cold-start fallback. Returns enriched <see cref="ClassificationResult"/>
 /// records with reasoning source attribution.
 ///
-/// This service is UI-agnostic — it MUST NOT reference Spectre.Console, Avalonia,
-/// or any rendering type. Both the Console TUI and a future Avalonia UI consume
-/// this service identically through DI.
+/// This service is UI-agnostic — it MUST NOT reference Spectre.Console
+/// or any rendering type. The Console TUI consumes this service through DI.
 ///
 /// For triage orchestration (fetch → present → decide → dual-write), see
 /// <see cref="IEmailTriageService"/>. This service is purely predictive:

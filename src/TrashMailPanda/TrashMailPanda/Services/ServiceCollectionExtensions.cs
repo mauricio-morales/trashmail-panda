@@ -17,10 +17,6 @@ using TrashMailPanda.Providers.ML.Versioning;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Security;
-#if AVALONIA_UI
-using TrashMailPanda.ViewModels;
-#endif
-
 namespace TrashMailPanda.Services;
 
 /// <summary>
@@ -55,11 +51,6 @@ public static class ServiceCollectionExtensions
 
         // Add application services
         services.AddApplicationServices();
-
-#if AVALONIA_UI
-        // Add view models
-        services.AddViewModels();
-#endif
 
         return services;
     }
@@ -241,49 +232,6 @@ public static class ServiceCollectionExtensions
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
 
-        return services;
-    }
-
-#if AVALONIA_UI
-    /// <summary>
-    /// Add view models
-    /// </summary>
-    private static IServiceCollection AddViewModels(this IServiceCollection services)
-    {
-        // Register core view models as transients (new instance per request)
-        services.AddTransient<WelcomeWizardViewModel>();
-
-        // Add provider status dashboard ViewModels
-        services.AddTransient<ProviderStatusDashboardViewModel>();
-        // Note: ProviderStatusCardViewModel is created directly by the dashboard ViewModel
-        // so it doesn't need DI registration
-
-        // Add email dashboard ViewModel
-        services.AddTransient<EmailDashboardViewModel>();
-
-        // Add setup dialog ViewModels
-        services.AddTransient<OpenAISetupViewModel>();
-        services.AddTransient<GmailSetupViewModel>();
-
-        // Register MainWindowViewModel with navigation dependencies
-        services.AddTransient<MainWindowViewModel>(provider => new MainWindowViewModel(
-            provider.GetRequiredService<ProviderStatusDashboardViewModel>(),
-            provider.GetRequiredService<EmailDashboardViewModel>(),
-            provider,
-            provider.GetRequiredService<IGmailOAuthService>(),
-            provider.GetRequiredService<ILogger<MainWindowViewModel>>()
-        ));
-
-        return services;
-    }
-#endif
-
-    /// <summary>
-    /// Add the hosted service that will run the startup orchestration
-    /// </summary>
-    public static IServiceCollection AddStartupOrchestration(this IServiceCollection services)
-    {
-        services.AddHostedService<StartupHostedService>();
         return services;
     }
 
