@@ -317,10 +317,19 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                             session.ActionCounts[action]++;
 
                         var redundantNote = isRedundant ? " [dim](redundant — skipped API)[/]" : string.Empty;
+                        var subjectSnippet = string.IsNullOrWhiteSpace(feature.SubjectText)
+                            ? "(no subject)"
+                            : feature.SubjectText.Length > 60
+                                ? feature.SubjectText[..60] + "…"
+                                : feature.SubjectText;
+                        var senderNote = string.IsNullOrWhiteSpace(feature.SenderDomain)
+                            ? string.Empty
+                            : $" [dim]from {Markup.Escape(feature.SenderDomain)}[/]";
                         _console.MarkupLine(
                             $"  {ConsoleColors.Success}⚡ Auto-applied:{ConsoleColors.Close} " +
                             $"[bold]{Markup.Escape(action)}[/] " +
                             $"{ConsoleColors.Dim}{(int)(prediction.Confidence * 100)}%{ConsoleColors.Close}" +
+                            $"{senderNote} — [italic]{Markup.Escape(subjectSnippet)}[/]" +
                             redundantNote);
 
                         // Show threshold prompt if crossed
@@ -665,11 +674,11 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         else if (key == 'S')
             action = "Spam";
         else if (key == '2')
-            action = "archive-then-delete-30d";
+            action = "Archive for 30d";
         else if (key == '3')
-            action = "archive-then-delete-1y";
+            action = "Archive for 1y";
         else if (key == '4')
-            action = "archive-then-delete-5y";
+            action = "Archive for 5y";
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter) && isRetriage && feature.TrainingLabel is not null)
             action = feature.TrainingLabel; // Confirm previous label during re-triage
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter)
@@ -829,9 +838,9 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         table.AddRow("Keep", $"[green]{summary.KeepCount}[/]");
         table.AddRow("Archive", summary.ArchiveCount.ToString());
-        table.AddRow("Archive→30d", summary.ArchiveThenDelete30dCount.ToString());
-        table.AddRow("Archive→1y", summary.ArchiveThenDelete1yCount.ToString());
-        table.AddRow("Archive→5y", summary.ArchiveThenDelete5yCount.ToString());
+        table.AddRow("Archive for 30d", summary.ArchiveThenDelete30dCount.ToString());
+        table.AddRow("Archive for 1y", summary.ArchiveThenDelete1yCount.ToString());
+        table.AddRow("Archive for 5y", summary.ArchiveThenDelete5yCount.ToString());
         table.AddRow("Delete", summary.DeleteCount.ToString());
         table.AddRow("Spam", summary.SpamCount.ToString());
         table.AddRow("[dim]─────[/]", "[dim]────[/]");
@@ -857,9 +866,9 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
     {
         session.ActionCounts.TryGetValue("Keep", out var keep);
         session.ActionCounts.TryGetValue("Archive", out var archive);
-        session.ActionCounts.TryGetValue("archive-then-delete-30d", out var archiveThenDelete30d);
-        session.ActionCounts.TryGetValue("archive-then-delete-1y", out var archiveThenDelete1y);
-        session.ActionCounts.TryGetValue("archive-then-delete-5y", out var archiveThenDelete5y);
+        session.ActionCounts.TryGetValue("Archive for 30d", out var archiveThenDelete30d);
+        session.ActionCounts.TryGetValue("Archive for 1y", out var archiveThenDelete1y);
+        session.ActionCounts.TryGetValue("Archive for 5y", out var archiveThenDelete5y);
         session.ActionCounts.TryGetValue("Delete", out var delete);
         session.ActionCounts.TryGetValue("Spam", out var spam);
 

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TrashMailPanda.Models.Console;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
+using TrashMailPanda.Services;
 using TrashMailPanda.Shared.Base;
 
 namespace TrashMailPanda.Services.Console;
@@ -20,6 +21,7 @@ public sealed class ProviderSettingsConsoleService : IProviderSettingsConsoleSer
     private const long BytesPerGb = 1_073_741_824L;
 
     private readonly IEmailArchiveService _archiveService;
+    private readonly IAutoApplyService? _autoApplyService;
     private readonly ILogger<ProviderSettingsConsoleService> _logger;
     private readonly IAnsiConsole _console;
     private readonly Func<ConsoleKeyInfo> _readKey;
@@ -33,7 +35,8 @@ public sealed class ProviderSettingsConsoleService : IProviderSettingsConsoleSer
         IAnsiConsole? console = null,
         Func<ConsoleKeyInfo>? readKey = null,
         Func<CancellationToken, Task<bool>>? runWizard = null,
-        IConsoleHelpPanel? helpPanel = null)
+        IConsoleHelpPanel? helpPanel = null,
+        IAutoApplyService? autoApplyService = null)
     {
         if (runWizard == null && wizard == null)
             throw new ArgumentNullException(nameof(wizard), "Either wizard or runWizard must be provided.");
@@ -43,6 +46,7 @@ public sealed class ProviderSettingsConsoleService : IProviderSettingsConsoleSer
         _readKey = readKey ?? (() => System.Console.ReadKey(intercept: true));
         _runWizard = runWizard ?? (ct => wizard!.RunAsync(ct));
         _helpPanel = helpPanel;
+        _autoApplyService = autoApplyService;
     }
 
     /// <inheritdoc />
@@ -59,6 +63,7 @@ public sealed class ProviderSettingsConsoleService : IProviderSettingsConsoleSer
             _console.MarkupLine($"{ConsoleColors.ActionHint}[[1]]{ConsoleColors.Close} Gmail re-authorization");
             _console.MarkupLine($"{ConsoleColors.ActionHint}[[2]]{ConsoleColors.Close} View storage statistics");
             _console.MarkupLine($"{ConsoleColors.ActionHint}[[3]]{ConsoleColors.Close} Set storage limit");
+            _console.MarkupLine($"{ConsoleColors.ActionHint}[[4]]{ConsoleColors.Close} Auto-apply settings");
             _console.MarkupLine($"{ConsoleColors.Dim}[[0 / Q / Esc]]{ConsoleColors.Close} Back to main menu  {ConsoleColors.ActionHint}[[?]]{ConsoleColors.Close} Help");
             _console.WriteLine();
             _console.MarkupLine($"{ConsoleColors.Info}Select option:{ConsoleColors.Close} ");
@@ -90,6 +95,10 @@ public sealed class ProviderSettingsConsoleService : IProviderSettingsConsoleSer
             else if (key.KeyChar == '3')
             {
                 await AdjustStorageLimitAsync(cancellationToken);
+            }
+            else if (key.KeyChar == '4')
+            {
+                await ConfigureAutoApplyAsync(cancellationToken);
             }
         }
 
@@ -212,6 +221,85 @@ public sealed class ProviderSettingsConsoleService : IProviderSettingsConsoleSer
             var errorMsg = updateResult.IsSuccess ? "Update returned false" : (updateResult.Error?.Message ?? "unknown error");
             _console.MarkupLine($"{ConsoleColors.Error}✗{ConsoleColors.Close} {ConsoleColors.ErrorText}Failed to update storage limit: {Markup.Escape(errorMsg)}{ConsoleColors.Close}");
             _logger.LogError("Failed to update storage limit: {Error}", errorMsg);
+        }
+    }
+
+    // ── Auto-apply settings ──────────────────────────────────────────────────
+
+    private async Task ConfigureAutoApplyAsync(CancellationToken cancellationToken)
+    {
+        _console.WriteLine();
+        _console.Write(new Rule($"{ConsoleColors.Highlight}⚡ Auto-Apply Settings{ConsoleColors.Close}"));
+        _console.WriteLine();
+
+        if (_autoApplyService is null)
+        {
+            _console.MarkupLine($"{ConsoleColors.Warning}⚠ Auto-apply service is not available.{ConsoleColors.Close}");
+            return;
+        }
+
+        var configResult = await _autoApplyService.GetConfigAsync(cancellationToken);
+        if (!configResult.IsSuccess)
+        {
+            _console.MarkupLine($"{ConsoleColors.Error}✗{ConsoleColors.Close} {ConsoleColors.ErrorText}Could not load auto-apply config: {Markup.Escape(configResult.Error.Message)}{ConsoleColors.Close}");
+            return;
+        }
+
+        var config = configResult.Value;
+        var enabledLabel = config.Enabled
+            ? $"{ConsoleColors.Success}enabled{ConsoleColors.Close}"
+            : $"{ConsoleColors.Warning}disabled{ConsoleColors.Close}";
+        _console.MarkupLine($"  Status:     {enabledLabel}");
+        _console.MarkupLine($"  Threshold:  {ConsoleColors.Info}{config.ConfidenceThreshold:P0}{ConsoleColors.Close}  (emails above this confidence are applied automatically)");
+        _console.WriteLine();
+        _console.MarkupLine($"  {ConsoleColors.ActionHint}T{ConsoleColors.Close}=Toggle on/off  {ConsoleColors.ActionHint}C{ConsoleColors.Close}=Change threshold  {ConsoleColors.ActionHint}Esc/Enter{ConsoleColors.Close}=Back");
+        _console.WriteLine();
+
+        var key = _readKey();
+        var k = char.ToUpperInvariant(key.KeyChar);
+
+        if (k == 'T')
+        {
+            config.Enabled = !config.Enabled;
+            var saveResult = await _autoApplyService.SaveConfigAsync(config, cancellationToken);
+            if (saveResult.IsSuccess)
+            {
+                var newLabel = config.Enabled ? "enabled" : "disabled";
+                _console.MarkupLine(config.Enabled
+                    ? $"{ConsoleColors.Success}✓ Auto-apply {newLabel} (threshold {config.ConfidenceThreshold:P0}).{ConsoleColors.Close}"
+                    : $"{ConsoleColors.Warning}✓ Auto-apply {newLabel}.{ConsoleColors.Close}");
+                _logger.LogInformation("Auto-apply toggled: Enabled={Enabled}", config.Enabled);
+            }
+            else
+            {
+                _console.MarkupLine($"{ConsoleColors.Error}✗{ConsoleColors.Close} {ConsoleColors.ErrorText}Failed to save: {Markup.Escape(saveResult.Error.Message)}{ConsoleColors.Close}");
+            }
+        }
+        else if (k == 'C')
+        {
+            _console.MarkupLine($"{ConsoleColors.Info}Enter confidence threshold as a percentage (e.g. 90 for 90%): {ConsoleColors.Close}");
+            var input = System.Console.ReadLine()?.Trim();
+
+            if (string.IsNullOrWhiteSpace(input) ||
+                !float.TryParse(input, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var pct) ||
+                pct < 50f || pct > 100f)
+            {
+                _console.MarkupLine($"{ConsoleColors.Error}✗{ConsoleColors.Close} {ConsoleColors.ErrorText}Invalid value — enter a number between 50 and 100.{ConsoleColors.Close}");
+                return;
+            }
+
+            config.ConfidenceThreshold = pct / 100f;
+            var saveResult = await _autoApplyService.SaveConfigAsync(config, cancellationToken);
+            if (saveResult.IsSuccess)
+            {
+                _console.MarkupLine($"{ConsoleColors.Success}✓ Threshold updated to {config.ConfidenceThreshold:P0}.{ConsoleColors.Close}");
+                _logger.LogInformation("Auto-apply threshold updated: {Threshold:P0}", config.ConfidenceThreshold);
+            }
+            else
+            {
+                _console.MarkupLine($"{ConsoleColors.Error}✗{ConsoleColors.Close} {ConsoleColors.ErrorText}Failed to save: {Markup.Escape(saveResult.Error.Message)}{ConsoleColors.Close}");
+            }
         }
     }
 }
