@@ -544,11 +544,12 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             _console.MarkupLine(
                 $"  {ConsoleColors.ActionHint}Enter/Y{ConsoleColors.Close}=Confirm  " +
                 $"{ConsoleColors.ActionHint}K{ConsoleColors.Close}=Keep  " +
-                $"{ConsoleColors.ActionHint}A{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}A/1{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→30d  " +
+                $"{ConsoleColors.ActionHint}3{ConsoleColors.Close}=Arch→1y  " +
+                $"{ConsoleColors.ActionHint}4{ConsoleColors.Close}=Arch→5y  " +
                 $"{ConsoleColors.ActionHint}D{ConsoleColors.Close}=Delete  " +
                 $"{ConsoleColors.ActionHint}S{ConsoleColors.Close}=Spam  " +
-                $"{ConsoleColors.ActionHint}1{ConsoleColors.Close}=Arch→30d  " +
-                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→1y  " +
                 $"{ConsoleColors.ActionHint}E{ConsoleColors.Close}=Expand  " +
                 $"{ConsoleColors.ActionHint}O{ConsoleColors.Close}=Open  " +
                 $"{ConsoleColors.ActionHint}Q{ConsoleColors.Close}=Exit  " +
@@ -559,11 +560,12 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             _console.MarkupLine(
                 $"  {ConsoleColors.ActionHint}Enter/Y{ConsoleColors.Close}=Accept  " +
                 $"{ConsoleColors.ActionHint}K{ConsoleColors.Close}=Keep  " +
-                $"{ConsoleColors.ActionHint}A{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}A/1{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→30d  " +
+                $"{ConsoleColors.ActionHint}3{ConsoleColors.Close}=Arch→1y  " +
+                $"{ConsoleColors.ActionHint}4{ConsoleColors.Close}=Arch→5y  " +
                 $"{ConsoleColors.ActionHint}D{ConsoleColors.Close}=Delete  " +
                 $"{ConsoleColors.ActionHint}S{ConsoleColors.Close}=Spam  " +
-                $"{ConsoleColors.ActionHint}1{ConsoleColors.Close}=Arch→30d  " +
-                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→1y  " +
                 $"{ConsoleColors.ActionHint}E{ConsoleColors.Close}=Expand  " +
                 $"{ConsoleColors.ActionHint}O{ConsoleColors.Close}=Open  " +
                 $"{ConsoleColors.ActionHint}Q{ConsoleColors.Close}=Exit  " +
@@ -573,11 +575,12 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         {
             _console.MarkupLine(
                 $"  {ConsoleColors.ActionHint}K{ConsoleColors.Close}=Keep  " +
-                $"{ConsoleColors.ActionHint}A{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}A/1{ConsoleColors.Close}=Archive  " +
+                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→30d  " +
+                $"{ConsoleColors.ActionHint}3{ConsoleColors.Close}=Arch→1y  " +
+                $"{ConsoleColors.ActionHint}4{ConsoleColors.Close}=Arch→5y  " +
                 $"{ConsoleColors.ActionHint}D{ConsoleColors.Close}=Delete  " +
                 $"{ConsoleColors.ActionHint}S{ConsoleColors.Close}=Spam  " +
-                $"{ConsoleColors.ActionHint}1{ConsoleColors.Close}=Arch→30d  " +
-                $"{ConsoleColors.ActionHint}2{ConsoleColors.Close}=Arch→1y  " +
                 $"{ConsoleColors.ActionHint}E{ConsoleColors.Close}=Expand  " +
                 $"{ConsoleColors.ActionHint}O{ConsoleColors.Close}=Open  " +
                 $"{ConsoleColors.ActionHint}Q{ConsoleColors.Close}=Exit  " +
@@ -655,17 +658,17 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         if (key == 'K')
             action = "Keep";
-        else if (key == 'A')
+        else if (key == 'A' || key == '1')
             action = "Archive";
         else if (key == 'D')
             action = "Delete";
         else if (key == 'S')
             action = "Spam";
-        else if (key == '1')
-            action = "archive-then-delete-30d";
         else if (key == '2')
-            action = "archive-then-delete-1y";
+            action = "archive-then-delete-30d";
         else if (key == '3')
+            action = "archive-then-delete-1y";
+        else if (key == '4')
             action = "archive-then-delete-5y";
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter) && isRetriage && feature.TrainingLabel is not null)
             action = feature.TrainingLabel; // Confirm previous label during re-triage
