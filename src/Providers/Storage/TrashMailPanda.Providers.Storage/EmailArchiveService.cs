@@ -1027,4 +1027,74 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 new StorageError("Failed to get retriage candidates", ex.Message, ex));
         }
     }
+
+    // ============================================================
+    // Bootstrap / Seeding
+    // ============================================================
+
+    public async Task<Result<int>> BootstrapStarredImportantLabelsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                // Idempotent: only touch rows that have no label yet and have never been
+                // user-corrected, so existing corrections are never overwritten.
+                var updated = await _context.EmailFeatures
+                    .Where(f => f.TrainingLabel == null
+                                && f.UserCorrected == 0
+                                && (f.IsStarred == 1 || f.IsImportant == 1))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(f => f.TrainingLabel, "Keep")
+                        .SetProperty(f => f.UserCorrected, 0),
+                        cancellationToken);
+
+                _logger.LogInformation(
+                    "BootstrapStarredImportantLabels: labeled {Count} Starred/Important emails as 'Keep'.",
+                    updated);
+
+                return Result<int>.Success(updated);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure(new StorageError("Bootstrap labeling failed", ex.Message, ex));
+        }
+    }
+
+    public async Task<Result<IReadOnlyDictionary<string, int>>> GetUserCorrectedCountsByLabelAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                var grouped = await _context.EmailFeatures
+                    .Where(f => f.UserCorrected == 1 && f.TrainingLabel != null)
+                    .GroupBy(f => f.TrainingLabel!)
+                    .Select(g => new { Label = g.Key, Count = g.Count() })
+                    .ToListAsync(cancellationToken);
+
+                IReadOnlyDictionary<string, int> result = grouped
+                    .ToDictionary(x => x.Label, x => x.Count, StringComparer.Ordinal);
+
+                return Result<IReadOnlyDictionary<string, int>>.Success(result);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<IReadOnlyDictionary<string, int>>.Failure(
+                new StorageError("Failed to get user-corrected counts", ex.Message, ex));
+        }
+    }
 }

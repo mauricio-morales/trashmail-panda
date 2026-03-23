@@ -207,6 +207,9 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
             await _trainingEmailRepo.RunBackCorrectionAsync(accountId, cancellationToken);
             await _trainingEmailRepo.ReDeriveSignalsForThreadsAsync(accountId, _signalAssigner, cancellationToken);
 
+            // Bootstrap Starred/Important → 'Keep' training labels (US2, idempotent)
+            await _archiveService.BootstrapStarredImportantLabelsAsync(cancellationToken);
+
             // Update label usage counts after all associations are written (T051)
             await _labelTaxonomyRepo.UpdateUsageCountsAsync(accountId, cancellationToken);
 

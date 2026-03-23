@@ -1,8 +1,9 @@
 using System;
-using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
 
@@ -13,6 +14,8 @@ namespace TrashMailPanda.Providers.Storage.Services;
 /// </summary>
 public class ConfigurationService : IConfigurationService
 {
+    private const string AppConfigKey = "AppConfig";
+
     private readonly IStorageRepository _repository;
     private readonly ILogger<ConfigurationService> _logger;
 
@@ -28,19 +31,17 @@ public class ConfigurationService : IConfigurationService
         {
             _logger.LogDebug("Retrieving application configuration");
 
-            // Get all config records - there should only be one
-            var configResult = await _repository.GetAllAsync<AppConfig>(cancellationToken);
+            var entityResult = await _repository.GetByIdAsync<AppConfigEntity>(AppConfigKey, cancellationToken);
 
-            if (!configResult.IsSuccess)
+            if (!entityResult.IsSuccess)
             {
-                return Result<AppConfig>.Failure(configResult.Error);
+                return Result<AppConfig>.Failure(entityResult.Error);
             }
 
-            var config = configResult.Value.FirstOrDefault();
-
-            if (config == null)
+            AppConfig config;
+            if (entityResult.Value == null)
             {
-                // No config exists yet - create default
+                // No config exists yet - create and persist default
                 _logger.LogInformation("No application configuration found, creating defaults");
                 config = new AppConfig
                 {
@@ -49,11 +50,22 @@ public class ConfigurationService : IConfigurationService
                     UISettings = new UISettings()
                 };
 
-                var addResult = await _repository.AddAsync(config, cancellationToken);
+                var entity = new AppConfigEntity { Key = AppConfigKey, Value = JsonSerializer.Serialize(config) };
+                var addResult = await _repository.AddAsync(entity, cancellationToken);
                 if (!addResult.IsSuccess)
                 {
                     return Result<AppConfig>.Failure(addResult.Error);
                 }
+            }
+            else
+            {
+                config = JsonSerializer.Deserialize<AppConfig>(entityResult.Value.Value)
+                    ?? new AppConfig
+                    {
+                        ConnectionState = new ConnectionState(),
+                        ProcessingSettings = new ProcessingSettings(),
+                        UISettings = new UISettings()
+                    };
             }
 
             _logger.LogDebug("Retrieved application configuration");
@@ -85,8 +97,26 @@ public class ConfigurationService : IConfigurationService
                 return validationResult;
             }
 
-            // Update the existing config
-            var updateResult = await _repository.UpdateAsync(config, cancellationToken);
+            // Upsert the serialised AppConfig under the fixed key
+            var json = JsonSerializer.Serialize(config);
+            var entityResult = await _repository.GetByIdAsync<AppConfigEntity>(AppConfigKey, cancellationToken);
+
+            if (!entityResult.IsSuccess)
+            {
+                return Result<bool>.Failure(entityResult.Error);
+            }
+
+            Result<bool> updateResult;
+            if (entityResult.Value == null)
+            {
+                var entity = new AppConfigEntity { Key = AppConfigKey, Value = json };
+                updateResult = await _repository.AddAsync(entity, cancellationToken);
+            }
+            else
+            {
+                entityResult.Value.Value = json;
+                updateResult = await _repository.UpdateAsync(entityResult.Value, cancellationToken);
+            }
 
             if (!updateResult.IsSuccess)
             {

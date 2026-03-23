@@ -246,4 +246,27 @@ public interface IEmailArchiveService
     Task<Result<int>> ExecuteCleanupAsync(
         int targetPercent = 80,
         CancellationToken cancellationToken = default);
+
+    // ============================================================
+    // Bootstrap / Seeding
+    // ============================================================
+
+    /// <summary>
+    /// Labels un-labeled Starred or Important emails as 'Keep' training examples.
+    /// Idempotent: only updates rows where <c>training_label IS NULL</c>, so existing
+    /// user corrections and AI-assigned labels are never overwritten.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>
+    /// Success: number of feature rows updated
+    /// Failure: StorageError if database operation fails
+    /// </returns>
+    Task<Result<int>> BootstrapStarredImportantLabelsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the count of total <c>user_corrected=1</c> rows grouped by <c>training_label</c>.
+    /// Used by <see cref="Services.IModelQualityMonitor"/> for quality tracking and retrain suggestions.
+    /// </summary>
+    Task<Result<IReadOnlyDictionary<string, int>>> GetUserCorrectedCountsByLabelAsync(
+        CancellationToken cancellationToken = default);
 }

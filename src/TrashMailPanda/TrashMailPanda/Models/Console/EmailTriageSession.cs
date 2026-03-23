@@ -34,9 +34,9 @@ public sealed class EmailTriageSession
     {
         ["Keep"] = 0,
         ["Archive"] = 0,
-        ["archive-then-delete-30d"] = 0,
-        ["archive-then-delete-1y"] = 0,
-        ["archive-then-delete-5y"] = 0,
+        ["Archive for 30d"] = 0,
+        ["Archive for 1y"] = 0,
+        ["Archive for 5y"] = 0,
         ["Delete"] = 0,
         ["Spam"] = 0,
     };
@@ -55,4 +55,19 @@ public sealed class EmailTriageSession
     /// emails that may now warrant a different decision.
     /// </summary>
     public bool IsRetriagedPhase { get; set; }
+
+    // ── Auto-apply tracking (FR-017) ─────────────────────────────────────────
+
+    /// <summary>Ephemeral log of all auto-applied decisions this session.</summary>
+    public List<AutoApplyLogEntry> AutoApplyLog { get; } = [];
+
+    /// <summary>Count of emails auto-applied this session (no user prompt shown).</summary>
+    public int AutoAppliedCount { get; set; }
+
+    /// <summary>
+    /// Rolling window of the last 100 AI-assisted decisions for quality monitoring.
+    /// Each entry is (predictedAction, chosenAction, isOverride).
+    /// Capped at 100 entries — oldest are dequeued when the cap is reached.
+    /// </summary>
+    public Queue<(string Predicted, string Actual, bool IsOverride)> RollingDecisions { get; } = new();
 }
