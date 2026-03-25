@@ -595,6 +595,10 @@ public class SecureStorageManagerTests : IDisposable
                 Platform = "Test",
                 EncryptionMethod = "Test"
             });
+
+        _mockCredentialEncryption
+            .Setup(x => x.DeleteAsync(It.IsAny<string>()))
+            .ReturnsAsync(EncryptionResult.Success());
     }
 
     public void Dispose()

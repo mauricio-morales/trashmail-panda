@@ -15,14 +15,14 @@ public static class PKCEGenerator
     /// <returns>PKCEPair with CodeVerifier and CodeChallenge</returns>
     /// <remarks>
     /// RFC 7636 compliant implementation:
-    /// 1. Generate random 128-byte code_verifier
+    /// 1. Generate random 32-byte code_verifier
     /// 2. SHA256 hash of verifier = code_challenge
     /// 3. Base64Url encode both values
     /// </remarks>
     public static PKCEPair GeneratePKCEPair()
     {
-        // 1. Generate random 128-byte code_verifier
-        var randomBytes = new byte[128];
+        // 1. Generate random 32-byte code_verifier (base64url → 43 chars, within RFC 7636's 43-128 range)
+        var randomBytes = new byte[32];
         using (var rng = RandomNumberGenerator.Create())
         {
             rng.GetBytes(randomBytes);

@@ -4,8 +4,7 @@ namespace TrashMailPanda.Shared.Labels;
 
 /// <summary>
 /// Authoritative mapping of time-bounded triage labels to their retention thresholds.
-/// Shared by <c>EmailTriageService</c>, <c>BulkOperationService</c>, and
-/// <c>RetentionEnforcementService</c> — no local copies elsewhere.
+/// Shared by <c>EmailTriageService</c> and <c>RetentionEnforcementService</c> — no local copies elsewhere.
 /// </summary>
 public static class LabelThresholds
 {

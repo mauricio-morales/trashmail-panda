@@ -27,7 +27,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
     private readonly IEmailArchiveService _archiveService;
     private readonly TrainingConsoleService _trainingConsoleService;
     private readonly IEmailTriageConsoleService _triageConsoleService;
-    private readonly IBulkOperationConsoleService _bulkConsoleService;
     private readonly IProviderSettingsConsoleService _settingsConsoleService;
     private readonly RetentionStartupCheck _retentionStartupCheck;
     private readonly ILogger<ApplicationOrchestrator> _logger;
@@ -46,7 +45,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         IEmailArchiveService archiveService,
         TrainingConsoleService trainingConsoleService,
         IEmailTriageConsoleService triageConsoleService,
-        IBulkOperationConsoleService bulkConsoleService,
         IProviderSettingsConsoleService settingsConsoleService,
         RetentionStartupCheck retentionStartupCheck,
         ILogger<ApplicationOrchestrator> logger)
@@ -60,7 +58,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         _archiveService = archiveService;
         _trainingConsoleService = trainingConsoleService;
         _triageConsoleService = triageConsoleService;
-        _bulkConsoleService = bulkConsoleService;
         _settingsConsoleService = settingsConsoleService;
         _retentionStartupCheck = retentionStartupCheck;
         _logger = logger;
@@ -144,7 +141,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
                 var availableModes = new List<OperationalMode>
                 {
                     OperationalMode.EmailTriage,
-                    OperationalMode.BulkOperations,
                     OperationalMode.ProviderSettings,
                     OperationalMode.TrainModel,
                     OperationalMode.Exit,
@@ -317,10 +313,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         {
             case OperationalMode.EmailTriage:
                 await _triageConsoleService.RunAsync("me", cancellationToken);
-                return true;
-
-            case OperationalMode.BulkOperations:
-                await _bulkConsoleService.RunAsync(cancellationToken);
                 return true;
 
             case OperationalMode.ProviderSettings:

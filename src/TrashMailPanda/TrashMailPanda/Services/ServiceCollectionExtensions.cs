@@ -211,11 +211,8 @@ public static class ServiceCollectionExtensions
 
         // Console TUI services (feature #060)
         services.AddSingleton<IEmailTriageService, EmailTriageService>();
-        services.AddSingleton<IBulkOperationService, BulkOperationService>();
         services.AddSingleton<TrashMailPanda.Services.Console.IEmailTriageConsoleService,
             TrashMailPanda.Services.Console.EmailTriageConsoleService>();
-        services.AddSingleton<TrashMailPanda.Services.Console.IBulkOperationConsoleService,
-            TrashMailPanda.Services.Console.BulkOperationConsoleService>();
         services.AddSingleton<TrashMailPanda.Services.Console.IProviderSettingsConsoleService,
             TrashMailPanda.Services.Console.ProviderSettingsConsoleService>();
         services.AddSingleton<TrashMailPanda.Services.Console.IConsoleHelpPanel,

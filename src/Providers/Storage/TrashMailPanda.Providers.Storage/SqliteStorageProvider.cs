@@ -39,6 +39,8 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
     private TrashMailPandaDbContext? _context;
     private bool _initialized = false;
     private bool _disposed = false;
+    // Kept open for the lifetime of the provider so in-memory databases retain their schema.
+    private SqliteConnection? _persistentConnection;
 
     /// <summary>
     /// Legacy constructor for backward compatibility.
@@ -74,22 +76,45 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
             // Initialize SQLitePCLRaw with SQLCipher bundle
             Batteries_V2.Init();
 
-            // Ensure directory exists
-            var directory = Path.GetDirectoryName(_databasePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            var optionsBuilder = new DbContextOptionsBuilder<TrashMailPandaDbContext>();
+
+            if (_databasePath == ":memory:")
             {
-                Directory.CreateDirectory(directory);
+                // For in-memory SQLite, each connection is a separate, isolated database.
+                // We must keep ONE connection open for the entire lifetime of this provider
+                // so that the schema created by MigrateAsync() persists for all subsequent
+                // operations — closing and re-opening would destroy all tables.
+                _persistentConnection = new SqliteConnection("Data Source=:memory:");
+                _persistentConnection.Open();
+
+                if (!string.IsNullOrEmpty(_password))
+                {
+                    using var pragmaCmd = _persistentConnection.CreateCommand();
+                    // Parameterised PRAGMA is not supported; escape single quotes manually.
+                    pragmaCmd.CommandText = $"PRAGMA key = '{_password.Replace("'", "''")}';";
+                    pragmaCmd.ExecuteNonQuery();
+                }
+
+                optionsBuilder.UseSqlite(_persistentConnection);
+            }
+            else
+            {
+                // Ensure directory exists
+                var directory = Path.GetDirectoryName(_databasePath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var connectionString = new SqliteConnectionStringBuilder
+                {
+                    DataSource = _databasePath,
+                    Password = _password
+                }.ToString();
+
+                optionsBuilder.UseSqlite(connectionString);
             }
 
-            // Create DbContext with encrypted connection
-            var optionsBuilder = new DbContextOptionsBuilder<TrashMailPandaDbContext>();
-            var connectionString = new SqliteConnectionStringBuilder
-            {
-                DataSource = _databasePath,
-                Password = _password
-            }.ToString();
-
-            optionsBuilder.UseSqlite(connectionString);
             _context = new TrashMailPandaDbContext(optionsBuilder.Options);
 
             // Apply migrations to create/update schema
@@ -514,6 +539,10 @@ public class SqliteStorageProvider : IStorageProvider, IDisposable
         {
             _databaseLock?.Dispose();
         }
+
+        // Close the persistent in-memory connection after the context is disposed.
+        _persistentConnection?.Dispose();
+        _persistentConnection = null;
 
         _disposed = true;
         GC.SuppressFinalize(this);
