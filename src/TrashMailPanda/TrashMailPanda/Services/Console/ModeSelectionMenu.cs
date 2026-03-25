@@ -161,11 +161,6 @@ public class ModeSelectionMenu
              $"📧 Email Triage{emailOpsLabel}",
              emailOpsEnabled),
 
-            // Bulk Operations - requires Storage + Gmail + training data
-            (OperationalMode.BulkOperations,
-             $"⚡ Bulk Operations{emailOpsLabel}",
-             emailOpsEnabled),
-
             // Train Action Model - requires completed scan
             (OperationalMode.TrainModel,
              hasCompletedScan ? "🧠 Train Action Model" : "🧠 Train Action Model [dim](Requires training data)[/]",

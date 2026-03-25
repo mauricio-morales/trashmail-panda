@@ -7,9 +7,14 @@ namespace TrashMailPanda.Providers.ML.Config;
 /// </summary>
 public sealed class MLModelProviderConfig : TrashMailPanda.Shared.Models.BaseProviderConfig
 {
-    /// <summary>Maximum number of retained model versions per model type (default 5).</summary>
-    [Range(1, 20)]
-    public int MaxModelVersions { get; set; } = 5;
+    /// <summary>
+    /// Maximum number of retained model versions per model type (default 10).
+    /// Older models beyond this count are deleted from disk automatically after each
+    /// training or incremental-update run. Configurable via <c>MLModelProvider:MaxModelVersions</c>
+    /// in <c>appsettings.json</c>.
+    /// </summary>
+    [Range(1, 50)]
+    public int MaxModelVersions { get; set; } = 10;
 
     /// <summary>Minimum labeled training samples required before training starts (default 100).</summary>
     [Range(10, int.MaxValue)]

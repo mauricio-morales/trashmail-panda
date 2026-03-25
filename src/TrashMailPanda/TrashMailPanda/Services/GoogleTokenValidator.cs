@@ -36,7 +36,11 @@ public class GoogleTokenValidator : IGoogleTokenValidator
 
             if (!tokensResult.IsSuccess)
             {
-                // No tokens exist
+                // Propagate storage/processing errors as failures; only treat
+                // "tokens not found" (ConfigurationError) as NotAuthenticated.
+                if (tokensResult.Error is ProcessingError)
+                    return Result<TokenValidationResult>.Failure(tokensResult.Error);
+
                 return Result<TokenValidationResult>.Success(new TokenValidationResult
                 {
                     TokensExist = false,
@@ -109,7 +113,7 @@ public class GoogleTokenValidator : IGoogleTokenValidator
 
             if (!validationResult.IsSuccess)
             {
-                return Result<bool>.Success(false);
+                return Result<bool>.Failure(validationResult.Error);
             }
 
             var canRefresh = validationResult.Value.CanAutoRefresh;
@@ -159,8 +163,9 @@ public class GoogleTokenValidator : IGoogleTokenValidator
                     new ConfigurationError("Invalid token expiry value in storage"));
             }
 
-            // Parse issued UTC timestamp
-            if (!DateTime.TryParse(issuedUtcResult.Value, out var issuedUtc))
+            // Parse issued UTC timestamp — preserve UTC Kind to avoid timezone-offset errors
+            if (!DateTime.TryParse(issuedUtcResult.Value, null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var issuedUtc))
             {
                 _logger.LogWarning("Invalid issued UTC value: {Value}", issuedUtcResult.Value);
                 return Result<OAuthFlowResult>.Failure(

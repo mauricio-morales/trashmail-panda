@@ -583,6 +583,20 @@ public class ConsoleStartupOrchestrator
 
         try
         {
+            // For Gmail, clear any stored (potentially revoked) OAuth tokens before running
+            // the wizard. IsGmailConfiguredAsync checks for the presence of a refresh token —
+            // if stale/revoked tokens are still in storage, the wizard will see "already
+            // configured" and skip the OAuth flow entirely.
+            if (providerIndex == 1) // Gmail
+            {
+                _logger.LogInformation(
+                    "Clearing stored Gmail OAuth tokens before reconfiguration (tokens may be revoked)");
+                await _secureStorage.RemoveCredentialAsync(GmailStorageKeys.ACCESS_TOKEN);
+                await _secureStorage.RemoveCredentialAsync(GmailStorageKeys.REFRESH_TOKEN);
+                await _secureStorage.RemoveCredentialAsync(GmailStorageKeys.TOKEN_EXPIRY);
+                await _secureStorage.RemoveCredentialAsync(GmailStorageKeys.TOKEN_ISSUED_UTC);
+            }
+
             // Get ConfigurationWizard from DI
             var wizard = _serviceProvider.GetRequiredService<ConfigurationWizard>();
 

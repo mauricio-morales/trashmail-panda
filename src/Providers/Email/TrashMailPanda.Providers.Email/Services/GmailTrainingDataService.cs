@@ -242,6 +242,85 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
     }
 
     /// <inheritdoc />
+    public async Task<Result<int>> BackfillMissingFeatureVectorsAsync(
+        string accountId,
+        IReadOnlyList<string> orphanedIds,
+        IProgress<(int Processed, int Total)>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var gmailService = _emailProvider.GetGmailService();
+        if (gmailService is null)
+            return Result<int>.Failure(new InvalidOperationError("Gmail service is not initialized."));
+
+        if (orphanedIds.Count == 0) return Result<int>.Success(0);
+
+        int stored = 0, skipped = 0;
+
+        try
+        {
+            var features = new List<EmailFeatureVector>(Math.Min(orphanedIds.Count, PageSize));
+
+            for (int i = 0; i < orphanedIds.Count; i++)
+            {
+                if (cancellationToken.IsCancellationRequested) break;
+
+                var msgId = orphanedIds[i];
+                var msgResult = await FetchMessageAsync(gmailService, msgId, cancellationToken);
+                if (!msgResult.IsSuccess)
+                {
+                    _logger.LogDebug("Backfill: skipping {MessageId} — {Error}", msgId, msgResult.Error.Message);
+                    skipped++;
+                }
+                else
+                {
+                    var msg = msgResult.Value;
+                    var folder = DeriveFolder(msg.LabelIds?.ToList() ?? []);
+                    var feature = BuildFeatureVector(msg, folder);
+                    if (feature is not null)
+                        features.Add(feature);
+                }
+
+                // Flush every PageSize features to avoid large in-memory batches
+                if (features.Count >= PageSize)
+                {
+                    var storeResult = await _archiveService.StoreFeaturesBatchAsync(features, cancellationToken);
+                    if (storeResult.IsSuccess)
+                        stored += storeResult.Value;
+                    features.Clear();
+                }
+
+                progress?.Report((i + 1, orphanedIds.Count));
+            }
+
+            // Final flush
+            if (features.Count > 0)
+            {
+                var storeResult = await _archiveService.StoreFeaturesBatchAsync(features, cancellationToken);
+                if (storeResult.IsSuccess)
+                    stored += storeResult.Value;
+            }
+
+            if (skipped > 0)
+                _logger.LogDebug("Backfill complete: {Stored} feature vectors stored, {Skipped} messages skipped (deleted/unavailable).",
+                    stored, skipped);
+            else
+                _logger.LogDebug("Backfill complete: {Stored} feature vectors stored.", stored);
+
+            return Result<int>.Success(stored);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Feature vector backfill cancelled after {Stored} stored.", stored);
+            return Result<int>.Failure(new OperationCancelledError("Backfill cancelled."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Feature vector backfill failed for account {AccountId}.", accountId);
+            return Result<int>.Failure(ex.ToProviderError("Backfill failed"));
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<Result<ScanSummary>> RunIncrementalScanAsync(string accountId, CancellationToken cancellationToken)
     {
         var gmailService = _emailProvider.GetGmailService();
@@ -268,6 +347,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
             string? pageToken = null;
             var emails = new List<TrainingEmailEntity>();
+            var rawMessages = new List<Message>(); // parallel list for feature-vector building
             int fetchAttempts = 0, notFoundCount = 0;
 
             do
@@ -315,12 +395,17 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
 
                     var msg = msgResult.Value;
                     var entity = BuildTrainingEmail(accountId, msg);
-                    if (entity is not null) emails.Add(entity);
+                    if (entity is not null)
+                    {
+                        emails.Add(entity);
+                        rawMessages.Add(msg);
+                    }
                 }
 
                 if (emails.Count >= PageSize)
                 {
                     await FlushBatchAsync(accountId, emails, cancellationToken);
+                    await FlushIncrementalFeatureVectorsAsync(rawMessages, cancellationToken);
                     var counts = CountSignals(emails);
                     totalProcessed += emails.Count;
                     autoDeleteCount += counts.autoDelete;
@@ -328,6 +413,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                     lowConfidenceCount += counts.lowConfidence;
                     excludedCount += counts.excluded;
                     emails.Clear();
+                    rawMessages.Clear();
                 }
 
                 pageToken = historyResponse.NextPageToken;
@@ -340,6 +426,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
             if (emails.Count > 0)
             {
                 await FlushBatchAsync(accountId, emails, cancellationToken);
+                await FlushIncrementalFeatureVectorsAsync(rawMessages, cancellationToken);
                 var counts = CountSignals(emails);
                 totalProcessed += emails.Count;
                 autoDeleteCount += counts.autoDelete;
@@ -802,6 +889,29 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         {
             var labelIds = ParseLabelIds(email.RawLabelIds);
             await _labelAssociationRepo.ReconcileAssociationsAsync(email.EmailId, labelIds, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Builds <see cref="EmailFeatureVector"/> entries from raw Gmail API messages and upserts
+    /// them into <c>email_features</c> so that incrementally-synced emails appear in the
+    /// triage queue (<c>GetUntriagedAsync</c> reads from that table).
+    /// Preserves any existing <c>TrainingLabel</c> / <c>UserCorrected</c> values on update.
+    /// </summary>
+    private async Task FlushIncrementalFeatureVectorsAsync(List<Message> rawMessages, CancellationToken cancellationToken)
+    {
+        if (rawMessages.Count == 0) return;
+
+        var features = rawMessages
+            .Select(m => BuildFeatureVector(m, DeriveFolder(m.LabelIds?.ToList() ?? [])))
+            .Where(f => f is not null)
+            .Cast<EmailFeatureVector>()
+            .ToList();
+
+        if (features.Count > 0)
+        {
+            _logger.LogDebug("Incremental sync: storing {Count} feature vector(s) to triage queue", features.Count);
+            await _archiveService.StoreFeaturesBatchAsync(features, cancellationToken);
         }
     }
 

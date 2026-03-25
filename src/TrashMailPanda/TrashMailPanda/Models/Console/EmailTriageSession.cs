@@ -1,3 +1,5 @@
+using TrashMailPanda.Shared.Labels;
+
 namespace TrashMailPanda.Models.Console;
 
 /// <summary>
@@ -34,9 +36,9 @@ public sealed class EmailTriageSession
     {
         ["Keep"] = 0,
         ["Archive"] = 0,
-        ["Archive for 30d"] = 0,
-        ["Archive for 1y"] = 0,
-        ["Archive for 5y"] = 0,
+        [LabelThresholds.Archive30d] = 0,
+        [LabelThresholds.Archive1y] = 0,
+        [LabelThresholds.Archive5y] = 0,
         ["Delete"] = 0,
         ["Spam"] = 0,
     };

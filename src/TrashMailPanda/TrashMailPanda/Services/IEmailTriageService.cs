@@ -78,7 +78,8 @@ public interface IEmailTriageService
         string chosenAction,
         string? aiRecommendation,
         bool forceUserCorrected = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DateTime? receivedDateUtc = null);
 
     /// <summary>
     /// Fetches live email details from the provider for enriched triage card display.

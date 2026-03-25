@@ -60,18 +60,6 @@ public sealed class HelpContext
         ],
     };
 
-    public static HelpContext ForBulkOperations() => new()
-    {
-        ModeTitle = "Bulk Operations",
-        KeyBindings =
-        [
-            new("↑ / ↓", "Navigate options"),
-            new("Enter", "Select / confirm"),
-            new("Esc", "Back / cancel"),
-            new("?", "Show this help panel"),
-        ],
-    };
-
     public static HelpContext ForProviderSettings() => new()
     {
         ModeTitle = "Provider Settings",

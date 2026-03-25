@@ -5,6 +5,7 @@ using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Services.Console;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Startup;
 
 namespace TrashMailPanda.Services;
 
@@ -26,8 +27,8 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
     private readonly IEmailArchiveService _archiveService;
     private readonly TrainingConsoleService _trainingConsoleService;
     private readonly IEmailTriageConsoleService _triageConsoleService;
-    private readonly IBulkOperationConsoleService _bulkConsoleService;
     private readonly IProviderSettingsConsoleService _settingsConsoleService;
+    private readonly RetentionStartupCheck _retentionStartupCheck;
     private readonly ILogger<ApplicationOrchestrator> _logger;
 
     public event EventHandler<ApplicationEventArgs>? ApplicationEventRaised;
@@ -44,8 +45,8 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         IEmailArchiveService archiveService,
         TrainingConsoleService trainingConsoleService,
         IEmailTriageConsoleService triageConsoleService,
-        IBulkOperationConsoleService bulkConsoleService,
         IProviderSettingsConsoleService settingsConsoleService,
+        RetentionStartupCheck retentionStartupCheck,
         ILogger<ApplicationOrchestrator> logger)
     {
         _statusDisplay = statusDisplay;
@@ -57,8 +58,8 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         _archiveService = archiveService;
         _trainingConsoleService = trainingConsoleService;
         _triageConsoleService = triageConsoleService;
-        _bulkConsoleService = bulkConsoleService;
         _settingsConsoleService = settingsConsoleService;
+        _retentionStartupCheck = retentionStartupCheck;
         _logger = logger;
     }
 
@@ -133,11 +134,13 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
                 // 3. Startup training sync
                 await HandleStartupTrainingSyncAsync(cancellationToken);
 
-                // 4. Mode selection loop
+                // 4. Retention scan prompt (runs if overdue or never run)
+                await _retentionStartupCheck.RunAsync(cancellationToken);
+
+                // 5. Mode selection loop
                 var availableModes = new List<OperationalMode>
                 {
                     OperationalMode.EmailTriage,
-                    OperationalMode.BulkOperations,
                     OperationalMode.ProviderSettings,
                     OperationalMode.TrainModel,
                     OperationalMode.Exit,
@@ -254,6 +257,12 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
 
             EmitEvent(new StatusMessageEvent { Message = "[dim]→ Syncing new email changes...[/]" });
             await _trainingScanCommand.RunIncrementalScanAsync("me", cancellationToken);
+
+            // Backfill feature vectors for any training emails that were stored by the
+            // old incremental sync (before the fix) but never got a row in email_features.
+            // This is a one-time repair that runs on every startup until no orphans remain.
+            await BackfillOrphanedFeatureVectorsAsync(cancellationToken);
+
             System.Console.WriteLine();
             return;
         }
@@ -266,6 +275,28 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         System.Console.WriteLine();
         await _trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
         System.Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Checks for training emails that have no feature vector (orphaned by the old incremental
+    /// sync) and re-fetches them from Gmail to build the missing vectors.
+    /// Silently skips if there are no orphans.
+    /// </summary>
+    private async Task BackfillOrphanedFeatureVectorsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var orphanResult = await _archiveService.GetOrphanedTrainingEmailIdsAsync("me", limit: 500, cancellationToken);
+            if (!orphanResult.IsSuccess || orphanResult.Value.Count == 0) return;
+
+            _logger.LogInformation("Found {Count} training email(s) with no feature vector — starting backfill.", orphanResult.Value.Count);
+            await _trainingScanCommand.RunBackfillAsync("me", orphanResult.Value, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Backfill is best-effort; log and move on so startup is never blocked.
+            _logger.LogWarning(ex, "Feature vector backfill encountered an error and was skipped.");
+        }
     }
 
     /// <summary>
@@ -282,10 +313,6 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
         {
             case OperationalMode.EmailTriage:
                 await _triageConsoleService.RunAsync("me", cancellationToken);
-                return true;
-
-            case OperationalMode.BulkOperations:
-                await _bulkConsoleService.RunAsync(cancellationToken);
                 return true;
 
             case OperationalMode.ProviderSettings:

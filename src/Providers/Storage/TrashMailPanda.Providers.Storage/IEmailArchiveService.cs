@@ -269,4 +269,18 @@ public interface IEmailArchiveService
     /// </summary>
     Task<Result<IReadOnlyDictionary<string, int>>> GetUserCorrectedCountsByLabelAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns Gmail message IDs that exist in <c>training_emails</c> but have no corresponding
+    /// row in <c>email_features</c>. These are emails that were captured by the incremental
+    /// History sync but never had feature vectors built (pre-fix data).
+    /// </summary>
+    /// <param name="accountId">Account to scope the query.</param>
+    /// <param name="limit">Maximum number of IDs to return per call (for batching).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>List of orphaned email IDs, oldest-first (by ImportedAt).</returns>
+    Task<Result<IReadOnlyList<string>>> GetOrphanedTrainingEmailIdsAsync(
+        string accountId,
+        int limit = 500,
+        CancellationToken cancellationToken = default);
 }

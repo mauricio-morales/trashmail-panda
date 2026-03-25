@@ -13,6 +13,7 @@ using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Labels;
 using TrashMailPanda.Shared.Models;
 
 namespace TrashMailPanda.Services;
@@ -162,6 +163,15 @@ public sealed class EmailTriageService : IEmailTriageService
             "GetAiRecommendation [{EmailId}]: requesting prediction (mode={Mode})",
             feature.EmailId, sessionInfo.Value.Mode);
 
+        // US3: Compute EmailAgeDays fresh from ReceivedDateUtc at inference time.
+        // Stored email_age_days reflects age at extraction — may be stale by days/weeks.
+        // For ML training rows the stored value is used as-is (age at decision time is what
+        // the model should learn from), but at inference we need the current age.
+        if (feature.ReceivedDateUtc.HasValue)
+        {
+            feature.EmailAgeDays = (int)(DateTime.UtcNow - feature.ReceivedDateUtc.Value).TotalDays;
+        }
+
         var predResult = await _mlProvider.ClassifyActionAsync(feature, cancellationToken);
         if (!predResult.IsSuccess)
         {
@@ -186,14 +196,15 @@ public sealed class EmailTriageService : IEmailTriageService
         string chosenAction,
         string? aiRecommendation,
         bool forceUserCorrected = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTime? receivedDateUtc = null)
     {
         _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] action={Action} aiRec={AiRec} forceUserCorrected={ForceUserCorrected}",
             emailId, chosenAction, aiRecommendation ?? "none", forceUserCorrected);
 
         // Step 1: Execute Gmail action FIRST.
         // On failure: return error — training_label is NOT stored (no false training signal).
-        var actionResult = await ExecuteGmailActionAsync(emailId, chosenAction, cancellationToken);
+        var actionResult = await ExecuteGmailActionAsync(emailId, chosenAction, receivedDateUtc, cancellationToken);
         if (!actionResult.IsSuccess)
         {
             _logger.LogWarning("Gmail action {Action} failed for email {EmailId}: {Error}",
@@ -214,8 +225,15 @@ public sealed class EmailTriageService : IEmailTriageService
             // Non-fatal: Gmail action already succeeded; training label failure is a best-effort
         }
 
-        _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] stored label={Action} isOverride={IsOverride}",
-            emailId, chosenAction, isOverride);
+        // Determine whether a time-bounded label triggered immediate deletion
+        // (age >= threshold at execution time). The ChosenAction label is preserved as-is
+        // for ML training integrity — only the UI feedback differs.
+        var wasImmediatelyDeleted = LabelThresholds.TryGetThreshold(chosenAction, out var threshold)
+            && receivedDateUtc.HasValue
+            && (DateTime.UtcNow - receivedDateUtc.Value).TotalDays >= threshold;
+
+        _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] stored label={Action} isOverride={IsOverride} wasImmediatelyDeleted={WasImmediatelyDeleted}",
+            emailId, chosenAction, isOverride, wasImmediatelyDeleted);
         return Result<TriageDecision>.Success(new TriageDecision(
             EmailId: emailId,
             ChosenAction: chosenAction,
@@ -223,7 +241,8 @@ public sealed class EmailTriageService : IEmailTriageService
             ConfidenceScore: null,
             IsOverride: isOverride,
             DecidedAtUtc: DateTime.UtcNow
-        ));
+        )
+        { WasImmediatelyDeleted = wasImmediatelyDeleted });
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -260,15 +279,31 @@ public sealed class EmailTriageService : IEmailTriageService
     private async Task<Result<bool>> ExecuteGmailActionAsync(
         string emailId,
         string action,
+        DateTime? receivedDateUtc,
         CancellationToken cancellationToken)
     {
+        // Time-bounded labels: route based on current age at execution
+        if (LabelThresholds.TryGetThreshold(action, out var thresholdDays))
+        {
+            if (receivedDateUtc.HasValue)
+            {
+                var ageDays = (DateTime.UtcNow - receivedDateUtc.Value).TotalDays;
+                return ageDays >= thresholdDays
+                    ? await ApplyDeleteAsync(emailId, cancellationToken)
+                    : await ApplyArchiveAsync(emailId, cancellationToken);
+            }
+
+            // receivedDateUtc missing: safe fallback to Archive
+            _logger.LogDebug(
+                "ExecuteGmailActionAsync [{EmailId}]: time-bounded label '{Action}' has no ReceivedDateUtc — falling back to Archive",
+                emailId, action);
+            return await ApplyArchiveAsync(emailId, cancellationToken);
+        }
+
         return action switch
         {
             "Keep" => await ApplyKeepAsync(emailId, cancellationToken),
             "Archive" => await ApplyArchiveAsync(emailId, cancellationToken),
-            "Archive for 30d" => await ApplyArchiveAsync(emailId, cancellationToken),
-            "Archive for 1y" => await ApplyArchiveAsync(emailId, cancellationToken),
-            "Archive for 5y" => await ApplyArchiveAsync(emailId, cancellationToken),
             "Delete" => await ApplyDeleteAsync(emailId, cancellationToken),
             "Spam" => await _emailProvider.ReportSpamAsync(emailId),
             _ => Result<bool>.Failure(new ValidationError($"Unknown triage action: '{action}'"))

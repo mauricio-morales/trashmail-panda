@@ -50,6 +50,13 @@ public interface ICredentialEncryption
     EncryptionStatus GetEncryptionStatus();
 
     /// <summary>
+    /// Delete a stored credential from the database and invalidate any cached reference.
+    /// </summary>
+    /// <param name="key">The credential key to delete</param>
+    /// <returns>Result indicating success or failure</returns>
+    Task<EncryptionResult> DeleteAsync(string key);
+
+    /// <summary>
     /// Securely dispose of sensitive data from memory
     /// </summary>
     /// <param name="sensitiveData">Data to securely clear</param>

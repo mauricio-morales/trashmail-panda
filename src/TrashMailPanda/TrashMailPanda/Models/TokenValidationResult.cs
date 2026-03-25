@@ -36,9 +36,9 @@ public record TokenValidationResult
     public string Message { get; init; } = string.Empty;
 
     /// <summary>
-    /// Whether automatic refresh can be attempted
+    /// Whether automatic refresh can be attempted (only when token is expired AND a refresh token exists)
     /// </summary>
-    public bool CanAutoRefresh => HasRefreshToken && TokensExist;
+    public bool CanAutoRefresh => HasRefreshToken && TokensExist && IsAccessTokenExpired;
 
     /// <summary>
     /// Whether full re-authentication is required

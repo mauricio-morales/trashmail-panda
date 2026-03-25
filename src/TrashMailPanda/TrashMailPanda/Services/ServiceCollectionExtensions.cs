@@ -42,6 +42,8 @@ public static class ServiceCollectionExtensions
         services.Configure<EmailProviderConfig>(configuration.GetSection("EmailProvider"));
         services.Configure<LLMProviderConfig>(configuration.GetSection("LLMProvider"));
         services.Configure<StorageProviderConfig>(configuration.GetSection("StorageProvider"));
+        services.Configure<TrashMailPanda.Models.RetentionEnforcementOptions>(
+            configuration.GetSection("RetentionEnforcement"));
 
         // Add security services
         services.AddSecurityServices();
@@ -209,11 +211,8 @@ public static class ServiceCollectionExtensions
 
         // Console TUI services (feature #060)
         services.AddSingleton<IEmailTriageService, EmailTriageService>();
-        services.AddSingleton<IBulkOperationService, BulkOperationService>();
         services.AddSingleton<TrashMailPanda.Services.Console.IEmailTriageConsoleService,
             TrashMailPanda.Services.Console.EmailTriageConsoleService>();
-        services.AddSingleton<TrashMailPanda.Services.Console.IBulkOperationConsoleService,
-            TrashMailPanda.Services.Console.BulkOperationConsoleService>();
         services.AddSingleton<TrashMailPanda.Services.Console.IProviderSettingsConsoleService,
             TrashMailPanda.Services.Console.ProviderSettingsConsoleService>();
         services.AddSingleton<TrashMailPanda.Services.Console.IConsoleHelpPanel,
@@ -228,6 +227,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAutoApplyService, AutoApplyService>();
         services.AddSingleton<IModelQualityMonitor, ModelQualityMonitor>();
         services.AddScoped<IAutoApplyUndoService, AutoApplyUndoService>();
+
+        // Feature #064 — Retention enforcement (Archive-then-Delete labels)
+        services.AddSingleton<IRetentionEnforcementService, RetentionEnforcementService>();
+        services.AddSingleton<TrashMailPanda.Startup.RetentionStartupCheck>();
 
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();
@@ -277,6 +280,7 @@ public static class ServiceCollectionExtensions
         // ML model provider and training pipeline
         services.AddSingleton(sp => new MLModelProviderConfig { Name = "MLModelProvider" });
         services.AddOptions<MLModelProviderConfig>()
+            .BindConfiguration("MLModelProvider")
             .Configure(c => c.Name = "MLModelProvider")
             .ValidateDataAnnotations();
         services.AddSingleton<IMLModelProvider, MLModelProvider>();

@@ -160,6 +160,58 @@ public sealed class GmailTrainingScanCommand
         DisplayScanResult(result);
     }
 
+    /// <summary>
+    /// Backfills feature vectors for emails that were captured by the incremental scan
+    /// but never had feature vectors built (pre-fix data gap).
+    /// </summary>
+    public async Task RunBackfillAsync(string accountId, IReadOnlyList<string> orphanedIds, CancellationToken cancellationToken = default)
+    {
+        AnsiConsole.MarkupLine($"[blue]ℹ Backfilling feature vectors for [white]{orphanedIds.Count:N0}[/] emails that missed the triage queue...[/]");
+
+        int processed = 0;
+        Result<int> result = default;
+
+        await AnsiConsole.Progress()
+            .AutoRefresh(true)
+            .AutoClear(false)
+            .HideCompleted(false)
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new ElapsedTimeColumn(),
+                new SpinnerColumn())
+            .StartAsync(async ctx =>
+            {
+                var task = ctx.AddTask("[cyan]Backfilling...[/]", maxValue: orphanedIds.Count);
+
+                var progressReporter = new Progress<(int Processed, int Total)>(update =>
+                {
+                    task.Value = update.Processed;
+                    task.Description = $"[cyan]Backfilling...[/] [dim]{update.Processed:N0}/{update.Total:N0}[/]";
+                    processed = update.Processed;
+                });
+
+                result = await _trainingDataService.BackfillMissingFeatureVectorsAsync(
+                    accountId, orphanedIds, progressReporter, cancellationToken);
+
+                task.Value = orphanedIds.Count;
+            });
+
+        AnsiConsole.WriteLine();
+        if (!result.IsSuccess)
+        {
+            if (result.Error is OperationCancelledError)
+                AnsiConsole.MarkupLine($"[yellow]⚠ Backfill cancelled after {processed:N0} emails.[/]");
+            else
+                AnsiConsole.MarkupLine($"[bold red]✗ Backfill failed:[/] [red]{Markup.Escape(result.Error.Message)}[/]");
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"[green]✓ Backfill complete[/] [dim]— {result.Value:N0} feature vector(s) added to the triage queue.[/]");
+        AnsiConsole.WriteLine();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────────
     // Description helpers — fixed-width strings so the description column never shifts
     // ──────────────────────────────────────────────────────────────────────────────

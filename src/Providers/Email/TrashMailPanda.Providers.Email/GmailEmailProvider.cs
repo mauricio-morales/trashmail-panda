@@ -699,6 +699,11 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
             var accessTokenResult = await _secureStorageManager.RetrieveCredentialAsync(GmailStorageKeys.ACCESS_TOKEN);
             var refreshTokenResult = await _secureStorageManager.RetrieveCredentialAsync(GmailStorageKeys.REFRESH_TOKEN);
 
+            Logger.LogDebug(
+                "Stored credential lookup: HasAccessToken={HasAccess}, HasRefreshToken={HasRefresh}",
+                accessTokenResult.IsSuccess && !string.IsNullOrEmpty(accessTokenResult.Value),
+                refreshTokenResult.IsSuccess && !string.IsNullOrEmpty(refreshTokenResult.Value));
+
             // If we have stored tokens, attempt to use them
             if (accessTokenResult.IsSuccess && refreshTokenResult.IsSuccess)
             {
@@ -784,18 +789,39 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
                 TokenType = "Bearer"
             };
 
+            var tokenAge = DateTime.UtcNow - issuedUtc;
+            Logger.LogDebug(
+                "Reconstructed token state: IsStale={IsStale}, ExpiresInSeconds={ExpiresInSeconds}, " +
+                "IssuedUtc={IssuedUtc:O}, TokenAge={TokenAgeHours:F2}h, " +
+                "StoredExpiryRaw='{StoredExpiry}', StoredIssuedRaw='{StoredIssued}'",
+                tokenResponse.IsStale, expiresInSeconds, issuedUtc,
+                tokenAge.TotalHours,
+                tokenExpiryResult.IsSuccess ? tokenExpiryResult.Value : "(not found)",
+                tokenIssuedResult.IsSuccess ? tokenIssuedResult.Value : "(not found)");
+
             // Create UserCredential from the token response
             var userCredential = new UserCredential(flow, "user", tokenResponse);
 
             // Test if the token is still valid by attempting to refresh if needed
             if (tokenResponse.IsStale)
             {
+                Logger.LogDebug(
+                    "Access token is stale — proactively refreshing before initializing Gmail service. " +
+                    "ExpiresInSeconds={Expiry}, IssuedUtc={Issued:O}, TokenAge={Age:F2}h",
+                    expiresInSeconds, issuedUtc, tokenAge.TotalHours);
+
                 var refreshResult = await userCredential.RefreshTokenAsync(CancellationToken.None);
                 if (!refreshResult)
                 {
+                    Logger.LogWarning(
+                        "Proactive token refresh returned false — refresh token may be invalid or revoked by Google");
                     return Result<UserCredential>.Failure(
                         new AuthenticationError("Failed to refresh expired token"));
                 }
+
+                Logger.LogDebug(
+                    "Proactive token refresh succeeded. New ExpiresInSeconds={NewExpiry}, IsStale={NewIsStale}",
+                    userCredential.Token.ExpiresInSeconds, userCredential.Token.IsStale);
 
                 // Update stored tokens with refreshed values
                 var storeResult = await StoreCredentialsAsync(userCredential);
@@ -806,6 +832,26 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
             }
 
             return Result<UserCredential>.Success(userCredential);
+        }
+        catch (TokenResponseException tre)
+        {
+            var isInvalidGrant = tre.Error?.Error == "invalid_grant";
+            if (isInvalidGrant)
+            {
+                Logger.LogError(
+                    "Refresh token has been revoked by Google (invalid_grant) — re-authentication required. " +
+                    "Google description: {Desc}",
+                    tre.Error?.ErrorDescription);
+                return Result<UserCredential>.Failure(
+                    new AuthenticationError(
+                        $"Gmail refresh token revoked: {tre.Error?.ErrorDescription}. Re-authentication required."));
+            }
+
+            Logger.LogError(tre,
+                "OAuth token error during credential creation: Error={OAuthError}, Description={Desc}",
+                tre.Error?.Error, tre.Error?.ErrorDescription);
+            return Result<UserCredential>.Failure(
+                new AuthenticationError($"OAuth token error ({tre.Error?.Error}): {tre.Error?.ErrorDescription ?? tre.Message}"));
         }
         catch (Exception ex)
         {
@@ -967,6 +1013,19 @@ public class GmailEmailProvider : BaseProvider<GmailProviderConfig>, IEmailProvi
             if (_gmailService == null)
             {
                 return Result<bool>.Failure(new InvalidOperationError("Gmail service not created"));
+            }
+
+            if (_credential?.Token != null)
+            {
+                var tokenAge = DateTime.UtcNow - _credential.Token.IssuedUtc;
+                Logger.LogDebug(
+                    "Testing Gmail connection. Token IsStale={IsStale}, HasRefreshToken={HasRefresh}, " +
+                    "ExpiresInSeconds={Expiry}, TokenAge={TokenAgeHours:F2}h — " +
+                    "Google client will auto-refresh if stale",
+                    _credential.Token.IsStale,
+                    !string.IsNullOrEmpty(_credential.Token.RefreshToken),
+                    _credential.Token.ExpiresInSeconds,
+                    tokenAge.TotalHours);
             }
 
             var result = await _rateLimitHandler.ExecuteWithRetryAsync(async () =>

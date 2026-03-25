@@ -35,10 +35,4 @@ public interface ILLMProvider
     /// <returns>Suggested queries</returns>
     Task<IReadOnlyList<string>> SuggestSearchQueriesAsync(QueryContext context);
 
-    /// <summary>
-    /// Group emails for bulk operations
-    /// </summary>
-    /// <param name="input">Grouping input</param>
-    /// <returns>Bulk grouping results</returns>
-    Task<GroupOutput> GroupForBulkAsync(GroupingInput input);
 }

@@ -11,11 +11,6 @@ public enum OperationalMode
     EmailTriage,
 
     /// <summary>
-    /// Bulk email actions - delete, archive, label (requires Storage and Gmail).
-    /// </summary>
-    BulkOperations,
-
-    /// <summary>
     /// Reconfigure provider settings (requires Storage).
     /// </summary>
     ProviderSettings,
