@@ -51,6 +51,16 @@ public class ConfigurationWizard
             // Check which providers are already configured
             var gmailConfigured = await IsGmailConfiguredAsync();
 
+            // If everything is already configured, persist and return without showing any UI
+            if (gmailConfigured)
+            {
+                _logger.LogInformation("All providers already configured, skipping wizard UI");
+                _state.GmailConfigured = true;
+                _state.CurrentStep = WizardStep.Complete;
+                await SaveConfigurationsAsync();
+                return true;
+            }
+
             // Step 1: Welcome screen with status
             await DisplayWelcomeAsync(gmailConfigured);
             _state.CurrentStep = WizardStep.Welcome;
@@ -299,6 +309,10 @@ public class ConfigurationWizard
     private async Task SaveConfigurationsAsync()
     {
         _logger.LogInformation("Saving configurations to secure storage");
+
+        // Persist storage path so CheckProviderSetupNeeded finds it on subsequent runs
+        var dbPath = StorageProviderConfig.GetOsDefaultPath();
+        await _secureStorage.StoreCredentialAsync("storage_database_path", dbPath);
 
         // Mark first-time setup as complete
         await _secureStorage.StoreCredentialAsync("setup_completed", DateTime.UtcNow.ToString("O"));
