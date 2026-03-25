@@ -34,4 +34,21 @@ public interface IGmailTrainingDataService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A summary of the incremental scan.</returns>
     Task<Result<ScanSummary>> RunIncrementalScanAsync(string accountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Re-fetches emails from the Gmail API for any message IDs that exist in
+    /// <c>training_emails</c> but have no row in <c>email_features</c>, then builds
+    /// and stores the missing feature vectors.  This repairs data created by the
+    /// previous incremental-sync implementation that wrote only to <c>training_emails</c>.
+    /// </summary>
+    /// <param name="accountId">The user's Gmail account identifier.</param>
+    /// <param name="orphanedIds">Message IDs that need feature vectors.</param>
+    /// <param name="progress">Optional: reports (processed, total) tuples.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Number of feature vectors successfully stored.</returns>
+    Task<Result<int>> BackfillMissingFeatureVectorsAsync(
+        string accountId,
+        IReadOnlyList<string> orphanedIds,
+        IProgress<(int Processed, int Total)>? progress = null,
+        CancellationToken cancellationToken = default);
 }

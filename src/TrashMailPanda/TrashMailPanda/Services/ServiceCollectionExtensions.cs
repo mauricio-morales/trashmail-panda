@@ -283,6 +283,7 @@ public static class ServiceCollectionExtensions
         // ML model provider and training pipeline
         services.AddSingleton(sp => new MLModelProviderConfig { Name = "MLModelProvider" });
         services.AddOptions<MLModelProviderConfig>()
+            .BindConfiguration("MLModelProvider")
             .Configure(c => c.Name = "MLModelProvider")
             .ValidateDataAnnotations();
         services.AddSingleton<IMLModelProvider, MLModelProvider>();

@@ -714,7 +714,7 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
             if (session.Mode == TriageMode.AiAssisted && prediction is not null)
                 _qualityMonitor?.RecordDecision(prediction.PredictedLabel, action, decision.IsOverride);
 
-            RenderDecisionFeedback(action, decision.IsOverride, aiRec);
+            RenderDecisionFeedback(action, decision.IsOverride, aiRec, decision.WasImmediatelyDeleted);
             return KeyHandleResult.Decided;
         }
         else
@@ -817,15 +817,19 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         _console.WriteLine();
     }
 
-    private void RenderDecisionFeedback(string action, bool isOverride, string? aiRec)
+    private void RenderDecisionFeedback(string action, bool isOverride, string? aiRec, bool wasImmediatelyDeleted = false)
     {
         var overrideNote = isOverride && aiRec is not null
             ? $" {ConsoleColors.Warning}(override — AI suggested {Markup.Escape(aiRec)}){ConsoleColors.Close}"
             : string.Empty;
 
+        var deletedNote = wasImmediatelyDeleted
+            ? $" [red](deleted now — already past retention window)[/]"
+            : string.Empty;
+
         _console.MarkupLine(
             $"  {ConsoleColors.Success}✓{ConsoleColors.Close} " +
-            $"{ConsoleColors.Highlight}{Markup.Escape(action)}{ConsoleColors.Close}{overrideNote}");
+            $"{ConsoleColors.Highlight}{Markup.Escape(action)}{ConsoleColors.Close}{overrideNote}{deletedNote}");
     }
 
     private void RenderSessionSummary(TriageSessionSummary summary)

@@ -225,8 +225,15 @@ public sealed class EmailTriageService : IEmailTriageService
             // Non-fatal: Gmail action already succeeded; training label failure is a best-effort
         }
 
-        _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] stored label={Action} isOverride={IsOverride}",
-            emailId, chosenAction, isOverride);
+        // Determine whether a time-bounded label triggered immediate deletion
+        // (age >= threshold at execution time). The ChosenAction label is preserved as-is
+        // for ML training integrity — only the UI feedback differs.
+        var wasImmediatelyDeleted = LabelThresholds.TryGetThreshold(chosenAction, out var threshold)
+            && receivedDateUtc.HasValue
+            && (DateTime.UtcNow - receivedDateUtc.Value).TotalDays >= threshold;
+
+        _logger.LogDebug("ApplyDecisionAsync: [{EmailId}] stored label={Action} isOverride={IsOverride} wasImmediatelyDeleted={WasImmediatelyDeleted}",
+            emailId, chosenAction, isOverride, wasImmediatelyDeleted);
         return Result<TriageDecision>.Success(new TriageDecision(
             EmailId: emailId,
             ChosenAction: chosenAction,
@@ -234,7 +241,8 @@ public sealed class EmailTriageService : IEmailTriageService
             ConfidenceScore: null,
             IsOverride: isOverride,
             DecidedAtUtc: DateTime.UtcNow
-        ));
+        )
+        { WasImmediatelyDeleted = wasImmediatelyDeleted });
     }
 
     // ──────────────────────────────────────────────────────────────────────────

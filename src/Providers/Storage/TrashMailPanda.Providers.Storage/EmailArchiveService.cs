@@ -1097,4 +1097,45 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
                 new StorageError("Failed to get user-corrected counts", ex.Message, ex));
         }
     }
+
+    public async Task<Result<IReadOnlyList<string>>> GetOrphanedTrainingEmailIdsAsync(
+        string accountId,
+        int limit = 500,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+            return Result<IReadOnlyList<string>>.Failure(new ValidationError("accountId is required"));
+        if (limit <= 0)
+            return Result<IReadOnlyList<string>>.Failure(new ValidationError("limit must be > 0"));
+
+        try
+        {
+            await _connectionLock.WaitAsync(cancellationToken);
+            try
+            {
+                // Return IDs from training_emails that have no row in email_features.
+                // Ordered by ImportedAt ascending so we process oldest-first when batching.
+                var featureIds = _context.EmailFeatures.Select(f => f.EmailId);
+                var orphaned = await _context.TrainingEmails
+                    .Where(t => t.AccountId == accountId && !featureIds.Contains(t.EmailId))
+                    .OrderBy(t => t.ImportedAt)
+                    .Take(limit)
+                    .Select(t => t.EmailId)
+                    .ToListAsync(cancellationToken);
+
+                _logger.LogDebug("GetOrphanedTrainingEmailIdsAsync(account={Account}, limit={Limit}) → {Count} orphans",
+                    accountId, limit, orphaned.Count);
+                return Result<IReadOnlyList<string>>.Success(orphaned);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<IReadOnlyList<string>>.Failure(
+                new StorageError("Failed to get orphaned training email IDs", ex.Message, ex));
+        }
+    }
 }
