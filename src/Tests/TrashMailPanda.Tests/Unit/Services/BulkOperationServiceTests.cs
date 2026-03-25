@@ -201,7 +201,7 @@ public class BulkOperationServiceTests
     public async Task ExecuteAsync_EmptyList_ReturnsZeroSuccessWithNoGmailCall()
     {
         var sut = CreateSut();
-        var result = await sut.ExecuteAsync([], "Archive");
+        var result = await sut.ExecuteAsync(Array.Empty<string>(), "Archive");
 
         Assert.True(result.IsSuccess);
         Assert.Equal(0, result.Value.SuccessCount);

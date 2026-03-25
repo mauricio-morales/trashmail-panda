@@ -42,6 +42,8 @@ public static class ServiceCollectionExtensions
         services.Configure<EmailProviderConfig>(configuration.GetSection("EmailProvider"));
         services.Configure<LLMProviderConfig>(configuration.GetSection("LLMProvider"));
         services.Configure<StorageProviderConfig>(configuration.GetSection("StorageProvider"));
+        services.Configure<TrashMailPanda.Models.RetentionEnforcementOptions>(
+            configuration.GetSection("RetentionEnforcement"));
 
         // Add security services
         services.AddSecurityServices();
@@ -228,6 +230,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAutoApplyService, AutoApplyService>();
         services.AddSingleton<IModelQualityMonitor, ModelQualityMonitor>();
         services.AddScoped<IAutoApplyUndoService, AutoApplyUndoService>();
+
+        // Feature #064 — Retention enforcement (Archive-then-Delete labels)
+        services.AddSingleton<IRetentionEnforcementService, RetentionEnforcementService>();
+        services.AddSingleton<TrashMailPanda.Startup.RetentionStartupCheck>();
 
         // Add background health monitoring service
         services.AddHostedService<ProviderHealthMonitorService>();

@@ -25,9 +25,20 @@ public interface IBulkOperationService
     /// Executes the bulk action on the given email IDs.
     /// Each email: Gmail action first, then SetTrainingLabelAsync on success.
     /// Failures are collected and returned but do not stop the batch.
+    /// Time-bounded labels fall back to Archive when ReceivedDateUtc is unavailable.
     /// </summary>
     Task<Result<BulkOperationResult>> ExecuteAsync(
         IReadOnlyList<string> emailIds,
+        string action,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executes the bulk action on the given feature vectors.
+    /// Passes <see cref="TrashMailPanda.Providers.Storage.Models.EmailFeatureVector.ReceivedDateUtc"/> to
+    /// enable correct age-at-execution routing for time-bounded labels.
+    /// </summary>
+    Task<Result<BulkOperationResult>> ExecuteAsync(
+        IReadOnlyList<TrashMailPanda.Providers.Storage.Models.EmailFeatureVector> features,
         string action,
         CancellationToken cancellationToken = default);
 }

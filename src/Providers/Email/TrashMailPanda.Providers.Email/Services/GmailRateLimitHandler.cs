@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Requests;
 using Google;
 using TrashMailPanda.Shared.Base;
@@ -50,6 +51,26 @@ public class GmailRateLimitHandler : IGmailRateLimitHandler
                 return Result<T>.Failure(new NotFoundError(
                     $"Gmail API resource not found: {gex.Message}",
                     gex.Error?.ToString(), gex));
+            }
+            catch (TokenResponseException tre)
+            {
+                if (tre.Error?.Error == "invalid_grant")
+                {
+                    _logger.LogError(
+                        "Gmail OAuth refresh token revoked by Google (invalid_grant) — re-authentication required. " +
+                        "Description: {Desc}",
+                        tre.Error?.ErrorDescription);
+                    return Result<T>.Failure(new AuthenticationError(
+                        $"Gmail refresh token revoked (invalid_grant): {tre.Error?.ErrorDescription}. Re-authentication required.",
+                        tre.Error?.ToString(), tre));
+                }
+
+                _logger.LogError(tre,
+                    "Gmail OAuth token error: {OAuthError} — {Desc}",
+                    tre.Error?.Error, tre.Error?.ErrorDescription);
+                return Result<T>.Failure(new AuthenticationError(
+                    $"Gmail OAuth token error ({tre.Error?.Error}): {tre.Error?.ErrorDescription ?? tre.Message}",
+                    tre.Error?.ToString(), tre));
             }
             catch (Exception ex)
             {

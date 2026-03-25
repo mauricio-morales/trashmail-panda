@@ -1535,6 +1535,31 @@ public class CredentialEncryption : ICredentialEncryption, IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public async Task<EncryptionResult> DeleteAsync(string key)
+    {
+        if (_disposed)
+            return EncryptionResult.Failure("Object disposed", EncryptionErrorType.ConfigurationError);
+
+        if (!_isInitialized)
+            return EncryptionResult.Failure("Encryption not initialized", EncryptionErrorType.ConfigurationError);
+
+        if (string.IsNullOrWhiteSpace(key))
+            return EncryptionResult.Failure("Key cannot be null or empty", EncryptionErrorType.InvalidInput);
+
+        try
+        {
+            await _storageProvider.RemoveEncryptedCredentialAsync(key);
+            _logger.LogDebug("Deleted credential from database for key: {Key}", key);
+            return EncryptionResult.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception deleting credential for key: {Key}", key);
+            return EncryptionResult.Failure($"Delete failed: {ex.Message}", EncryptionErrorType.ConfigurationError);
+        }
+    }
+
     /// <summary>
     /// Clear all encrypted credentials from database since they're tied to the corrupted master key
     /// </summary>

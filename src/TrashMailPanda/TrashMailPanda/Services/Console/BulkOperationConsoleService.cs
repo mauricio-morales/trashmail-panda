@@ -113,9 +113,8 @@ public sealed class BulkOperationConsoleService : IBulkOperationConsoleService
                 continue;
             }
 
-            // Step 6: Execute
-            var emailIds = matches.Select(m => m.EmailId).ToList();
-            var execResult = await _bulkService.ExecuteAsync(emailIds, action, cancellationToken);
+            // Step 6: Execute — pass full feature vectors for correct age-at-execution routing
+            var execResult = await _bulkService.ExecuteAsync(matches, action, cancellationToken);
 
             if (!execResult.IsSuccess)
             {

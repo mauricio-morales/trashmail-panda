@@ -90,7 +90,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         // K = Keep, then loop terminates on empty batch
@@ -120,7 +120,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -151,7 +151,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         // Two K presses + one key to dismiss threshold prompt + Q to stop the second batch loop
@@ -185,7 +185,7 @@ public sealed class EmailTriageConsoleServiceTests
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(
                 new List<EmailFeatureVector>()));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -220,7 +220,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Archive", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Archive", It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Archive", false)));
 
         // Enter = accept AI recommendation
@@ -256,7 +256,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Archive", false)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -272,7 +272,7 @@ public sealed class EmailTriageConsoleServiceTests
             "Archive",         // chosenAction matches AI recommendation
             "Archive",         // aiRecommendation passed through
             It.IsAny<bool>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()), Times.Once);
     }
 
     /// <summary>T044: Override key calls ApplyDecisionAsync with different chosenAction and aiRecommendation.</summary>
@@ -294,7 +294,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", isOverride: true)));
 
         // K = Keep (override — AI suggested Archive)
@@ -311,7 +311,7 @@ public sealed class EmailTriageConsoleServiceTests
             "Keep",            // user's choice (different from AI)
             "Archive",         // AI recommendation passed through for training signal
             It.IsAny<bool>(),
-            It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()), Times.Once);
     }
 
     /// <summary>T044: Session summary shows override count when user overrides AI.</summary>
@@ -333,7 +333,7 @@ public sealed class EmailTriageConsoleServiceTests
         triage.Setup(t => t.GetAiRecommendationAsync(It.IsAny<EmailFeatureVector>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<ActionPrediction?>.Success(prediction));
 
-        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", "Archive", It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+        triage.Setup(t => t.ApplyDecisionAsync(It.IsAny<string>(), "Keep", "Archive", It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", isOverride: true)));
 
         var keys = new Queue<ConsoleKeyInfo>([
@@ -404,7 +404,7 @@ public sealed class EmailTriageConsoleServiceTests
 
         triage.Setup(t => t.ApplyDecisionAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
-                It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                It.IsAny<bool>(), It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision("Keep", false)));
 
         // Keys: one for the transition notice "press any key", one K to process the retriage item
@@ -498,7 +498,7 @@ public sealed class EmailTriageConsoleServiceTests
                 new List<EmailFeatureVector>()));
 
         triage.Setup(t => t.ApplyDecisionAsync(
-                "retriage-enter", previousLabel, previousLabel, true, It.IsAny<CancellationToken>()))
+                "retriage-enter", previousLabel, previousLabel, true, It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()))
             .ReturnsAsync(Result<TriageDecision>.Success(MakeDecision(previousLabel, false)));
 
         // Space = dismiss notice, Enter = confirm previous label
@@ -512,7 +512,7 @@ public sealed class EmailTriageConsoleServiceTests
 
         // Verify ApplyDecisionAsync was called with the previous label and forceUserCorrected=true
         triage.Verify(t => t.ApplyDecisionAsync(
-            "retriage-enter", previousLabel, previousLabel, true, It.IsAny<CancellationToken>()),
+            "retriage-enter", previousLabel, previousLabel, true, It.IsAny<CancellationToken>(), It.IsAny<DateTime?>()),
             Times.Once);
     }
 }

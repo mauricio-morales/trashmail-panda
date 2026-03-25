@@ -233,7 +233,7 @@ public class EmailFeatureVector
     [Required]
     [Range(0, int.MaxValue)]
     [Column("email_age_days")]
-    public int EmailAgeDays { get; init; }
+    public int EmailAgeDays { get; set; }
 
     /// <summary>
     /// Boolean: email in Inbox folder - strong keep signal (0=false, 1=true).

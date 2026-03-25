@@ -9,6 +9,7 @@ using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Labels;
 
 namespace TrashMailPanda.Services;
 
@@ -81,8 +82,8 @@ public sealed class BulkOperationService : IBulkOperationService
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            // Gmail action first
-            var gmailResult = await ExecuteGmailActionAsync(emailId, action, cancellationToken);
+            // Gmail action first (no ReceivedDateUtc available — time-bounded fallback to Archive)
+            var gmailResult = await ExecuteGmailActionAsync(emailId, action, null, cancellationToken);
 
             if (!gmailResult.IsSuccess)
             {
@@ -101,6 +102,55 @@ public sealed class BulkOperationService : IBulkOperationService
                 // Label storage failure is non-fatal for bulk ops; Gmail action already applied
                 _logger.LogWarning("Training label storage failed for {EmailId}: {Error}",
                     emailId, labelResult.Error?.Message);
+            }
+
+            successCount++;
+        }
+
+        _logger.LogInformation(
+            "Bulk operation '{Action}' completed: {Success} succeeded, {Failed} failed",
+            action, successCount, failedIds.Count);
+
+        return Result<BulkOperationResult>.Success(new BulkOperationResult(successCount, failedIds));
+    }
+
+    /// <inheritdoc cref="IBulkOperationService.ExecuteAsync(System.Collections.Generic.IReadOnlyList{TrashMailPanda.Providers.Storage.Models.EmailFeatureVector},string,System.Threading.CancellationToken)" />
+    public async Task<Result<BulkOperationResult>> ExecuteAsync(
+        IReadOnlyList<EmailFeatureVector> features,
+        string action,
+        CancellationToken cancellationToken = default)
+    {
+        if (features == null || features.Count == 0)
+            return Result<BulkOperationResult>.Success(new BulkOperationResult(0, Array.Empty<string>()));
+
+        var failedIds = new List<string>();
+        var successCount = 0;
+
+        foreach (var feature in features)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
+            // Gmail action: pass ReceivedDateUtc so time-bounded labels apply correct routing
+            var gmailResult = await ExecuteGmailActionAsync(
+                feature.EmailId, action, feature.ReceivedDateUtc, cancellationToken);
+
+            if (!gmailResult.IsSuccess)
+            {
+                _logger.LogWarning("Bulk Gmail action '{Action}' failed for {EmailId}: {Error}",
+                    action, feature.EmailId, gmailResult.Error?.Message);
+                failedIds.Add(feature.EmailId);
+                continue;
+            }
+
+            // Store training label only after Gmail success
+            var labelResult = await _archiveService.SetTrainingLabelAsync(
+                feature.EmailId, action, userCorrected: false, ct: cancellationToken);
+
+            if (!labelResult.IsSuccess)
+            {
+                _logger.LogWarning("Training label storage failed for {EmailId}: {Error}",
+                    feature.EmailId, labelResult.Error?.Message);
             }
 
             successCount++;
@@ -148,8 +198,37 @@ public sealed class BulkOperationService : IBulkOperationService
     private async Task<Result<bool>> ExecuteGmailActionAsync(
         string emailId,
         string action,
+        DateTime? receivedDateUtc,
         CancellationToken cancellationToken)
     {
+        // Time-bounded labels: route based on current age at execution
+        if (LabelThresholds.TryGetThreshold(action, out var thresholdDays))
+        {
+            if (receivedDateUtc.HasValue)
+            {
+                var ageDays = (DateTime.UtcNow - receivedDateUtc.Value).TotalDays;
+                return ageDays >= thresholdDays
+                    ? await _emailProvider.BatchModifyAsync(new BatchModifyRequest
+                    {
+                        EmailIds = [emailId],
+                        AddLabelIds = ["TRASH"],
+                        RemoveLabelIds = ["INBOX"],
+                    })
+                    : await _emailProvider.BatchModifyAsync(new BatchModifyRequest
+                    {
+                        EmailIds = [emailId],
+                        RemoveLabelIds = ["INBOX"],
+                    });
+            }
+
+            // No date available: safe fallback to Archive
+            return await _emailProvider.BatchModifyAsync(new BatchModifyRequest
+            {
+                EmailIds = [emailId],
+                RemoveLabelIds = ["INBOX"],
+            });
+        }
+
         return action switch
         {
             "Spam" => await _emailProvider.ReportSpamAsync(emailId),

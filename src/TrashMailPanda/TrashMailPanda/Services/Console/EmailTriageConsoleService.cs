@@ -11,6 +11,7 @@ using TrashMailPanda.Providers.ML.Models;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
 using TrashMailPanda.Shared.Base;
+using TrashMailPanda.Shared.Labels;
 
 namespace TrashMailPanda.Services.Console;
 
@@ -258,7 +259,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
                         // Execute Gmail action + store training label
                         var applyResult = await _triageService.ApplyDecisionAsync(
                             feature.EmailId, action, action,
-                            forceUserCorrected: false, cancellationToken);
+                            forceUserCorrected: false, cancellationToken,
+                            receivedDateUtc: feature.ReceivedDateUtc);
 
                         if (applyResult.IsSuccess)
                         {
@@ -674,11 +676,11 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         else if (key == 'S')
             action = "Spam";
         else if (key == '2')
-            action = "Archive for 30d";
+            action = LabelThresholds.Archive30d;
         else if (key == '3')
-            action = "Archive for 1y";
+            action = LabelThresholds.Archive1y;
         else if (key == '4')
-            action = "Archive for 5y";
+            action = LabelThresholds.Archive5y;
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter) && isRetriage && feature.TrainingLabel is not null)
             action = feature.TrainingLabel; // Confirm previous label during re-triage
         else if ((key == 'Y' || consoleKey == ConsoleKey.Enter)
@@ -695,7 +697,8 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
         // For re-triage: aiRec is the previous label (acts as the baseline recommendation).
         var aiRec = isRetriage ? feature.TrainingLabel : prediction?.PredictedLabel;
         var decisionResult = await _triageService.ApplyDecisionAsync(
-            feature.EmailId, action, aiRec, forceUserCorrected: isRetriage, cancellationToken);
+            feature.EmailId, action, aiRec, forceUserCorrected: isRetriage, cancellationToken,
+            receivedDateUtc: feature.ReceivedDateUtc);
 
         if (decisionResult.IsSuccess)
         {
@@ -838,9 +841,9 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
 
         table.AddRow("Keep", $"[green]{summary.KeepCount}[/]");
         table.AddRow("Archive", summary.ArchiveCount.ToString());
-        table.AddRow("Archive for 30d", summary.ArchiveThenDelete30dCount.ToString());
-        table.AddRow("Archive for 1y", summary.ArchiveThenDelete1yCount.ToString());
-        table.AddRow("Archive for 5y", summary.ArchiveThenDelete5yCount.ToString());
+        table.AddRow(LabelThresholds.Archive30d, summary.ArchiveThenDelete30dCount.ToString());
+        table.AddRow(LabelThresholds.Archive1y, summary.ArchiveThenDelete1yCount.ToString());
+        table.AddRow(LabelThresholds.Archive5y, summary.ArchiveThenDelete5yCount.ToString());
         table.AddRow("Delete", summary.DeleteCount.ToString());
         table.AddRow("Spam", summary.SpamCount.ToString());
         table.AddRow("[dim]─────[/]", "[dim]────[/]");
@@ -866,9 +869,9 @@ public sealed class EmailTriageConsoleService : IEmailTriageConsoleService
     {
         session.ActionCounts.TryGetValue("Keep", out var keep);
         session.ActionCounts.TryGetValue("Archive", out var archive);
-        session.ActionCounts.TryGetValue("Archive for 30d", out var archiveThenDelete30d);
-        session.ActionCounts.TryGetValue("Archive for 1y", out var archiveThenDelete1y);
-        session.ActionCounts.TryGetValue("Archive for 5y", out var archiveThenDelete5y);
+        session.ActionCounts.TryGetValue(LabelThresholds.Archive30d, out var archiveThenDelete30d);
+        session.ActionCounts.TryGetValue(LabelThresholds.Archive1y, out var archiveThenDelete1y);
+        session.ActionCounts.TryGetValue(LabelThresholds.Archive5y, out var archiveThenDelete5y);
         session.ActionCounts.TryGetValue("Delete", out var delete);
         session.ActionCounts.TryGetValue("Spam", out var spam);
 

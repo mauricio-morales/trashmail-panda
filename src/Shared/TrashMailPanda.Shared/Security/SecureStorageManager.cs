@@ -196,13 +196,23 @@ public class SecureStorageManager : ISecureStorageManager
 
         try
         {
-            await Task.CompletedTask; // Ensure method is properly async
             _logger.LogDebug("Removing credential for key: {Key}", MaskKey(key));
 
-            // Remove from cache
-            var removed = _credentialCache.TryRemove(key, out _);
+            // Remove from in-memory cache
+            var removedFromCache = _credentialCache.TryRemove(key, out _);
 
-            _logger.LogInformation("Credential removal for key {Key}: {Status}", MaskKey(key), removed ? "Success" : "Not found");
+            // Delete from database (the cache-only removal was a bug: on next
+            // retrieve the credential would be re-loaded from DB and re-cached)
+            var dbResult = await _credentialEncryption.DeleteAsync(key);
+            if (!dbResult.IsSuccess)
+            {
+                // Log but don't fail — credential may not exist in DB (e.g. already deleted)
+                _logger.LogDebug(
+                    "Database delete for key {Key} returned: {Error}", MaskKey(key), dbResult.ErrorMessage);
+            }
+
+            var status = removedFromCache || dbResult.IsSuccess ? "Success" : "Not found";
+            _logger.LogInformation("Credential removal for key {Key}: {Status}", MaskKey(key), status);
             return SecureStorageResult.Success();
         }
         catch (Exception ex)

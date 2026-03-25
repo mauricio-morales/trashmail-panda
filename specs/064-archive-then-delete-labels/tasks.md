@@ -15,7 +15,7 @@
 
 **Purpose**: Baseline validation before any modifications
 
-- [ ] T001 Verify solution builds and all existing tests pass: `dotnet build && dotnet test`
+- [X] T001 Verify solution builds and all existing tests pass: `dotnet build && dotnet test`
 
 ---
 
@@ -25,10 +25,10 @@
 
 **⚠️ CRITICAL**: `LabelThresholds` is imported by `EmailTriageService`, `BulkOperationService`, AND `RetentionEnforcementService`. Must exist before any US phase starts.
 
-- [ ] T002 [P] Create `LabelThresholds` static class with `Archive30d`/`Archive1y`/`Archive5y` constants, `ThresholdsByLabel` dict, `TimeBoundedLabels` set, `TryGetThreshold`, and `IsTimeBounded` in `src/Shared/TrashMailPanda.Shared/Labels/LabelThresholds.cs`
-- [ ] T003 [P] Create `LabelThresholdsTests` unit test class covering `TryGetThreshold` for all three labels (exact boundary values), `IsTimeBounded` true/false cases, and unknown-label false case in `src/Tests/TrashMailPanda.Tests/Unit/LabelThresholdsTests.cs`
-- [ ] T004 [P] Create `RetentionSettings` DTO class with `ScanIntervalDays` (default 30) and `PromptThresholdDays` (default 7) in `src/Shared/TrashMailPanda.Shared/RetentionSettings.cs`
-- [ ] T005 Modify `ProcessingSettings` to add `public RetentionSettings Retention { get; set; } = new();` property in `src/Shared/TrashMailPanda.Shared/ProcessingSettings.cs`
+- [X] T002 [P] Create `LabelThresholds` static class with `Archive30d`/`Archive1y`/`Archive5y` constants, `ThresholdsByLabel` dict, `TimeBoundedLabels` set, `TryGetThreshold`, and `IsTimeBounded` in `src/Shared/TrashMailPanda.Shared/Labels/LabelThresholds.cs`
+- [X] T003 [P] Create `LabelThresholdsTests` unit test class covering `TryGetThreshold` for all three labels (exact boundary values), `IsTimeBounded` true/false cases, and unknown-label false case in `src/Tests/TrashMailPanda.Tests/Unit/LabelThresholdsTests.cs`
+- [X] T004 [P] Create `RetentionSettings` DTO class with `ScanIntervalDays` (default 30) and `PromptThresholdDays` (default 7) in `src/Shared/TrashMailPanda.Shared/RetentionSettings.cs`
+- [X] T005 Modify `ProcessingSettings` to add `public RetentionSettings Retention { get; set; } = new();` property in `src/Shared/TrashMailPanda.Shared/ProcessingSettings.cs`
 
 **Checkpoint**: `LabelThresholds` compiles, tests pass — all three user story phases can now start in parallel.
 
@@ -42,13 +42,13 @@
 
 ### Tests for User Story 1
 
-- [ ] T006 [P] [US1] Create `EmailTriageServiceRetentionTests` covering: (a) under-threshold email calls `ApplyArchiveAsync` and stores label as `"Archive for 30d"`, (b) over-threshold email calls `ApplyDeleteAsync`, (c) `training_label` is content label in both cases, (d) null `ReceivedDateUtc` falls back to Archive safely in `src/Tests/TrashMailPanda.Tests/Unit/EmailTriageServiceRetentionTests.cs`
+- [X] T006 [P] [US1] Create `EmailTriageServiceRetentionTests` covering: (a) under-threshold email calls `ApplyArchiveAsync` and stores label as `"Archive for 30d"`, (b) over-threshold email calls `ApplyDeleteAsync`, (c) `training_label` is content label in both cases, (d) null `ReceivedDateUtc` falls back to Archive safely in `src/Tests/TrashMailPanda.Tests/Unit/EmailTriageServiceRetentionTests.cs`
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Modify `EmailTriageService.ExecuteGmailActionAsync`: add `DateTime? receivedDateUtc` parameter; when `LabelThresholds.TryGetThreshold(action, out var days)` succeeds AND `receivedDateUtc` has value, route to `ApplyDeleteAsync` if `ageDays >= days`, else `ApplyArchiveAsync`; add safe Archive fallback when `receivedDateUtc` is null; keep existing `Keep`/`Archive`/`Delete`/`Spam` switch branches in `src/TrashMailPanda/TrashMailPanda/Services/EmailTriageService.cs`
-- [ ] T008 [US1] Thread `receivedDateUtc` up the call chain: add `DateTime? receivedDateUtc = null` to `ApplyDecisionAsync` signature and pass it through to `ExecuteGmailActionAsync`; update callers (e.g., `EmailTriageConsoleService`) to pass `featureVector.ReceivedDateUtc` when available in `src/TrashMailPanda/TrashMailPanda/Services/EmailTriageService.cs`
-- [ ] T009 [US1] Add time-bounded label cases with age-at-execution routing to `BulkOperationService.ExecuteGmailActionAsync` using `LabelThresholds` (same logic as T007); read `ReceivedDateUtc` from `EmailFeatureVector` already in scope in the bulk loop in `src/TrashMailPanda/TrashMailPanda/Services/BulkOperationService.cs`
+- [X] T007 [US1] Modify `EmailTriageService.ExecuteGmailActionAsync`: add `DateTime? receivedDateUtc` parameter; when `LabelThresholds.TryGetThreshold(action, out var days)` succeeds AND `receivedDateUtc` has value, route to `ApplyDeleteAsync` if `ageDays >= days`, else `ApplyArchiveAsync`; add safe Archive fallback when `receivedDateUtc` is null; keep existing `Keep`/`Archive`/`Delete`/`Spam` switch branches in `src/TrashMailPanda/TrashMailPanda/Services/EmailTriageService.cs`
+- [X] T008 [US1] Thread `receivedDateUtc` up the call chain: add `DateTime? receivedDateUtc = null` to `ApplyDecisionAsync` signature and pass it through to `ExecuteGmailActionAsync`; update callers (e.g., `EmailTriageConsoleService`) to pass `featureVector.ReceivedDateUtc` when available in `src/TrashMailPanda/TrashMailPanda/Services/EmailTriageService.cs`
+- [X] T009 [US1] Add time-bounded label cases with age-at-execution routing to `BulkOperationService.ExecuteGmailActionAsync` using `LabelThresholds` (same logic as T007); read `ReceivedDateUtc` from `EmailFeatureVector` already in scope in the bulk loop in `src/TrashMailPanda/TrashMailPanda/Services/BulkOperationService.cs`
 
 **Checkpoint**: Unit tests in T006 pass. Manually triage an email with an over-threshold `Archive for 30d` label and confirm a Gmail Delete is issued, while `email_features.training_label` remains `"Archive for 30d"`.
 
@@ -62,18 +62,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T010 [P] [US2] Create `RetentionEnforcementServiceTests` covering: (a) expired email (age ≥ threshold) is sent to Gmail delete, (b) non-expired email is skipped, (c) boundary case: age == threshold → delete, (d) `training_label` is never written, (e) per-email Gmail failure accumulates in `FailedIds` and scan continues, (f) `last_scan_utc` is persisted on success in `src/Tests/TrashMailPanda.Tests/Unit/RetentionEnforcementServiceTests.cs`
-- [ ] T011 [P] [US2] Create `RetentionStartupCheckTests` covering: (a) `ShouldPromptAsync` returns true → prompt displayed, (b) user confirms → `RunScanAsync` called, (c) user declines → `RunScanAsync` not called, (d) `ShouldPromptAsync` returns false → no prompt in `src/Tests/TrashMailPanda.Tests/Unit/RetentionStartupCheckTests.cs`
+- [X] T010 [P] [US2] Create `RetentionEnforcementServiceTests` covering: (a) expired email (age ≥ threshold) is sent to Gmail delete, (b) non-expired email is skipped, (c) boundary case: age == threshold → delete, (d) `training_label` is never written, (e) per-email Gmail failure accumulates in `FailedIds` and scan continues, (f) `last_scan_utc` is persisted on success in `src/Tests/TrashMailPanda.Tests/Unit/RetentionEnforcementServiceTests.cs`
+- [X] T011 [P] [US2] Create `RetentionStartupCheckTests` covering: (a) `ShouldPromptAsync` returns true → prompt displayed, (b) user confirms → `RunScanAsync` called, (c) user declines → `RunScanAsync` not called, (d) `ShouldPromptAsync` returns false → no prompt in `src/Tests/TrashMailPanda.Tests/Unit/RetentionStartupCheckTests.cs`
 
 ### Implementation for User Story 2
 
-- [ ] T012 [P] [US2] Create `RetentionScanResult` as a `readonly record struct` with `ScannedCount`, `DeletedCount`, `SkippedCount`, `FailedIds` (`IReadOnlyList<string>`), `RanAtUtc` (UTC), plus derived properties `HasFailures` and `AnyDeleted` in `src/TrashMailPanda/TrashMailPanda/Models/RetentionScanResult.cs`
-- [ ] T013 [P] [US2] Create `RetentionEnforcementOptions` class with `ScanIntervalDays` (default 30, min 1) and `PromptThresholdDays` (default 7, min 1, must be ≤ `ScanIntervalDays`) in `src/TrashMailPanda/TrashMailPanda/Models/RetentionEnforcementOptions.cs`
-- [ ] T014 [P] [US2] Create `IRetentionEnforcementService` interface with `RunScanAsync(CancellationToken)`, `GetLastScanTimeAsync(CancellationToken)`, and `ShouldPromptAsync(CancellationToken)` — all returning `Task<Result<T>>`, doc comments note `training_label` is never modified in `src/TrashMailPanda/TrashMailPanda/Services/IRetentionEnforcementService.cs`
-- [ ] T015 [US2] Implement `RetentionEnforcementService`: in `RunScanAsync`, fetch all features via `IEmailArchiveService.GetAllFeaturesAsync`, filter to `is_archived = 1` AND time-bounded label AND non-null `ReceivedDateUtc`, compute elapsed days per email, enqueue IDs where `elapsed >= threshold`, call `IEmailProvider.BatchModifyAsync` with `TRASH` label per email, accumulate `FailedIds`, persist `last_scan_utc` via `IConfigurationService`, never call `SetTrainingLabelAsync`; implement `GetLastScanTimeAsync` and `ShouldPromptAsync` using config read in `src/TrashMailPanda/TrashMailPanda/Services/RetentionEnforcementService.cs`
-- [ ] T016 [US2] Implement `RetentionStartupCheck`: call `ShouldPromptAsync`; if true, render the Spectre.Console yellow/cyan confirmation prompt showing days-since-last-scan; if user confirms (Y or Enter), call `RunScanAsync` and display result summary using `AnsiConsole.MarkupLine` with semantic color markup in `src/TrashMailPanda/TrashMailPanda/Startup/RetentionStartupCheck.cs`
-- [ ] T017 [US2] Register DI bindings in Program.cs host builder: `services.AddSingleton<IRetentionEnforcementService, RetentionEnforcementService>()`, `services.Configure<RetentionEnforcementOptions>(configuration.GetSection("RetentionEnforcement"))`, and wire `RetentionStartupCheck` into the console startup sequence in `src/TrashMailPanda/TrashMailPanda/Program.cs`
-- [ ] T018 [P] [US2] Create `RetentionEnforcementIntegrationTests` stub with `[Trait("Category", "Integration")]` and `[Fact(Skip = "Requires OAuth - real Gmail credentials needed")]` for: full scan deletes expired emails end-to-end in `src/Tests/TrashMailPanda.Tests/Integration/RetentionEnforcementIntegrationTests.cs`
+- [X] T012 [P] [US2] Create `RetentionScanResult` as a `readonly record struct` with `ScannedCount`, `DeletedCount`, `SkippedCount`, `FailedIds` (`IReadOnlyList<string>`), `RanAtUtc` (UTC), plus derived properties `HasFailures` and `AnyDeleted` in `src/TrashMailPanda/TrashMailPanda/Models/RetentionScanResult.cs`
+- [X] T013 [P] [US2] Create `RetentionEnforcementOptions` class with `ScanIntervalDays` (default 30, min 1) and `PromptThresholdDays` (default 7, min 1, must be ≤ `ScanIntervalDays`) in `src/TrashMailPanda/TrashMailPanda/Models/RetentionEnforcementOptions.cs`
+- [X] T014 [P] [US2] Create `IRetentionEnforcementService` interface with `RunScanAsync(CancellationToken)`, `GetLastScanTimeAsync(CancellationToken)`, and `ShouldPromptAsync(CancellationToken)` — all returning `Task<Result<T>>`, doc comments note `training_label` is never modified in `src/TrashMailPanda/TrashMailPanda/Services/IRetentionEnforcementService.cs`
+- [X] T015 [US2] Implement `RetentionEnforcementService`: in `RunScanAsync`, fetch all features via `IEmailArchiveService.GetAllFeaturesAsync`, filter to `is_archived = 1` AND time-bounded label AND non-null `ReceivedDateUtc`, compute elapsed days per email, enqueue IDs where `elapsed >= threshold`, call `IEmailProvider.BatchModifyAsync` with `TRASH` label per email, accumulate `FailedIds`, persist `last_scan_utc` via `IConfigurationService`, never call `SetTrainingLabelAsync`; implement `GetLastScanTimeAsync` and `ShouldPromptAsync` using config read in `src/TrashMailPanda/TrashMailPanda/Services/RetentionEnforcementService.cs`
+- [X] T016 [US2] Implement `RetentionStartupCheck`: call `ShouldPromptAsync`; if true, render the Spectre.Console yellow/cyan confirmation prompt showing days-since-last-scan; if user confirms (Y or Enter), call `RunScanAsync` and display result summary using `AnsiConsole.MarkupLine` with semantic color markup in `src/TrashMailPanda/TrashMailPanda/Startup/RetentionStartupCheck.cs`
+- [X] T017 [US2] Register DI bindings in Program.cs host builder: `services.AddSingleton<IRetentionEnforcementService, RetentionEnforcementService>()`, `services.Configure<RetentionEnforcementOptions>(configuration.GetSection("RetentionEnforcement"))`, and wire `RetentionStartupCheck` into the console startup sequence in `src/TrashMailPanda/TrashMailPanda/Program.cs`
+- [X] T018 [P] [US2] Create `RetentionEnforcementIntegrationTests` stub with `[Trait("Category", "Integration")]` and `[Fact(Skip = "Requires OAuth - real Gmail credentials needed")]` for: full scan deletes expired emails end-to-end in `src/Tests/TrashMailPanda.Tests/Integration/RetentionEnforcementIntegrationTests.cs`
 
 **Checkpoint**: Unit tests T010–T011 pass. `dotnet build` succeeds. Manually verify a simulated startup sequence prompts for retention scan when `last_scan_utc` is null.
 
@@ -87,11 +87,11 @@
 
 ### Tests for User Story 3
 
-- [ ] T019 [P] [US3] Write a unit test that invokes the inference path with a controlled `ReceivedDateUtc` and verifies the `EmailAgeDays` feature value passed to `ClassifyActionAsync` matches `(UtcNow - receivedDateUtc).Days` (fresh computation, not a stored value) in `src/Tests/TrashMailPanda.Tests/Unit/EmailClassificationInferenceTests.cs`
+- [X] T019 [P] [US3] Write a unit test that invokes the inference path with a controlled `ReceivedDateUtc` and verifies the `EmailAgeDays` feature value passed to `ClassifyActionAsync` matches `(UtcNow - receivedDateUtc).Days` (fresh computation, not a stored value) in `src/Tests/TrashMailPanda.Tests/Unit/EmailClassificationInferenceTests.cs`
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] In the inference path (where `ClassifyActionAsync` is called for a new email before it is stored in `email_features`), compute `EmailAgeDays = (int)(DateTime.UtcNow - email.ReceivedDateUtc ?? DateTime.UtcNow).TotalDays` and inject it into the feature vector immediately before the classifier call; confirm existing training/export paths that read `email_age_days` from stored feature rows are NOT changed in `src/TrashMailPanda/TrashMailPanda/Services/EmailTriageService.cs` (or the classification service that calls `ClassifyActionAsync`)
+- [X] T020 [US3] In the inference path (where `ClassifyActionAsync` is called for a new email before it is stored in `email_features`), compute `EmailAgeDays = (int)(DateTime.UtcNow - email.ReceivedDateUtc ?? DateTime.UtcNow).TotalDays` and inject it into the feature vector immediately before the classifier call; confirm existing training/export paths that read `email_age_days` from stored feature rows are NOT changed in `src/TrashMailPanda/TrashMailPanda/Services/EmailTriageService.cs` (or the classification service that calls `ClassifyActionAsync`)
 
 **Checkpoint**: Unit test T019 passes. Same email content yields same label recommendation regardless of `EmailAgeDays` value (content-driven classification confirmed). `dotnet test --filter Category=Unit` is green.
 
@@ -99,9 +99,9 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T021 [P] Add `RetentionEnforcement` section to `appsettings.json` (or `appsettings.Development.json`) with defaults `ScanIntervalDays: 30`, `PromptThresholdDays: 7` in `src/TrashMailPanda/TrashMailPanda/appsettings.json`
-- [ ] T022 Run full CI validation: `dotnet build --configuration Release && dotnet test && dotnet format --verify-no-changes`; fix any formatting or nullable-reference-type warnings introduced by this feature
-- [ ] T023 [P] Run the quickstart.md validation scenarios manually: present an email under-threshold, over-threshold, boundary (exact threshold), and null `ReceivedDateUtc`; confirm all arcade scenarios from `specs/064-archive-then-delete-labels/quickstart.md` produce the expected outcomes
+- [X] T021 [P] Add `RetentionEnforcement` section to `appsettings.json` (or `appsettings.Development.json`) with defaults `ScanIntervalDays: 30`, `PromptThresholdDays: 7` in `src/TrashMailPanda/TrashMailPanda/appsettings.json`
+- [X] T022 Run full CI validation: `dotnet build --configuration Release && dotnet test && dotnet format --verify-no-changes`; fix any formatting or nullable-reference-type warnings introduced by this feature
+- [X] T023 [P] Run the quickstart.md validation scenarios manually: present an email under-threshold, over-threshold, boundary (exact threshold), and null `ReceivedDateUtc`; confirm all arcade scenarios from `specs/064-archive-then-delete-labels/quickstart.md` produce the expected outcomes
 
 ---
 

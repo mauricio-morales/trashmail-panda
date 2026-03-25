@@ -61,7 +61,7 @@ public sealed class BulkOperationConsoleServiceTests
         bulkMock.Setup(b => b.PreviewAsync(It.IsAny<BulkOperationCriteria>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(vectors));
 
-        bulkMock.Setup(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        bulkMock.Setup(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<BulkOperationResult>.Success(new BulkOperationResult(1, [])));
 
         var writer = new StringWriter();
@@ -84,7 +84,7 @@ public sealed class BulkOperationConsoleServiceTests
 
         // Assert: preview was called, and ExecuteAsync was also called
         bulkMock.Verify(b => b.PreviewAsync(It.IsAny<BulkOperationCriteria>(), It.IsAny<CancellationToken>()), Times.Once);
-        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), "Archive", It.IsAny<CancellationToken>()), Times.Once);
+        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), "Archive", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class BulkOperationConsoleServiceTests
         await svc.RunAsync(CancellationToken.None);
 
         // Assert: ExecuteAsync was NOT called
-        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class BulkOperationConsoleServiceTests
         await svc.RunAsync(CancellationToken.None);
 
         // Assert: ExecuteAsync was NOT called
-        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public sealed class BulkOperationConsoleServiceTests
         bulkMock.Setup(b => b.PreviewAsync(It.IsAny<BulkOperationCriteria>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(vectors));
 
-        bulkMock.Setup(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        bulkMock.Setup(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<BulkOperationResult>.Success(new BulkOperationResult(0, ["id-fail"])));
 
         var writer = new StringWriter();
@@ -189,7 +189,7 @@ public sealed class BulkOperationConsoleServiceTests
         bulkMock.Setup(b => b.PreviewAsync(It.IsAny<BulkOperationCriteria>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<IReadOnlyList<EmailFeatureVector>>.Success(vectors));
 
-        bulkMock.Setup(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        bulkMock.Setup(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result<BulkOperationResult>.Success(new BulkOperationResult(2, [])));
 
         var writer = new StringWriter();
@@ -241,7 +241,7 @@ public sealed class BulkOperationConsoleServiceTests
         await svc.RunAsync(CancellationToken.None);
 
         // Assert: ExecuteAsync never called
-        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        bulkMock.Verify(b => b.ExecuteAsync(It.IsAny<IReadOnlyList<EmailFeatureVector>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
 
         var output = writer.ToString();
         Assert.Contains("No emails match", output);

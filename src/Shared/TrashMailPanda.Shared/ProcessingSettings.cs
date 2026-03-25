@@ -14,6 +14,12 @@ public class ProcessingSettings
     /// Persisted with the rest of ProcessingSettings in the app_config KV table.
     /// </summary>
     public AutoApplySettings AutoApply { get; set; } = new();
+
+    /// <summary>
+    /// Retention enforcement settings: scan interval, prompt threshold, and last scan timestamp.
+    /// Persisted with the rest of ProcessingSettings in the app_config KV table.
+    /// </summary>
+    public RetentionSettings Retention { get; set; } = new();
 }
 
 /// <summary>
