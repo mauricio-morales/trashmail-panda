@@ -113,7 +113,12 @@
       "Bash(cat:*)",
       "Bash(for i in {1..5})",
       "Bash(do echo \"=== Run $i ===\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(spec-kit --help)",
+      "Bash(npm list:*)",
+      "Read(//Users/mmorales/.npm/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(gh extension:*)"
     ],
     "deny": [],
     "ask": []
