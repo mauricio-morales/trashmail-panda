@@ -1,15 +1,13 @@
 # CLAUDE.md
 
-> **📌 Note**: This is **legacy documentation** from the Claude Code workflow.  
-> **Current workflow**: GitHub Copilot + [spec-kit](.specify/)  
-> **Architecture Shift**: Moving from Avalonia desktop UI to **console-first TUI** (see `docs/architecture/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md`)  
-> **See instead**:
-> - [`.github/copilot-instructions.md`](.github/copilot-instructions.md) - Quick reference for GitHub Copilot
-> - [`.specify/memory/constitution.md`](.specify/memory/constitution.md) - Core engineering principles
-> - [`docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md`](docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md) - Console OAuth setup
-> - [`docs/*.md`](docs/) - Technical implementation guides
+> **📌 Current workflow**: Claude Code + [spec-kit](.specify/)
 >
-> **This file is kept** as comprehensive technical documentation and architectural reference. Sections are being updated to reflect the console-first architecture.
+> **See also**:
+>
+> - [`.claude/memory/`](.claude/memory/) - Claude Code project memory (constitution, architecture, patterns)
+> - [`.specify/memory/constitution.md`](.specify/memory/constitution.md) - Authoritative engineering principles (v2.0.0)
+> - [`docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md`](docs/oauth/GMAIL_OAUTH_CONSOLE_SETUP.md) - Console OAuth setup
+> - [`docs/architecture/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md`](docs/architecture/ARCHITECTURE_SHIFT_TO_LOCAL_ML.md) - ML architecture plan
 
 ---
 
@@ -17,13 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TrashMail Panda is an AI-powered email triage assistant built as a cross-platform .NET application transitioning to a console-first architecture. It helps users clean their Gmail inbox safely through intelligent classification and bulk operations. The project uses a provider-agnostic architecture with C# throughout.
+TrashMail Panda is an open-source, AI-powered email triage assistant for Gmail users, built with .NET 9.0 / C# 12. It helps users train a personal local ML model that classifies their email based on their own habits — no cloud services, no generic models.
 
-**Architecture Evolution**: Moving from Avalonia desktop UI to console-based TUI (Terminal User Interface) using Spectre.Console for:
-- Lightweight, scriptable interface
-- MCP (Model Context Protocol) integration for AI assistants
-- Privacy-first local ML classification (transitioning from OpenAI to ML.NET)
-- Cross-platform terminal experience
+**Architecture**: Console-first TUI using Spectre.Console. Avalonia desktop UI has been fully removed (feature 063-remove-avalonia-ui). The permanent architecture is:
+
+- Spectre.Console TUI + `IApplicationOrchestrator` service layer
+- Local ML classification via ML.NET (transitioning from OpenAI)
+- MCP (Model Context Protocol) compatible — designed for AI assistant integration
+- Privacy-first: emails and training data never leave the user's machine
 
 **Key Technologies**: Spectre.Console, Microsoft.Extensions.Hosting/DI/Logging, Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlcipher, Google.Apis.Gmail.v1, System.Text.Json, Polly
 
