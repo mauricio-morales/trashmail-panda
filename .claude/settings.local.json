@@ -118,7 +118,8 @@
       "Bash(npm list:*)",
       "Read(//Users/mmorales/.npm/**)",
       "Read(//usr/local/bin/**)",
-      "Bash(gh extension:*)"
+      "Bash(gh extension:*)",
+      "Bash(.specify/scripts/bash/create-new-feature.sh \"feat: Bulk Auto-Apply mode — sweep full archive and apply high-confidence actions\" --json --short-name \"bulk-auto-apply\")"
     ],
     "deny": [],
     "ask": []
