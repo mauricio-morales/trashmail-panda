@@ -853,6 +853,32 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
     }
 
     // ============================================================
+    // Schema Version Checks
+    // ============================================================
+
+    public async Task<Result<bool>> HasOutdatedFeaturesAsync(int currentVersion, CancellationToken ct = default)
+    {
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                var hasOutdated = await _context.EmailFeatures
+                    .AnyAsync(f => f.FeatureSchemaVersion < currentVersion, ct);
+                return Result<bool>.Success(hasOutdated);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new StorageError("Failed to check feature schema versions", ex.Message, ex));
+        }
+    }
+
+    // ============================================================
     // Triage Queue & Training Labels
     // ============================================================
 

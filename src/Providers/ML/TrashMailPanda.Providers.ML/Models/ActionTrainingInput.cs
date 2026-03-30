@@ -13,6 +13,15 @@ public class ActionTrainingInput
     public float ContactStrength { get; set; }
     public float HasListUnsubscribe { get; set; }
     public float HasAttachments { get; set; }
+    public float AttachmentCount { get; set; }
+    public float TotalAttachmentSizeLog { get; set; }
+    public float HasDocAttachments { get; set; }
+    public float HasImageAttachments { get; set; }
+    public float HasAudioAttachments { get; set; }
+    public float HasVideoAttachments { get; set; }
+    public float HasXmlAttachments { get; set; }
+    public float HasBinaryAttachments { get; set; }
+    public float HasOtherAttachments { get; set; }
     public float HourReceived { get; set; }
     public float DayOfWeek { get; set; }
     public float EmailSizeLog { get; set; }

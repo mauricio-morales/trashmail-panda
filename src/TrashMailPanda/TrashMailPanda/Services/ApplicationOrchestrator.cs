@@ -255,6 +255,23 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
                 return;
             }
 
+            // If any feature rows pre-date the current schema version (e.g. no attachment data),
+            // treat it as a re-scan required rather than an incremental sync.
+            var outdatedResult = await _archiveService.HasOutdatedFeaturesAsync(
+                TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion, cancellationToken);
+
+            if (outdatedResult.IsSuccess && outdatedResult.Value)
+            {
+                EmitEvent(new StatusMessageEvent
+                {
+                    Message = "[yellow]⚠ Email features need to be updated — re-scanning all emails...[/]"
+                });
+                System.Console.WriteLine();
+                await _trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+                System.Console.WriteLine();
+                return;
+            }
+
             EmitEvent(new StatusMessageEvent { Message = "[dim]→ Syncing new email changes...[/]" });
             await _trainingScanCommand.RunIncrementalScanAsync("me", cancellationToken);
 

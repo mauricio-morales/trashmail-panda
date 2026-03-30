@@ -16,7 +16,7 @@
 
 **Purpose**: Baseline verification before modifying any files.
 
-- [ ] T001 Verify `dotnet build` passes clean on branch `066-attachment-ml-features` before any changes
+- [X] T001 Verify `dotnet build` passes clean on branch `066-attachment-ml-features` before any changes
 
 **Checkpoint**: Build is green — safe to begin implementation.
 
@@ -30,27 +30,27 @@
 
 ### Storage Schema
 
-- [ ] T002 Increment `FeatureSchema.CurrentVersion` from `1` to `2` in `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/FeatureSchema.cs`
-- [ ] T003 [P] Add 9 new `init`-only attachment properties (`AttachmentCount`, `TotalAttachmentSizeLog`, `HasDocAttachments`, `HasImageAttachments`, `HasAudioAttachments`, `HasVideoAttachments`, `HasXmlAttachments`, `HasBinaryAttachments`, `HasOtherAttachments`) to `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/EmailFeatureVector.cs` after existing `HasAttachments` — with `[Column("...")]` attributes matching data-model.md
-- [ ] T004 Update `OnModelCreating` in `src/Providers/Storage/TrashMailPanda.Providers.Storage/TrashMailPandaDbContext.cs` to add `.HasDefaultValue(0)` / `.HasDefaultValue(0f)` fluent config for all 9 new columns
-- [ ] T005 Create EF Core migration by running `dotnet ef migrations add AddAttachmentMlFeatures --project src/Providers/Storage/TrashMailPanda.Providers.Storage --startup-project src/TrashMailPanda/TrashMailPanda --output-dir Migrations`; verify the generated `Up()` adds all 9 columns with correct `DEFAULT 0` — add missing defaults manually if scaffolded incorrectly
+- [X] T002 Increment `FeatureSchema.CurrentVersion` from `1` to `2` in `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/FeatureSchema.cs`
+- [X] T003 [P] Add 9 new `init`-only attachment properties (`AttachmentCount`, `TotalAttachmentSizeLog`, `HasDocAttachments`, `HasImageAttachments`, `HasAudioAttachments`, `HasVideoAttachments`, `HasXmlAttachments`, `HasBinaryAttachments`, `HasOtherAttachments`) to `src/Providers/Storage/TrashMailPanda.Providers.Storage/Models/EmailFeatureVector.cs` after existing `HasAttachments` — with `[Column("...")]` attributes matching data-model.md
+- [X] T004 Update `OnModelCreating` in `src/Providers/Storage/TrashMailPanda.Providers.Storage/TrashMailPandaDbContext.cs` to add `.HasDefaultValue(0)` / `.HasDefaultValue(0f)` fluent config for all 9 new columns
+- [X] T005 Create EF Core migration by running `dotnet ef migrations add AddAttachmentMlFeatures --project src/Providers/Storage/TrashMailPanda.Providers.Storage --startup-project src/TrashMailPanda/TrashMailPanda --output-dir Migrations`; verify the generated `Up()` adds all 9 columns with correct `DEFAULT 0` — add missing defaults manually if scaffolded incorrectly
 
 ### Storage Service Contract
 
-- [ ] T006 [P] Add `Task<Result<bool>> HasOutdatedFeaturesAsync(int currentVersion, CancellationToken ct = default)` method signature to `src/Providers/Storage/TrashMailPanda.Providers.Storage/IEmailArchiveService.cs` per contracts/attachment-feature-interfaces.md
-- [ ] T007 Implement `HasOutdatedFeaturesAsync` in `src/Providers/Storage/TrashMailPanda.Providers.Storage/EmailArchiveService.cs` using EF Core `AnyAsync(f => f.FeatureSchemaVersion < currentVersion, ct)` inside the existing connection-lock pattern; return `Result.Success(false)` when table is empty; return `Result.Failure` on DB error
+- [X] T006 [P] Add `Task<Result<bool>> HasOutdatedFeaturesAsync(int currentVersion, CancellationToken ct = default)` method signature to `src/Providers/Storage/TrashMailPanda.Providers.Storage/IEmailArchiveService.cs` per contracts/attachment-feature-interfaces.md
+- [X] T007 Implement `HasOutdatedFeaturesAsync` in `src/Providers/Storage/TrashMailPanda.Providers.Storage/EmailArchiveService.cs` using EF Core `AnyAsync(f => f.FeatureSchemaVersion < currentVersion, ct)` inside the existing connection-lock pattern; return `Result.Success(false)` when table is empty; return `Result.Failure` on DB error
 
 ### MIME Classifier (Email Provider)
 
-- [ ] T008 [P] Create `src/Providers/Email/TrashMailPanda.Providers.Email/Services/AttachmentCategory.cs` — `[Flags] internal enum AttachmentCategory { None = 0, Document = 1<<0, Image = 1<<1, Audio = 1<<2, Video = 1<<3, Xml = 1<<4, Binary = 1<<5, Other = 1<<6 }`
-- [ ] T009 [P] Create `src/Providers/Email/TrashMailPanda.Providers.Email/Services/AttachmentFeatureSummary.cs` — `internal record AttachmentFeatureSummary(int Count, float TotalSizeLog, int HasDocuments, int HasImages, int HasAudio, int HasVideo, int HasXml, int HasBinaries, int HasOther)` with `internal static AttachmentFeatureSummary Empty { get; }` returning all-zero instance
-- [ ] T010 Create `src/Providers/Email/TrashMailPanda.Providers.Email/Services/AttachmentMimeClassifier.cs` — `internal static` class implementing `Classify(string? mimeType, string? fileName = null)` using `static readonly HashSet<string>` for `XmlTypes`, `DocumentTypes`, `BinaryTypes`, `BinaryExtensions`; implement `Summarize(IReadOnlyList<EmailAttachment> attachments)` returning `AttachmentFeatureSummary`; implement `ComputeSizeLog(long totalBytes)` as `(float)Math.Log10(totalBytes + 1)` — follow taxonomy in data-model.md and research.md (RES-002)
-- [ ] T011 Create `src/Tests/TrashMailPanda.Tests/Unit/Email/AttachmentMimeClassifierTests.cs` — 100% branch coverage required by constitution; test `Classify` with: every explicit MIME type in each category, `image/*` wildcard, `audio/*` wildcard, `video/*` wildcard, `application/octet-stream` with/without known binary extensions, null/empty input → Other, `multipart/mixed` → excluded; test `Summarize` with: empty list → `Empty`, single attachment per category, multi-type mix, missing size → excluded from total; test `ComputeSizeLog(0)` returns `0f`, large value, max long
+- [X] T008 [P] Create `src/Providers/Email/TrashMailPanda.Providers.Email/Services/AttachmentCategory.cs` — `[Flags] internal enum AttachmentCategory { None = 0, Document = 1<<0, Image = 1<<1, Audio = 1<<2, Video = 1<<3, Xml = 1<<4, Binary = 1<<5, Other = 1<<6 }`
+- [X] T009 [P] Create `src/Providers/Email/TrashMailPanda.Providers.Email/Services/AttachmentFeatureSummary.cs` — `internal record AttachmentFeatureSummary(int Count, float TotalSizeLog, int HasDocuments, int HasImages, int HasAudio, int HasVideo, int HasXml, int HasBinaries, int HasOther)` with `internal static AttachmentFeatureSummary Empty { get; }` returning all-zero instance
+- [X] T010 Create `src/Providers/Email/TrashMailPanda.Providers.Email/Services/AttachmentMimeClassifier.cs` — `internal static` class implementing `Classify(string? mimeType, string? fileName = null)` using `static readonly HashSet<string>` for `XmlTypes`, `DocumentTypes`, `BinaryTypes`, `BinaryExtensions`; implement `Summarize(IReadOnlyList<EmailAttachment> attachments)` returning `AttachmentFeatureSummary`; implement `ComputeSizeLog(long totalBytes)` as `(float)Math.Log10(totalBytes + 1)` — follow taxonomy in data-model.md and research.md (RES-002)
+- [X] T011 Create `src/Tests/TrashMailPanda.Tests/Unit/Email/AttachmentMimeClassifierTests.cs` — 100% branch coverage required by constitution; test `Classify` with: every explicit MIME type in each category, `image/*` wildcard, `audio/*` wildcard, `video/*` wildcard, `application/octet-stream` with/without known binary extensions, null/empty input → Other, `multipart/mixed` → excluded; test `Summarize` with: empty list → `Empty`, single attachment per category, multi-type mix, missing size → excluded from total; test `ComputeSizeLog(0)` returns `0f`, large value, max long
 
 ### Gmail Training Data Service
 
-- [ ] T012 In `src/Providers/Email/TrashMailPanda.Providers.Email/Services/GmailTrainingDataService.cs` switch `FetchMessageAsync` from `FormatEnum.Metadata` to `FormatEnum.Full`; set `req.Fields = "id,threadId,internalDate,snippet,sizeEstimate,labelIds,payload/mimeType,payload/headers,payload/parts,payload/filename,payload/body/size"` to exclude `payload/body/data` (avoids large base64 body content per RES-001)
-- [ ] T013 In `src/Providers/Email/TrashMailPanda.Providers.Email/Services/GmailTrainingDataService.cs` update `BuildFeatureVector` to: collect attachments via `CollectAttachments(msg.Payload, attachments)` (make `CollectAttachments` accessible if needed), call `AttachmentMimeClassifier.Summarize(attachments)`, and populate all 9 new attachment properties plus fix `HasAttachments = attachments.Count > 0 ? 1 : 0` on the returned `EmailFeatureVector`
+- [X] T012 In `src/Providers/Email/TrashMailPanda.Providers.Email/Services/GmailTrainingDataService.cs` switch `FetchMessageAsync` from `FormatEnum.Metadata` to `FormatEnum.Full`; set `req.Fields = "id,threadId,internalDate,snippet,sizeEstimate,labelIds,payload/mimeType,payload/headers,payload/parts,payload/filename,payload/body/size"` to exclude `payload/body/data` (avoids large base64 body content per RES-001)
+- [X] T013 In `src/Providers/Email/TrashMailPanda.Providers.Email/Services/GmailTrainingDataService.cs` update `BuildFeatureVector` to: collect attachments via `CollectAttachments(msg.Payload, attachments)` (make `CollectAttachments` accessible if needed), call `AttachmentMimeClassifier.Summarize(attachments)`, and populate all 9 new attachment properties plus fix `HasAttachments = attachments.Count > 0 ? 1 : 0` on the returned `EmailFeatureVector`
 
 **Checkpoint**: Foundation complete — storage schema is migrated, MIME classifier is tested, Gmail service fetches FULL-format messages with attachment data. All user story work can now begin.
 
@@ -64,12 +64,12 @@
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Create `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceAttachmentTests.cs` — test `HasOutdatedFeaturesAsync`: returns `false` when table empty, returns `true` when any row has version < current, returns `false` when all rows at current version, returns `Result.Failure` on DB error; use `[Trait("Category", "Unit")]`
-- [ ] T015 [P] [US1] Create `src/Tests/TrashMailPanda.Tests/Unit/Email/GmailTrainingDataServiceAttachmentTests.cs` — test `BuildFeatureVector` attachment path: email with PDF → `HasDocAttachments = 1`, `AttachmentCount = 1`, count and size correct; email with no attachments → all attachment fields = 0, `HasAttachments = 0`; email with mixed types → correct multi-flag combination; inline image (no filename, no attachmentId) → not counted as attachment; use `[Trait("Category", "Unit")]`
+- [X] T014 [P] [US1] Create `src/Tests/TrashMailPanda.Tests/Unit/Storage/EmailArchiveServiceAttachmentTests.cs` — test `HasOutdatedFeaturesAsync`: returns `false` when table empty, returns `true` when any row has version < current, returns `false` when all rows at current version, returns `Result.Failure` on DB error; use `[Trait("Category", "Unit")]`
+- [X] T015 [P] [US1] Create `src/Tests/TrashMailPanda.Tests/Unit/Email/GmailTrainingDataServiceAttachmentTests.cs` — test `BuildFeatureVector` attachment path: email with PDF → `HasDocAttachments = 1`, `AttachmentCount = 1`, count and size correct; email with no attachments → all attachment fields = 0, `HasAttachments = 0`; email with mixed types → correct multi-flag combination; inline image (no filename, no attachmentId) → not counted as attachment; use `[Trait("Category", "Unit")]`
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Update `src/TrashMailPanda/TrashMailPanda/Services/Console/ConsoleStartupOrchestrator.cs` to inject `IEmailArchiveService` and `IGmailTrainingDataService` (if not already present); after Gmail provider initialization succeeds and before incremental sync, call `HasOutdatedFeaturesAsync(FeatureSchema.CurrentVersion, ct)` — if `result.IsSuccess && result.Value`: display `[yellow]⚠ Attachment features require a full re-scan of your emails.[/]` + `[cyan]→ Re-scanning emails to populate attachment metadata (this may take a few minutes)…[/]`, call `RunInitialScanAsync`, on success display `[green]✓ Re-scan complete — attachment features are now up to date.[/]`, on failure log warning and continue (non-fatal per contracts); if `result.IsFailure`: log warning and skip re-scan without blocking startup
+- [X] T016 [US1] Update `src/TrashMailPanda/TrashMailPanda/Services/Console/ConsoleStartupOrchestrator.cs` to inject `IEmailArchiveService` and `IGmailTrainingDataService` (if not already present); after Gmail provider initialization succeeds and before incremental sync, call `HasOutdatedFeaturesAsync(FeatureSchema.CurrentVersion, ct)` — if `result.IsSuccess && result.Value`: display `[yellow]⚠ Attachment features require a full re-scan of your emails.[/]` + `[cyan]→ Re-scanning emails to populate attachment metadata (this may take a few minutes)…[/]`, call `RunInitialScanAsync`, on success display `[green]✓ Re-scan complete — attachment features are now up to date.[/]`, on failure log warning and continue (non-fatal per contracts); if `result.IsFailure`: log warning and skip re-scan without blocking startup
 
 **Checkpoint**: User Story 1 fully functional. Existing-database re-scan scenario works end-to-end.
 
@@ -85,7 +85,7 @@
 
 ### Tests for User Story 2
 
-- [ ] T017 [P] [US2] Add integration test skeleton (skipped per project convention) to `src/Tests/TrashMailPanda.Tests/Integration/Email/GmailTrainingDataServiceAttachmentIntegrationTests.cs` — `[Fact(Skip = "Requires OAuth - set GMAIL_CLIENT_ID/SECRET env vars")]` — verifies incremental sync produces feature rows with populated attachment columns for at least 10 emails; include `[Trait("Category", "Integration")]`
+- [X] T017 [P] [US2] Add integration test skeleton (skipped per project convention) to `src/Tests/TrashMailPanda.Tests/Integration/Email/GmailTrainingDataServiceAttachmentIntegrationTests.cs` — `[Fact(Skip = "Requires OAuth - set GMAIL_CLIENT_ID/SECRET env vars")]` — verifies incremental sync produces feature rows with populated attachment columns for at least 10 emails; include `[Trait("Category", "Integration")]`
 
 **Checkpoint**: User Story 2 verified — incremental load uses the same enriched `BuildFeatureVector` code path as full scan.
 
@@ -99,10 +99,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T018 [P] [US3] Add 9 new `public float` attachment properties (`AttachmentCount`, `TotalAttachmentSizeLog`, `HasDocAttachments`, `HasImageAttachments`, `HasAudioAttachments`, `HasVideoAttachments`, `HasXmlAttachments`, `HasBinaryAttachments`, `HasOtherAttachments`) to `src/Providers/ML/TrashMailPanda.Providers.ML/Models/ActionTrainingInput.cs` after existing `HasAttachments` property
-- [ ] T019 [US3] Add all 9 new column name strings (`nameof(ActionTrainingInput.AttachmentCount)` etc.) to `NumericFeatureColumnNames` array in `src/Providers/ML/TrashMailPanda.Providers.ML/Training/FeaturePipelineBuilder.cs`
-- [ ] T020 [P] [US3] Map 9 new attachment fields from `EmailFeatureVector` to `ActionTrainingInput` in `MapToTrainingInput` in `src/Providers/ML/TrashMailPanda.Providers.ML/Training/ModelTrainingPipeline.cs` (e.g. `AttachmentCount = (float)fv.AttachmentCount`)
-- [ ] T021 [P] [US3] Map 9 new attachment fields from `EmailFeatureVector` to `ActionTrainingInput` in `MapToTrainingInput` in `src/Providers/ML/TrashMailPanda.Providers.ML/Training/IncrementalUpdateService.cs` (same mapping pattern as T020)
+- [X] T018 [P] [US3] Add 9 new `public float` attachment properties (`AttachmentCount`, `TotalAttachmentSizeLog`, `HasDocAttachments`, `HasImageAttachments`, `HasAudioAttachments`, `HasVideoAttachments`, `HasXmlAttachments`, `HasBinaryAttachments`, `HasOtherAttachments`) to `src/Providers/ML/TrashMailPanda.Providers.ML/Models/ActionTrainingInput.cs` after existing `HasAttachments` property
+- [X] T019 [US3] Add all 9 new column name strings (`nameof(ActionTrainingInput.AttachmentCount)` etc.) to `NumericFeatureColumnNames` array in `src/Providers/ML/TrashMailPanda.Providers.ML/Training/FeaturePipelineBuilder.cs`
+- [X] T020 [P] [US3] Map 9 new attachment fields from `EmailFeatureVector` to `ActionTrainingInput` in `MapToTrainingInput` in `src/Providers/ML/TrashMailPanda.Providers.ML/Training/ModelTrainingPipeline.cs` (e.g. `AttachmentCount = (float)fv.AttachmentCount`)
+- [X] T021 [P] [US3] Map 9 new attachment fields from `EmailFeatureVector` to `ActionTrainingInput` in `MapToTrainingInput` in `src/Providers/ML/TrashMailPanda.Providers.ML/Training/IncrementalUpdateService.cs` (same mapping pattern as T020)
 
 **Checkpoint**: All three user stories complete. Full pipeline — fetch → extract → store → train — uses attachment features end-to-end.
 
@@ -112,9 +112,9 @@
 
 **Purpose**: Final build/test/format validation and quickstart confirmation.
 
-- [ ] T022 [P] Run `dotnet build` and resolve any compilation errors introduced by new properties or interface changes
-- [ ] T023 [P] Run `dotnet format` and apply any formatting fixes; confirm `dotnet format --verify-no-changes` exits clean
-- [ ] T024 Run `dotnet test --filter Category=Unit` and confirm all new unit tests pass (T011, T014, T015)
+- [X] T022 [P] Run `dotnet build` and resolve any compilation errors introduced by new properties or interface changes
+- [X] T023 [P] Run `dotnet format` and apply any formatting fixes; confirm `dotnet format --verify-no-changes` exits clean
+- [X] T024 Run `dotnet test --filter Category=Unit` and confirm all new unit tests pass (T011, T014, T015)
 - [ ] T025 [P] Manually validate quickstart.md Step 1–7 sequence on a local database with existing schema-version-1 data: confirm re-scan fires, terminal messages appear as specified, and `email_features` rows carry `feature_schema_version = 2` post-scan
 
 ---

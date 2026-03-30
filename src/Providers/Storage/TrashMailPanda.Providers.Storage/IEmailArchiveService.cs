@@ -180,6 +180,17 @@ public interface IEmailArchiveService
         CancellationToken cancellationToken = default);
 
     // ============================================================
+    // Schema Version Checks
+    // ============================================================
+
+    /// <summary>
+    /// Returns <c>true</c> if any feature rows exist with a schema version older than
+    /// <paramref name="currentVersion"/>, indicating that a full re-scan is required.
+    /// Returns <c>false</c> when the table is empty (fresh install — no re-scan needed).
+    /// </summary>
+    Task<Result<bool>> HasOutdatedFeaturesAsync(int currentVersion, CancellationToken ct = default);
+
+    // ============================================================
     // Triage Queue & Training Labels
     // ============================================================
 

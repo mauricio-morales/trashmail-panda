@@ -10,6 +10,7 @@ using Google.Apis.Gmail.v1.Data;
 using TrashMailPanda.Providers.Email.Models;
 using TrashMailPanda.Providers.Storage;
 using TrashMailPanda.Providers.Storage.Models;
+using TrashMailPanda.Shared;
 using TrashMailPanda.Shared.Base;
 using TrashMailPanda.Shared.Models;
 
@@ -688,8 +689,10 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         return await _rateLimitHandler.ExecuteWithRetryAsync(async () =>
         {
             var req = gmailService.Users.Messages.Get(GmailApiConstants.USER_ID_ME, messageId);
-            req.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata;
-            req.MetadataHeaders = new Google.Apis.Util.Repeatable<string>(new[] { "Subject", "From", "To", "Date" });
+            req.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
+            // Exclude payload/body/data to avoid large base64-encoded body content (RES-001).
+            // payload/parts retains per-part mimeType, filename, and Body.Size for attachment extraction.
+            req.Fields = "id,threadId,internalDate,snippet,sizeEstimate,labelIds,payload/mimeType,payload/headers,payload/parts,payload/filename,payload/body/size";
             return await req.ExecuteAsync(cancellationToken);
         });
     }
@@ -753,7 +756,7 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
     /// when the user trains a model.  <c>TrainingLabel</c> is intentionally left
     /// <see langword="null"/> so the row appears in <c>GetUntriagedAsync</c>.
     /// </summary>
-    private EmailFeatureVector? BuildFeatureVector(Message msg, string folderName)
+    internal EmailFeatureVector? BuildFeatureVector(Message msg, string folderName)
     {
         try
         {
@@ -806,8 +809,13 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 ? Math.Max(0, (int)(DateTime.UtcNow - receivedDateUtc.Value).TotalDays)
                 : 0;
 
-            // msg.Snippet is populated by the Gmail API even with format=METADATA
+            // msg.Snippet is populated by the Gmail API even with format=FULL
             var snippet = msg.Snippet;
+
+            // Collect attachment metadata from the MIME parts tree (format=FULL required)
+            var attachments = new List<EmailAttachment>();
+            CollectAttachments(msg.Payload, attachments);
+            var attSummary = AttachmentMimeClassifier.Summarize(attachments);
 
             return new EmailFeatureVector
             {
@@ -833,6 +841,16 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
                 SpfResult = "unknown",
                 DkimResult = "unknown",
                 DmarcResult = "unknown",
+                HasAttachments = attachments.Count > 0 ? 1 : 0,
+                AttachmentCount = attSummary.Count,
+                TotalAttachmentSizeLog = attSummary.TotalSizeLog,
+                HasDocAttachments = attSummary.HasDocuments,
+                HasImageAttachments = attSummary.HasImages,
+                HasAudioAttachments = attSummary.HasAudio,
+                HasVideoAttachments = attSummary.HasVideo,
+                HasXmlAttachments = attSummary.HasXml,
+                HasBinaryAttachments = attSummary.HasBinaries,
+                HasOtherAttachments = attSummary.HasOther,
                 FeatureSchemaVersion = TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion,
                 ExtractedAt = DateTime.UtcNow,
                 UserCorrected = 0,
@@ -843,6 +861,34 @@ public sealed class GmailTrainingDataService : IGmailTrainingDataService
         {
             _logger.LogWarning(ex, "BuildFeatureVector failed for message {MessageId}", msg?.Id);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Recursively collects true (non-inline) attachment parts from a MIME message tree.
+    /// Requires format=FULL to have a populated Parts tree.
+    /// </summary>
+    private static void CollectAttachments(MessagePart? part, List<EmailAttachment> attachments)
+    {
+        if (part == null) return;
+
+        // Include only leaf parts that have a filename or an attachmentId — these are real attachments.
+        // Structural multipart/* containers and inline parts without identifiers are excluded.
+        if (!string.IsNullOrEmpty(part.Filename) || part.Body?.AttachmentId != null)
+        {
+            attachments.Add(new EmailAttachment
+            {
+                FileName = part.Filename ?? string.Empty,
+                MimeType = part.MimeType ?? "application/octet-stream",
+                Size = part.Body?.Size ?? 0,
+                AttachmentId = part.Body?.AttachmentId ?? string.Empty
+            });
+        }
+
+        if (part.Parts != null)
+        {
+            foreach (var childPart in part.Parts)
+                CollectAttachments(childPart, attachments);
         }
     }
 
