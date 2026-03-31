@@ -878,6 +878,29 @@ public class EmailArchiveService : IEmailArchiveService, IDisposable
         }
     }
 
+    public async Task<Result<int>> BumpStaleFeatureVersionsAsync(int targetVersion, CancellationToken ct = default)
+    {
+        try
+        {
+            await _connectionLock.WaitAsync(ct);
+            try
+            {
+                var rows = await _context.EmailFeatures
+                    .Where(f => f.FeatureSchemaVersion < targetVersion)
+                    .ExecuteUpdateAsync(s => s.SetProperty(f => f.FeatureSchemaVersion, targetVersion), ct);
+                return Result<int>.Success(rows);
+            }
+            finally
+            {
+                _connectionLock.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            return Result<int>.Failure(new StorageError("Failed to bump stale feature schema versions", ex.Message, ex));
+        }
+    }
+
     // ============================================================
     // Triage Queue & Training Labels
     // ============================================================

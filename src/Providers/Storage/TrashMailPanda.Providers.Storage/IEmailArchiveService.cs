@@ -190,6 +190,16 @@ public interface IEmailArchiveService
     /// </summary>
     Task<Result<bool>> HasOutdatedFeaturesAsync(int currentVersion, CancellationToken ct = default);
 
+    /// <summary>
+    /// Bulk-upgrades any remaining feature rows whose <c>feature_schema_version</c> is below
+    /// <paramref name="targetVersion"/> to exactly <paramref name="targetVersion"/>.
+    /// Called after a full re-scan to ensure rows for permanently-deleted emails
+    /// (which Gmail can no longer return) don't keep triggering daily re-scans.
+    /// Attachment fields on those rows remain at their existing values (default 0).
+    /// Returns the number of rows updated.
+    /// </summary>
+    Task<Result<int>> BumpStaleFeatureVersionsAsync(int targetVersion, CancellationToken ct = default);
+
     // ============================================================
     // Triage Queue & Training Labels
     // ============================================================

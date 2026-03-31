@@ -72,6 +72,46 @@ public class EmailArchiveServiceAttachmentTests : StorageTestBase
         Assert.True(result.Value);
     }
 
+    [Fact(Timeout = 5000)]
+    public async Task BumpStaleFeatureVersionsAsync_UpdatesOldRowsToTargetVersion()
+    {
+        // Arrange — two v1 rows, one v2 row
+        await _service.StoreFeatureAsync(CreateFeatureVector("email-old-1", schemaVersion: 1));
+        await _service.StoreFeatureAsync(CreateFeatureVector("email-old-2", schemaVersion: 1));
+        await _service.StoreFeatureAsync(CreateFeatureVector("email-current", schemaVersion: 2));
+
+        // Act
+        var bumpResult = await _service.BumpStaleFeatureVersionsAsync(2);
+
+        Assert.True(bumpResult.IsSuccess);
+        Assert.Equal(2, bumpResult.Value); // only the two v1 rows were bumped
+
+        // HasOutdatedFeaturesAsync should now return false
+        var outdatedResult = await _service.HasOutdatedFeaturesAsync(2);
+        Assert.True(outdatedResult.IsSuccess);
+        Assert.False(outdatedResult.Value);
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task BumpStaleFeatureVersionsAsync_EmptyTable_ReturnsZero()
+    {
+        var result = await _service.BumpStaleFeatureVersionsAsync(2);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, result.Value);
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task BumpStaleFeatureVersionsAsync_AllRowsCurrent_ReturnsZero()
+    {
+        await _service.StoreFeatureAsync(CreateFeatureVector("email-v2", schemaVersion: 2));
+
+        var result = await _service.BumpStaleFeatureVersionsAsync(2);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, result.Value);
+    }
+
     // ============================================================
     // Helper
     // ============================================================

@@ -268,6 +268,20 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
                 });
                 System.Console.WriteLine();
                 await _trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+
+                // After the re-scan, force-bump any rows that are still at an old version.
+                // These correspond to emails permanently deleted from Gmail (e.g. trash auto-purged,
+                // spam cleaned up) that the scan could not re-fetch.  Their attachment columns
+                // already default to 0, so bumping only the version field is safe and prevents
+                // this check from triggering another full re-scan on the next startup.
+                var bumpResult = await _archiveService.BumpStaleFeatureVersionsAsync(
+                    TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion, cancellationToken);
+                if (bumpResult.IsSuccess && bumpResult.Value > 0)
+                    _logger.LogInformation(
+                        "Bumped {Count} unreachable email feature row(s) to schema version {Version} after re-scan.",
+                        bumpResult.Value,
+                        TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion);
+
                 System.Console.WriteLine();
                 return;
             }
