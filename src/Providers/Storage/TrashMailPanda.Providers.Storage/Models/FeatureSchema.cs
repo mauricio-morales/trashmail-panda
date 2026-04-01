@@ -12,7 +12,7 @@ public class FeatureSchema
     /// <summary>
     /// Current active schema version for new feature extractions.
     /// </summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     /// <summary>
     /// Schema version number.

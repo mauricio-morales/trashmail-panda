@@ -117,6 +117,17 @@ public class TrashMailPandaDbContext : DbContext
             entity.Property(e => e.ExtractedAt).IsRequired();
             entity.Property(e => e.UserCorrected).IsRequired();
 
+            // Attachment metadata columns — DEFAULT 0 so existing rows are valid after migration
+            entity.Property(e => e.AttachmentCount).HasDefaultValue(0);
+            entity.Property(e => e.TotalAttachmentSizeLog).HasDefaultValue(0f);
+            entity.Property(e => e.HasDocAttachments).HasDefaultValue(0);
+            entity.Property(e => e.HasImageAttachments).HasDefaultValue(0);
+            entity.Property(e => e.HasAudioAttachments).HasDefaultValue(0);
+            entity.Property(e => e.HasVideoAttachments).HasDefaultValue(0);
+            entity.Property(e => e.HasXmlAttachments).HasDefaultValue(0);
+            entity.Property(e => e.HasBinaryAttachments).HasDefaultValue(0);
+            entity.Property(e => e.HasOtherAttachments).HasDefaultValue(0);
+
             // Create indexes for common queries
             entity.HasIndex(e => e.FeatureSchemaVersion).HasDatabaseName("idx_email_features_schema_version");
             entity.HasIndex(e => e.ExtractedAt).HasDatabaseName("idx_email_features_extracted_at");

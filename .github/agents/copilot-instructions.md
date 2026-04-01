@@ -1,6 +1,6 @@
 # trashmail-panda Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-24
+Auto-generated from all feature plans. Last updated: 2026-03-30
 
 ## Active Technologies
 - SQLite + SQLCipher (existing encrypted storage), extended for email feature vectors and full email archive (054-ml-architecture-design)
@@ -20,6 +20,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-24
 - SQLite + SQLCipher (encrypted), ADO.NET via `SqliteConnection`, EF Core optional (063-remove-avalonia-ui)
 - C# 12 / .NET 9.0 + Spectre.Console (TUI), Microsoft.Extensions.Hosting (BackgroundService), Google.Apis.Gmail.v1 (IEmailProvider), Microsoft.EntityFrameworkCore + SQLitePCLRaw.bundle_e_sqlcipher (storage), xUnit + Moq (testing) (064-archive-then-delete-labels)
 - SQLite / SQLCipher — `email_features` table (schema v5); `received_date_utc` column already present and indexed; no schema change needed (064-archive-then-delete-labels)
+- .NET 9.0, C# 12 (nullable reference types enabled) + Google.Apis.Gmail.v1, ML.NET (Microsoft.ML), Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlcipher, EF Core with custom Migrations, Spectre.Console, Microsoft.Extensions.Hosting/DI/Logging, Polly (066-attachment-ml-features)
+- SQLite (SQLCipher-encrypted); schema changes via EF Core migration system; `email_features` table managed by `TrashMailPandaDbContext` (066-attachment-ml-features)
 
 - .NET 9.0 / C# 12+ + ML.NET (planned), existing provider framework (`IProvider<TConfig>`, `BaseProvider<TConfig>`), Microsoft.Extensions.DI/Logging (054-ml-architecture-design)
 
@@ -39,9 +41,9 @@ tests/
 .NET 9.0 / C# 12+: Follow standard conventions
 
 ## Recent Changes
+- 066-attachment-ml-features: Added .NET 9.0, C# 12 (nullable reference types enabled) + Google.Apis.Gmail.v1, ML.NET (Microsoft.ML), Microsoft.Data.Sqlite + SQLitePCLRaw.bundle_e_sqlcipher, EF Core with custom Migrations, Spectre.Console, Microsoft.Extensions.Hosting/DI/Logging, Polly
 - 064-archive-then-delete-labels: Added C# 12 / .NET 9.0 + Spectre.Console (TUI), Microsoft.Extensions.Hosting (BackgroundService), Google.Apis.Gmail.v1 (IEmailProvider), Microsoft.EntityFrameworkCore + SQLitePCLRaw.bundle_e_sqlcipher (storage), xUnit + Moq (testing)
 - 063-remove-avalonia-ui: Added C# 12 / .NET 9.0 + Spectre.Console 0.48, Microsoft.Extensions.Hosting 9.0,
-- 062-runtime-classification-feedback: Added C# 12 / .NET 9.0 (nullable reference types enabled) + Spectre.Console (TUI), Microsoft.Extensions.DI/Logging, ML.NET, Google.Apis.Gmail.v1, Polly
 
 
 <!-- MANUAL ADDITIONS START -->

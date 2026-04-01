@@ -255,6 +255,37 @@ public sealed class ApplicationOrchestrator : IApplicationOrchestrator
                 return;
             }
 
+            // If any feature rows pre-date the current schema version (e.g. no attachment data),
+            // treat it as a re-scan required rather than an incremental sync.
+            var outdatedResult = await _archiveService.HasOutdatedFeaturesAsync(
+                TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion, cancellationToken);
+
+            if (outdatedResult.IsSuccess && outdatedResult.Value)
+            {
+                EmitEvent(new StatusMessageEvent
+                {
+                    Message = "[yellow]⚠ Email features need to be updated — re-scanning all emails...[/]"
+                });
+                System.Console.WriteLine();
+                await _trainingScanCommand.RunInitialScanAsync("me", cancellationToken);
+
+                // After the re-scan, force-bump any rows that are still at an old version.
+                // These correspond to emails permanently deleted from Gmail (e.g. trash auto-purged,
+                // spam cleaned up) that the scan could not re-fetch.  Their attachment columns
+                // already default to 0, so bumping only the version field is safe and prevents
+                // this check from triggering another full re-scan on the next startup.
+                var bumpResult = await _archiveService.BumpStaleFeatureVersionsAsync(
+                    TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion, cancellationToken);
+                if (bumpResult.IsSuccess && bumpResult.Value > 0)
+                    _logger.LogInformation(
+                        "Bumped {Count} unreachable email feature row(s) to schema version {Version} after re-scan.",
+                        bumpResult.Value,
+                        TrashMailPanda.Providers.Storage.Models.FeatureSchema.CurrentVersion);
+
+                System.Console.WriteLine();
+                return;
+            }
+
             EmitEvent(new StatusMessageEvent { Message = "[dim]→ Syncing new email changes...[/]" });
             await _trainingScanCommand.RunIncrementalScanAsync("me", cancellationToken);
 

@@ -103,6 +103,82 @@ public class EmailFeatureVector
     [Column("has_attachments")]
     public int HasAttachments { get; init; }
 
+    // ============================================================
+    // ATTACHMENT METADATA FEATURES (Schema Version 2+)
+    // ============================================================
+
+    /// <summary>
+    /// Total number of non-inline attachment parts.
+    /// </summary>
+    [Required]
+    [Range(0, int.MaxValue)]
+    [Column("attachment_count")]
+    public int AttachmentCount { get; init; }
+
+    /// <summary>
+    /// log10(total attachment bytes + 1) to normalize large sizes.
+    /// 0 when no attachments.
+    /// </summary>
+    [Required]
+    [Column("total_attachment_size_log")]
+    public float TotalAttachmentSizeLog { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as Document (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_doc_attachments")]
+    public int HasDocAttachments { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as Image (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_image_attachments")]
+    public int HasImageAttachments { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as Audio (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_audio_attachments")]
+    public int HasAudioAttachments { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as Video (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_video_attachments")]
+    public int HasVideoAttachments { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as XML (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_xml_attachments")]
+    public int HasXmlAttachments { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as Binary (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_binary_attachments")]
+    public int HasBinaryAttachments { get; init; }
+
+    /// <summary>
+    /// Boolean: any attachment classified as Other (0=false, 1=true).
+    /// </summary>
+    [Required]
+    [Range(0, 1)]
+    [Column("has_other_attachments")]
+    public int HasOtherAttachments { get; init; }
+
     /// <summary>
     /// Hour of day when received (0-23).
     /// </summary>
